@@ -8,7 +8,7 @@
     "apps/*"
   ],
   "engines": {
-    "node": ">=24"
+    "node": "24.x"
   },
   "scripts": {
     "dev": "concurrently -k -n api,web -c cyan,green \"npm run dev -w @hydris/api\" \"npm run dev -w @hydris/web\"",
@@ -25,6 +25,7 @@
   "devDependencies": {
     "@playwright/test": "1.64.0",
     "concurrently": "9.2.1",
-    "typescript": "5.9.3"
+    "typescript": "5.9.3",
+    "next": "16.4.0"
   }
 }
