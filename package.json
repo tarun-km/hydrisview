@@ -1,0 +1,30 @@
+{
+  "name": "hydris-field-glasses",
+  "private": true,
+  "version": "0.2.0",
+  "description": "Hydris Field Glasses - industrial smart-glasses platform for wastewater operations (website, glasses viewport + simulator, operator console, API)",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "dev": "concurrently -k -n api,web -c cyan,green \"npm run dev -w @hydris/api\" \"npm run dev -w @hydris/web\"",
+    "db:generate": "npm run db:generate -w @hydris/api",
+    "db:migrate": "npm run db:migrate -w @hydris/api",
+    "seed": "npm run seed -w @hydris/api",
+    "seed:demo": "npm run seed -w @hydris/api -- --demo",
+    "test": "npm test -w @hydris/domain && npm test -w @hydris/api",
+    "test:e2e": "playwright test",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "lint": "npm run lint --workspaces --if-present",
+    "build": "npm run build -w @hydris/web"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.64.0",
+    "concurrently": "9.2.1",
+    "typescript": "5.9.3"
+  }
+}

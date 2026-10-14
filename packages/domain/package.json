@@ -1,0 +1,18 @@
+{
+  "name": "@hydris/domain",
+  "private": true,
+  "version": "0.2.0",
+  "type": "module",
+  "description": "Pure industrial domain logic shared by API and clients: roles/permissions, measurands, alarm/inspection/maintenance/device state machines, freshness, simulation scenarios.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "tsx --test test/*.test.ts",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "devDependencies": {
+    "tsx": "4.23.15",
+    "@types/node": "24.19.2"
+  }
+}

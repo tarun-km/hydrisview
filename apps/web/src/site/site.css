@@ -1,0 +1,143 @@
+/*
+ * Public-website-only styles. Shared tokens live in app/globals.css; this file only adds
+ * editorial patterns used by the marketing pages (inline headline pills, stat pills,
+ * animated flow lines, header states). Animations are disabled globally under
+ * prefers-reduced-motion by globals.css.
+ */
+
+.site-container {
+  width: 100%;
+  max-width: 1440px;
+  margin-inline: auto;
+  padding-inline: 16px;
+}
+@media (min-width: 640px) { .site-container { padding-inline: 24px; } }
+@media (min-width: 1024px) { .site-container { padding-inline: 40px; } }
+@media (min-width: 1280px) { .site-container { padding-inline: 56px; } }
+
+.site-grid { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); column-gap: 20px; }
+
+/* Section rhythm: 80 → 160px */
+.site-section { padding-block: 80px; }
+@media (min-width: 1024px) { .site-section { padding-block: 128px; } }
+@media (min-width: 1280px) { .site-section { padding-block: 160px; } }
+.site-section-tight { padding-block: 64px; }
+@media (min-width: 1024px) { .site-section-tight { padding-block: 96px; } }
+
+/* Rounded full-bleed stages (Ambient / Usechannel boards) */
+.stage { border-radius: 28px; background: var(--color-bg-2); border: 1px solid var(--color-line); }
+.stage-paper { border-radius: 28px; background: var(--color-paper); color: var(--color-ink); }
+.stage-paper .muted, .stage-paper .t-label, .stage-paper .t-eyebrow { color: var(--color-ink-2); }
+@media (min-width: 1024px) { .stage, .stage-paper { border-radius: 40px; } }
+
+/* ---------- editorial typography ---------- */
+.t-mega { font-size: clamp(56px, 13.4vw, 196px); line-height: 0.9; letter-spacing: -0.055em; font-weight: 400; }
+.t-statement { font-size: clamp(30px, 4.1vw, 60px); line-height: 1.1; letter-spacing: -0.04em; font-weight: 400; }
+.t-lead { font-size: clamp(17px, 1.35vw, 20px); line-height: 1.55; letter-spacing: -0.005em; }
+.t-sub { font-size: clamp(22px, 2vw, 30px); line-height: 1.2; letter-spacing: -0.03em; font-weight: 400; }
+
+/* Inline pill inside a headline, sized relative to the headline (em-based). */
+.hl-pill {
+  display: inline-flex; align-items: center; justify-content: center; gap: 0.18em;
+  height: 0.8em; min-width: 1.6em; padding: 0 0.4em; margin-inline: 0.06em;
+  border-radius: 9999px; vertical-align: 0.02em; white-space: nowrap;
+  font-size: 1em; line-height: 1; letter-spacing: 0;
+}
+.hl-pill > .hl-pill-text { font-size: 0.32em; font-weight: 500; letter-spacing: 0; }
+.hl-pill-lime { background: var(--color-lime); color: var(--color-lime-ink); }
+.hl-pill-outline { border: 1.5px solid currentColor; }
+.hl-pill-dark { background: var(--color-ink); color: var(--color-paper); }
+.hl-pill-surface { background: var(--color-surface-2); color: var(--color-text); border: 1px solid var(--color-line-2); }
+.hl-icon {
+  display: inline-grid; place-items: center; width: 0.78em; height: 0.78em; border-radius: 9999px;
+  vertical-align: 0.02em; margin-inline: 0.06em;
+}
+.hl-icon > svg { width: 0.36em; height: 0.36em; }
+.hl-underline { text-decoration: underline; text-decoration-thickness: 0.05em; text-underline-offset: 0.12em; }
+.hl-lime { color: var(--color-lime); }
+
+/* Outlined vs lime stat pills (Usechannel) */
+.stat-pill {
+  display: inline-flex; flex-direction: column; justify-content: center; gap: 2px;
+  min-height: 84px; padding: 14px 32px; border-radius: 9999px; border: 1px solid var(--color-line-2);
+}
+.stat-pill .stat-k { font-size: 13px; color: var(--color-muted); }
+.stat-pill .stat-v { font-size: 22px; letter-spacing: -0.02em; }
+.stat-pill-lime { background: var(--color-lime); border-color: transparent; color: var(--color-lime-ink); }
+.stat-pill-lime .stat-k { color: rgb(20 23 20 / 0.66); }
+.stage-paper .stat-pill { border-color: rgb(17 18 17 / 0.55); }
+.stage-paper .stat-pill .stat-k { color: var(--color-ink-2); }
+
+/* Outline tag pills on paper */
+.tag-pill { display: inline-flex; align-items: center; height: 40px; padding: 0 18px; border-radius: 9999px; border: 1px solid currentColor; font-size: 15px; white-space: nowrap; }
+@media (min-width: 1024px) { .tag-pill { height: 46px; padding: 0 22px; font-size: 16px; } }
+
+/* ---------- header ---------- */
+.site-header { transition: background var(--speed) var(--ease-out), border-color var(--speed) var(--ease-out), backdrop-filter var(--speed); border-bottom: 1px solid transparent; }
+.site-header[data-scrolled='true'] { background: rgb(10 10 10 / 0.72); backdrop-filter: blur(16px) saturate(140%); -webkit-backdrop-filter: blur(16px) saturate(140%); border-bottom-color: var(--color-line); }
+.site-nav > a[aria-current='page'] { background: #fff; color: var(--color-ink); }
+.site-nav > a { font-size: 14px; }
+
+/* ---------- circular arrow ---------- */
+.arrow-circle { display: inline-grid; place-items: center; width: 44px; height: 44px; flex: none; border-radius: 9999px; transition: transform var(--speed) var(--ease-out), background var(--speed-fast); }
+.group:hover .arrow-circle, .arrow-circle:hover { transform: rotate(45deg); }
+
+/* Card hover lift */
+.lift { transition: transform var(--speed) var(--ease-out), border-color var(--speed-fast), background var(--speed-fast); }
+.lift:hover { transform: translateY(-3px); }
+
+/* ---------- animated flow lines (SVG) ---------- */
+.flow-line { stroke-dasharray: 2 10; stroke-linecap: round; animation: flow-dash 1.2s linear infinite; }
+.flow-line-slow { animation-duration: 2.4s; }
+.flow-line-rev { animation-direction: reverse; }
+@keyframes flow-dash { to { stroke-dashoffset: -24; } }
+.flow-pulse { animation: flow-pulse 2.4s var(--ease-out) infinite; transform-box: fill-box; transform-origin: center; }
+@keyframes flow-pulse { 0% { opacity: 0.9; transform: scale(1); } 100% { opacity: 0; transform: scale(2.4); } }
+.contour-drift { animation: contour-drift 24s ease-in-out infinite alternate; }
+@keyframes contour-drift { from { transform: translateY(0); } to { transform: translateY(-12px); } }
+.float-y { animation: float-y 6s ease-in-out infinite alternate; }
+@keyframes float-y { from { transform: translateY(0); } to { transform: translateY(-8px); } }
+
+/* Reveal stagger helpers */
+.reveal-d1 { transition-delay: 80ms; }
+.reveal-d2 { transition-delay: 160ms; }
+.reveal-d3 { transition-delay: 240ms; }
+
+/* Glasses viewport frame */
+.device-bezel {
+  background: linear-gradient(160deg, #2a2a2a, #121212 55%, #1c1c1c);
+  border: 1px solid var(--color-line-2);
+  box-shadow: 0 40px 80px rgb(0 0 0 / 0.55), inset 0 1px 0 rgb(255 255 255 / 0.06);
+}
+.device-screen { background: #000; overflow: hidden; position: relative; }
+
+/* Laptop frame */
+.laptop-lid { background: #1a1a1a; border: 1px solid var(--color-line-2); border-radius: 18px 18px 6px 6px; padding: 10px; box-shadow: var(--shadow-3); }
+.laptop-base { height: 14px; margin-inline: -4%; background: linear-gradient(#2c2c2c, #151515); border-radius: 0 0 16px 16px; border: 1px solid var(--color-line-2); border-top: 0; }
+
+/* details/summary FAQ */
+.faq summary { list-style: none; cursor: pointer; }
+.faq summary::-webkit-details-marker { display: none; }
+.faq details[open] .faq-icon { transform: rotate(180deg); background: var(--color-ink); color: var(--color-paper); }
+.faq-icon { transition: transform var(--speed) var(--ease-out), background var(--speed-fast); }
+
+/* Availability chips (extend .chip; doubled class beats the base rule) */
+.chip.avail-ok-paper { background: var(--color-ink); color: var(--color-lime); border-color: transparent; }
+.chip.avail-plain-paper { background: transparent; color: var(--color-ink); border-color: rgb(17 18 17 / 0.3); }
+.chip.avail-planned { background: transparent; color: var(--color-text-2); border: 1px dashed var(--color-line-2); }
+.chip.avail-planned-paper { background: transparent; color: var(--color-ink-2); border: 1px dashed rgb(17 18 17 / 0.45); }
+
+/* Button variants used on lime / paper surfaces */
+.btn.btn-ink { background: var(--color-lime-ink); color: var(--color-lime); }
+.btn.btn-ink:hover { background: #000; }
+.btn.btn-outline-ink { background: transparent; color: var(--color-lime-ink); border-color: rgb(20 23 20 / 0.35); }
+.btn.btn-outline-ink:hover { background: rgb(20 23 20 / 0.06); }
+.btn.btn-outline { background: transparent; color: var(--color-text); border-color: var(--color-line-2); }
+.btn.btn-outline:hover { background: var(--color-surface-2); }
+
+/* Visually hidden but present (honeypot) */
+.hp-field { position: absolute !important; left: -10000px !important; top: auto !important; width: 1px !important; height: 1px !important; overflow: hidden !important; }
+
+/* Focus ring on paper surfaces should stay visible */
+.stage-paper :focus-visible, .card-paper :focus-visible { outline-color: var(--color-ink); }
+.card-lime :focus-visible, .bg-lime:focus-visible { outline-color: var(--color-ink); }

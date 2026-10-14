@@ -1,0 +1,25 @@
+# Production-like stack: Postgres + API + web. Copy .env.example to .env and fill secrets first.
+services:
+  db:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: hydris
+      POSTGRES_USER: hydris_owner
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck: { test: ["CMD-SHELL", "pg_isready -U hydris_owner -d hydris"], interval: 5s, retries: 10 }
+  api:
+    build: { context: ., dockerfile: apps/api/Dockerfile }
+    env_file: .env
+    environment:
+      # Runs migrations as owner; for strict RLS in production, run the app as a non-owner role (see docs/operations/deployment.md).
+      DATABASE_URL: postgres://hydris_owner:${POSTGRES_PASSWORD}@db:5432/hydris
+      STORAGE_DIR: /data/files
+    volumes: [files:/data/files]
+    depends_on: { db: { condition: service_healthy } }
+    ports: ["4000:4000"]
+  web:
+    build: { context: ., dockerfile: apps/web/Dockerfile, args: { API_URL: http://api:4000 } }
+    depends_on: [api]
+    ports: ["3000:3000"]
+volumes: { pgdata: {}, files: {} }
