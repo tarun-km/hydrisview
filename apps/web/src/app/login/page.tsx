@@ -42,6 +42,18 @@ function LoginForm() {
     }
   };
 
+  const demoSignIn = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      await signIn('tarun@hydris.ai', 'demo@123');
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <AuthFrame title={mfaToken ? 'Two-step verification' : 'Sign in'} subtitle={mfaToken ? 'Enter the 6-digit code from your authenticator app.' : 'Access is provisioned by your organization administrator.'}>
       <form onSubmit={submit} className="grid gap-4" noValidate>
@@ -57,6 +69,11 @@ function LoginForm() {
         <Button type="submit" variant="primary" size="lg" busy={busy} disabled={mfaToken ? code.length !== 6 : !email || !password}>
           {mfaToken ? 'Verify and continue' : 'Sign in'}
         </Button>
+        {!mfaToken && (
+          <Button type="button" variant="secondary" size="lg" busy={busy} onClick={demoSignIn}>
+            Enter demo mode
+          </Button>
+        )}
         <div className="flex items-center justify-between text-sm">
           <Link href="/forgot-password" className="text-text-2 underline-offset-4 hover:underline">Forgot password?</Link>
           <Link href="/" className="text-muted hover:text-text">Back to website</Link>

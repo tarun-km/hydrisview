@@ -14,6 +14,16 @@ type InjectMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' | 'OPTIONS' | 'H
 const DROP_RESPONSE = new Set(['connection', 'keep-alive', 'transfer-encoding', 'content-length', 'date']);
 
 async function handle(req: Request): Promise<Response> {
+  try {
+    return await forward(req);
+  } catch (e) {
+    console.error('[api] request failed', e);
+    const detail = e instanceof Error ? `${e.name}: ${e.message}`.slice(0, 400) : String(e).slice(0, 400);
+    return Response.json({ error: { code: 'internal', message: 'Request failed', detail } }, { status: 500 });
+  }
+}
+
+async function forward(req: Request): Promise<Response> {
   let api;
   try {
     // Loaded lazily so module-load failures (native/wasm deps, config) are reported, not an empty 500.
