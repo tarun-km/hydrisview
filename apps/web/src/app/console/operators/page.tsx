@@ -51,7 +51,7 @@ export default function OperatorsPage() {
     { key: 'insp', header: 'Open inspections', className: 'text-right', cell: (m) => <span className="num">{m.openInspections || <span className="text-muted">0</span>}</span> },
     { key: 'tasks', header: 'Open tasks', className: 'text-right', cell: (m) => <span className="num">{m.openTasks || <span className="text-muted">0</span>}</span> },
     { key: 'mfa', header: 'MFA', cell: (m) => m.mfaEnabled
-      ? <span className="inline-flex items-center gap-1.5 text-[13px] text-ok"><ShieldCheck size={15} aria-hidden />On</span>
+      ? <span className="inline-flex items-center gap-1.5 text-[13px] text-ok-text"><ShieldCheck size={15} aria-hidden />On</span>
       : <span className="inline-flex items-center gap-1.5 text-[13px] text-muted"><ShieldOff size={15} aria-hidden />Off</span> },
     { key: 'login', header: 'Last sign-in', cell: (m) => <span className="num whitespace-nowrap text-text-2" title={m.lastLoginAt ? new Date(m.lastLoginAt).toLocaleString() : undefined}>{m.lastLoginAt ? ago(m.lastLoginAt) : 'Never'}</span> },
   ];
@@ -104,7 +104,7 @@ export default function OperatorsPage() {
                               <span className="grid h-9 w-9 flex-none place-items-center rounded-full border border-dashed border-line-2 text-muted"><Mail size={15} aria-hidden /></span>
                               <span className="min-w-0 flex-1">
                                 <span className="block truncate text-sm">{i.name ? `${i.name} · ` : ''}{i.email}</span>
-                                <span className="block text-xs text-muted num">{ROLE_LABELS[i.role]} · invited {fmtDate(i.createdAt)} · {expired ? <span className="text-high">expired</span> : `expires ${fmtDateTime(i.expiresAt)}`}</span>
+                                <span className="block text-xs text-muted num">{ROLE_LABELS[i.role]} · invited {fmtDate(i.createdAt)} · {expired ? <span className="text-high-text">expired</span> : `expires ${fmtDateTime(i.expiresAt)}`}</span>
                               </span>
                               {can('member.manage') && <IconButton label={`Revoke invitation for ${i.email}`} size="sm" tone="ghost" onClick={() => setRevoke(i)}><X size={16} aria-hidden /></IconButton>}
                             </li>

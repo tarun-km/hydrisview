@@ -40,7 +40,15 @@ export function useFitScale(size = 600) {
 export function HudItem({ active, children, tone, disabled, onClick }: { active: boolean; children: ReactNode; tone?: 'critical' | 'high' | 'lime' | 'muted'; disabled?: boolean; onClick?: () => void }) {
   const ref = useRef<HTMLButtonElement>(null);
   useEffect(() => {
-    if (active) ref.current?.scrollIntoView({ block: 'nearest' });
+    // Scroll only the nearest scrollable container — never the embedding page (iframe demos).
+    const el = ref.current;
+    if (!active || !el) return;
+    let p = el.parentElement;
+    while (p && p.scrollHeight <= p.clientHeight) p = p.parentElement;
+    if (!p || p === document.body || p === document.documentElement) return;
+    const top = el.offsetTop - p.offsetTop;
+    if (top < p.scrollTop) p.scrollTop = top;
+    else if (top + el.offsetHeight > p.scrollTop + p.clientHeight) p.scrollTop = top + el.offsetHeight - p.clientHeight;
   }, [active]);
   return (
     <button ref={ref} type="button" onClick={onClick} disabled={disabled} aria-current={active || undefined}

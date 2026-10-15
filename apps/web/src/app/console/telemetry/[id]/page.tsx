@@ -3,15 +3,15 @@
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import { ArrowLeft, ClipboardPen, Download, FlaskConical, Info } from 'lucide-react';
+import { ClipboardPen, Download, FlaskConical, Info } from 'lucide-react';
 import { CONDITION_LABELS, MEASURAND_DEFS } from '@hydris/domain';
 import { download, errorMessage } from '@/lib/api';
 import { useApi } from '@/lib/query';
 import { useCan } from '@/lib/session';
 import { fmtDateTime, fmtValue } from '@/lib/format';
-import { Button, Capsule, Card, Chip, EmptyState, ErrorState, PageHeader, Skeleton, StateChip, SyntheticBadge } from '@/ui';
+import { Button, Capsule, Card, Chip, EmptyState, ErrorState, PageHeader, Skeleton, StateChip, SyntheticBadge, BackLink as UiBackLink } from '@/ui';
 import { useToast } from '@/ui/overlay';
-import { TrendChart } from '@/ui/charts';
+import { RadialGauge, TrendChart, gaugeDomain } from '@/ui/charts';
 import type { AlarmListRow, AlarmRule, HistoryResponse, SensorRow } from '@/console/alarms-telemetry/types';
 import { CONDITION_SHORT, MethodChip, ReadingStatus, SensorValue, When, conditionTone, fmtDuration } from '@/console/alarms-telemetry/bits';
 import { RulesCard } from '@/console/alarms-telemetry/RulesCard';
@@ -103,15 +103,20 @@ export default function SensorDetailPage() {
         <div className="grid gap-4 lg:grid-cols-[1fr_1.4fr]">
           <section className="card flex flex-col gap-4" aria-labelledby="latest-h">
             <h2 id="latest-h" className="t-label">{isLabLike ? (s.method === 'lab' ? 'Latest lab result' : 'Latest manual reading') : 'Latest value'}</h2>
-            <SensorValue value={s.lastValue} unit={s.unit} decimals={s.decimals} freshness={s.freshness} size="lg" />
-            <ReadingStatus method={s.method} freshness={s.freshness} ts={s.lastTs} />
+            <div className="flex flex-wrap items-center justify-between gap-4">
+              <div className="grid gap-3">
+                <SensorValue value={s.lastValue} unit={s.unit} decimals={s.decimals} freshness={s.freshness} size="lg" />
+                <ReadingStatus method={s.method} freshness={s.freshness} ts={s.lastTs} />
+              </div>
+              <LimitGauge value={s.lastValue} stale={s.freshness === 'stale' || s.freshness === 'no_data'} unit={s.unit} decimals={s.decimals} typical={s.typicalRange ?? null} limits={thresholds} />
+            </div>
             <dl className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
               <div><dt className="t-label">{isLabLike ? 'Sampled' : 'Observed'}</dt><dd className="num mt-1">{fmtDateTime(s.lastTs)}</dd></div>
               <div><dt className="t-label">Source</dt><dd className="mt-1">{s.lastSource ? SOURCE_LABEL[s.lastSource] ?? s.lastSource : '—'}</dd></div>
               <div><dt className="t-label">Expected every</dt><dd className="num mt-1">{fmtDuration(s.expectedIntervalS)}</dd></div>
               <div><dt className="t-label">Quality</dt><dd className="mt-1">{s.lastQuality ? (s.lastQuality === 'good' ? 'Good' : <Chip tone="medium">{s.lastQuality}</Chip>) : '—'}</dd></div>
             </dl>
-            {s.freshness === 'stale' && <p className="text-[13px] text-[#ff9a5c]">This value is stale and may not reflect current conditions.</p>}
+            {s.freshness === 'stale' && <p className="text-[13px] text-high-text">This value is stale and may not reflect current conditions.</p>}
           </section>
 
           <section className="card card-paper" aria-labelledby="what-h">
@@ -131,12 +136,13 @@ export default function SensorDetailPage() {
           <div className={hist.isFetching && hist.isPlaceholderData ? 'opacity-60 transition-opacity' : undefined} aria-busy={hist.isFetching || undefined}>
             {data.points.length ? (
               <>
-                <TrendChart points={data.points} unit={s.unit} decimals={s.decimals} thresholds={thresholds} height={300} />
+                <TrendChart points={data.points} unit={s.unit} decimals={s.decimals} thresholds={thresholds} height={300} band={s.typicalRange ?? null} />
                 <p className="mt-3 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted">
                   <span className="num">{data.totalReadings.toLocaleString()} reading{data.totalReadings === 1 ? '' : 's'}</span>
                   <span>{data.bucketSeconds ? `Averaged per ${fmtDuration(data.bucketSeconds)} · shaded band shows min–max` : 'Raw readings'}</span>
                   <span className="num">{fmtDateTime(data.from)} – {fmtDateTime(data.to)}</span>
                   {thresholds.length > 0 && <span>Dashed lines: enabled alarm limits</span>}
+                  {s.typicalRange && <span>Dotted green: typical operating band</span>}
                 </p>
                 {isLabLike && <p className="mt-2 flex items-start gap-2 text-xs text-muted"><Info size={14} strokeWidth={1.8} className="mt-0.5 flex-none" aria-hidden />Each point is an individual {s.method === 'lab' ? 'lab result' : 'manual reading'}; the line between points is not a measurement.</p>}
               </>
@@ -177,6 +183,21 @@ export default function SensorDetailPage() {
   );
 }
 
+/** Latest value on a ring scaled to the typical band and alarm limits, with the limits as ticks. */
+function LimitGauge({ value, stale, unit, decimals, typical, limits }: { value: number | null; stale: boolean; unit: string; decimals: number; typical: [number, number] | null; limits: { value: number; label: string; tone: string }[] }) {
+  const dom = gaugeDomain([value, ...(typical ?? []), ...limits.map((l) => l.value)]);
+  if (!dom || (!typical && !limits.length)) return null;
+  const breached = value !== null && limits.some((l) => (l.label.startsWith('H') || l.label.startsWith('>') ? value >= l.value : value <= l.value));
+  const out = value !== null && typical && (value < typical[0] || value > typical[1]);
+  return (
+    <RadialGauge value={stale ? null : value} min={dom[0]} max={dom[1]} display={value === null ? undefined : fmtValue(value, undefined, decimals)} unit={unit} size={132} thickness={9}
+      band={typical ?? undefined} marks={limits.map((l) => ({ value: l.value, color: l.tone, label: l.label }))}
+      tone={breached ? 'var(--color-critical)' : out ? 'var(--color-high)' : 'var(--color-signal)'}
+      label={stale ? 'stale' : breached ? 'beyond a limit' : out ? 'outside typical' : typical ? 'within typical' : 'latest'}
+      ariaLabel={`Latest value ${value === null || stale ? 'not available' : `${fmtValue(value, undefined, decimals)} ${unit}`}${typical ? `, typical band ${typical[0]} to ${typical[1]} ${unit}` : ''}${limits.length ? `, alarm limits ${limits.map((l) => l.label).join(', ')}` : ''}`} />
+  );
+}
+
 function BackLink() {
-  return <Link href="/console/telemetry" className="mb-4 inline-flex items-center gap-2 text-sm text-text-2 hover:text-text"><ArrowLeft size={16} strokeWidth={1.8} aria-hidden />All sensors</Link>;
+  return <UiBackLink href="/console/telemetry">All sensors</UiBackLink>;
 }

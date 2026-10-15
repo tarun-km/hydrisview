@@ -10,6 +10,7 @@ import { fmtDateTime } from '@/lib/format';
 import { Button, Capsule, Card, Chip, DataTable, EmptyState, KpiCard, PageHeader, QueryView, Select, SeverityChip, Skeleton, StateChip, SyntheticBadge, type Column } from '@/ui';
 import { useToast } from '@/ui/overlay';
 import { HBarList, NoAccess, prettyKey, useSites } from '@/console/admin/parts';
+import { BarList, Donut, Funnel, HOURS, Heatmap, RadialGauge, SEVERITY_COLORS, Sparkbars, StackedBar, WEEKDAYS, perDay, weekHourGrid, type Datum } from '@/ui/charts';
 
 const KINDS = ['alarms', 'inspections', 'maintenance', 'devices', 'operators'] as const;
 type Kind = (typeof KINDS)[number];
@@ -152,9 +153,15 @@ function ReportBody({ r }: { r: Report }) {
         sub={ack === null ? 'No alarm in this period has been acknowledged yet' : 'From trigger to first acknowledgement'} />
       <KpiCard tone="dark" label="Still unresolved" value={r.rows.filter((x) => !x.resolvedAt).length} sub="Of the alarms raised in this period" />
     </>;
+    const sevData: Datum[] = SEVERITIES.map((k) => ({ key: k, label: prettyKey(k), value: sev[k] ?? 0, color: SEVERITY_COLORS[k] }));
     charts = <>
-      <Card title="By severity"><HBarList label="Alarms by severity" data={sev} colorFor={SEV_COLOR} /></Card>
-      <Card title="By asset"><HBarList label="Alarms by asset" data={counts(s.byAsset)} colorFor={() => 'var(--color-orange)'} /></Card>
+      <Card title="By severity"><Donut data={sevData} table centerLabel="alarms" ariaLabel={`Alarms by severity: ${sevData.map((d) => `${d.value} ${d.key}`).join(', ')}`} empty="No alarms" /></Card>
+      <Card title="By asset"><BarList data={toData(counts(s.byAsset), () => 'var(--color-orange)', 8)} ariaLabel="Alarms by asset" empty="No alarms in this period." /></Card>
+      <Card title="Raised per day" className="lg:col-span-2"><OverTime r={r} dateKey="triggeredAt" color="var(--color-orange)" noun="alarms" /></Card>
+      <Card title="When alarms happen" action={<span className="t-label">weekday × hour, local time</span>} className="lg:col-span-2">
+        {r.rows.length ? <Heatmap rows={weekHourGrid(r.rows.map((x) => x.triggeredAt as string))} rowLabels={WEEKDAYS} colLabels={HOURS} color="var(--color-orange)" cell={16} unit="alarms"
+          ariaLabel={`Alarms by weekday and hour in this period, ${r.rows.length} in total`} /> : <p className="text-sm text-muted">No alarms in this period.</p>}
+      </Card>
     </>;
   } else if (r.kind === 'inspections') {
     const comp = num(s.completionRate), onTime = num(s.onTimeRate);
@@ -164,9 +171,28 @@ function ReportBody({ r }: { r: Report }) {
       <KpiCard label="On time" value={onTime ?? '—'} unit={onTime === null ? undefined : '%'} sub={onTime === null ? 'Nothing has been completed yet, so there is no on-time rate' : 'Completed before the due time'} />
       <KpiCard tone="lime" label="Completed on glasses" value={num(s.viaGlasses) ?? 0} sub="Submitted hands-free from the field" />
     </>;
+    const st = counts(s.byStatus);
+    const total = num(s.total) ?? 0;
+    const startedN = total - (st.scheduled ?? 0) - (st.cancelled ?? 0);
     charts = <>
-      <Card title="By status"><HBarList label="Inspections by status" data={counts(s.byStatus)} colorFor={STATUS_COLOR} /></Card>
-      <Card title="By assignee"><HBarList label="Inspections by assignee" data={counts(s.byAssignee)} colorFor={() => 'var(--color-cobalt)'} /></Card>
+      <Card title="Pipeline">
+        <Funnel table ariaLabel={`Inspection pipeline: ${total} created, ${startedN} started, ${(st.submitted ?? 0) + (st.approved ?? 0)} submitted, ${st.approved ?? 0} approved`} stages={[
+          { key: 'created', label: 'Created', value: total, color: 'var(--color-brand-deep)' },
+          { key: 'started', label: 'Started', value: Math.max(0, startedN), color: 'var(--color-brand)' },
+          { key: 'submitted', label: 'Submitted', value: (st.submitted ?? 0) + (st.approved ?? 0), color: 'var(--color-signal)' },
+          { key: 'approved', label: 'Approved', value: st.approved ?? 0, color: 'var(--color-purple)' },
+        ]} />
+      </Card>
+      <Card title="Punctuality">
+        <div className="flex flex-wrap items-center justify-around gap-6">
+          <RadialGauge value={onTime} unit="%" size={140} label="on time" marks={[{ value: 90, color: 'var(--color-text)', label: 'Target 90%' }]} tone={onTime !== null && onTime < 80 ? 'var(--color-high)' : 'var(--color-signal)'}
+            ariaLabel={onTime === null ? 'No completed inspections, so no on-time rate' : `${onTime}% completed on time, target 90%`} />
+          <RadialGauge value={comp} unit="%" size={140} label="completed" tone="var(--color-purple)" ariaLabel={comp === null ? 'No inspections created' : `${comp}% of inspections completed`} />
+        </div>
+      </Card>
+      <Card title="By status"><StackedBar data={toData(st, STATUS_COLOR)} table ariaLabel="Inspections by status" /></Card>
+      <Card title="By assignee"><BarList data={toData(counts(s.byAssignee), () => 'var(--color-cobalt)', 8)} ariaLabel="Inspections by assignee" /></Card>
+      <Card title="Created per day" className="lg:col-span-2"><OverTime r={r} dateKey="createdAt" color="var(--color-signal)" noun="inspections created" /></Card>
     </>;
   } else if (r.kind === 'maintenance') {
     const hrs = num(s.medianHoursToComplete);
@@ -178,8 +204,10 @@ function ReportBody({ r }: { r: Report }) {
       <KpiCard tone="dark" label="Task kinds" value={Object.keys(counts(s.byKind)).length} sub="Distinct kinds in this period" />
     </>;
     charts = <>
-      <Card title="By status"><HBarList label="Tasks by status" data={st} colorFor={STATUS_COLOR} /></Card>
-      <Card title="By kind"><HBarList label="Tasks by kind" data={counts(s.byKind)} colorFor={() => 'var(--color-cobalt)'} /></Card>
+      <Card title="By status"><StackedBar data={toData(st, STATUS_COLOR)} table ariaLabel="Tasks by status" /></Card>
+      <Card title="By kind"><BarList data={toData(counts(s.byKind), () => 'var(--color-cobalt)')} ariaLabel="Tasks by kind" /></Card>
+      <Card title="By priority"><BarList data={toData(tally(r.rows, 'priority'), (k) => SEV_COLOR(k === 'urgent' ? 'critical' : k))} ariaLabel="Tasks by priority" /></Card>
+      <Card title="Completed per day"><OverTime r={r} dateKey="completedAt" color="var(--color-signal)" noun="tasks completed" /></Card>
     </>;
   } else if (r.kind === 'devices') {
     const st = counts(s.byStatus);
@@ -190,9 +218,15 @@ function ReportBody({ r }: { r: Report }) {
       <KpiCard label="Active" value={st.active ?? 0} sub={`${st.suspended ?? 0} suspended · ${st.revoked ?? 0} revoked`} />
       <KpiCard tone="dark" label="Simulators" value={r.rows.filter((x) => x.kind === 'simulator').length} sub={`${r.rows.filter((x) => x.kind === 'hardware').length} hardware`} />
     </>;
+    const used = num(s.usedInPeriod) ?? 0;
     charts = <>
-      <Card title="By status"><HBarList label="Glasses by status" data={st} colorFor={STATUS_COLOR} /></Card>
-      <Card title="By site"><HBarList label="Glasses by site" data={tally(r.rows, 'site')} colorFor={() => 'var(--color-cobalt)'} /></Card>
+      <Card title="By status"><Donut data={toData(st, STATUS_COLOR)} table centerLabel="glasses" ariaLabel={`Glasses by status: ${Object.entries(st).map(([k, v]) => `${v} ${k}`).join(', ')}`} /></Card>
+      <Card title="Used in this period">
+        <div className="grid place-items-center">
+          <RadialGauge value={total ? Math.round((used / total) * 100) : null} unit="%" size={150} label={`${used} of ${total} seen`} ariaLabel={`${used} of ${total} glasses were seen in this period`} />
+        </div>
+      </Card>
+      <Card title="By site" className="lg:col-span-2"><BarList data={toData(tally(r.rows, 'site'), () => 'var(--color-cobalt)')} ariaLabel="Glasses by site" /></Card>
     </>;
   } else {
     const sum = (k: string) => r.rows.reduce((a, x) => a + (num(x[k]) ?? 0), 0);
@@ -213,6 +247,31 @@ function ReportBody({ r }: { r: Report }) {
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">{kpis}</div>
       <div className="grid gap-4 lg:grid-cols-2">{charts}</div>
       <RecordsTable key={`${r.kind}-${r.from}-${r.to}`} r={r} />
+    </div>
+  );
+}
+
+/** Record<key, count> → chart data, sorted descending, optionally capped (rest folded into "Other"). */
+function toData(rec: Record<string, number>, colorFor: (k: string) => string, cap?: number): Datum[] {
+  const sorted = Object.entries(rec).sort((a, b) => b[1] - a[1]);
+  const head = cap ? sorted.slice(0, cap) : sorted;
+  const rest = cap ? sorted.slice(cap).reduce((a, [, v]) => a + v, 0) : 0;
+  const out = head.map(([k, v]) => ({ key: k, label: prettyKey(k), value: v, color: colorFor(k) }));
+  if (rest) out.push({ key: '__other', label: `Other (${sorted.length - (cap ?? 0)})`, value: rest, color: 'var(--color-muted)' });
+  return out;
+}
+
+/** Records per day across the report period (computed from the returned rows). */
+function OverTime({ r, dateKey, color, noun }: { r: Report; dateKey: string; color: string; noun: string }) {
+  const days = Math.max(1, Math.min(120, Math.round((new Date(r.to).getTime() - new Date(r.from).getTime()) / 86400_000)));
+  const data = perDay(r.rows.map((x) => (typeof x[dateKey] === 'string' ? (x[dateKey] as string) : null)), days, new Date(r.to));
+  const total = data.reduce((a, d) => a + d.value, 0);
+  if (!total) return <p className="text-sm text-muted">No {noun} in this period.</p>;
+  const peak = data.reduce((m, d) => (d.value > m.value ? d : m), data[0]!);
+  return (
+    <div className="grid gap-1">
+      <p className="text-[13px] text-text-2"><span className="num font-medium text-text">{total.toLocaleString()}</span> {noun} · peak <span className="num">{peak.value}</span> on {peak.label} · <span className="num">{(total / days).toFixed(1)}</span> per day</p>
+      <Sparkbars data={data} height={96} color="var(--color-surface-3)" highlight={color} table ariaLabel={`${noun} per day: ${total} over ${days} days, peak ${peak.value} on ${peak.label}`} axis={[data[0]?.label ?? '', data[data.length - 1]?.label ?? '']} />
     </div>
   );
 }
@@ -269,7 +328,7 @@ function ReportSkeleton() {
   return (
     <div className="grid gap-4">
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">{[0, 1, 2, 3].map((i) => <Skeleton key={i} className="h-[148px] rounded-[24px]" />)}</div>
-      <div className="grid gap-4 lg:grid-cols-2"><Skeleton className="h-[220px] rounded-[24px]" /><Skeleton className="h-[220px] rounded-[24px]" /></div>
+      <div className="grid gap-4 lg:grid-cols-2"><Skeleton className="h-[220px] rounded-[24px]" /><Skeleton className="h-[220px] rounded-[24px]" /><Skeleton className="h-[180px] rounded-[24px] lg:col-span-2" /></div>
     </div>
   );
 }

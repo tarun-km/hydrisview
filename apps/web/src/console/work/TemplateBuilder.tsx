@@ -197,7 +197,7 @@ export function TemplateBuilder({ open, onOpenChange, template }: { open: boolea
   return (
     <RDialog.Root open={open} onOpenChange={(v) => { if (!busy) onOpenChange(v); }}>
       <RDialog.Portal>
-        <RDialog.Overlay className="fixed inset-0 z-40 bg-black/75 backdrop-blur-[2px] fade-in" />
+        <RDialog.Overlay className="fixed inset-0 z-40 bg-scrim backdrop-blur-[2px] fade-in" />
         <RDialog.Content className="fixed left-1/2 top-1/2 z-50 flex h-[min(94dvh,920px)] w-[min(1220px,calc(100vw-16px))] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-[var(--radius-2xl)] border border-line-2 bg-surface shadow-[var(--shadow-3)] fade-in focus:outline-none">
           {/* Header + stepper */}
           <div className="flex flex-wrap items-center gap-4 border-b border-line px-5 py-4 sm:px-7">
@@ -223,7 +223,7 @@ export function TemplateBuilder({ open, onOpenChange, template }: { open: boolea
                       </span>
                       {s.label}
                       {s.key === 'steps' && <span className="num text-xs opacity-70">{draft.steps.length}</span>}
-                      {bad && <AlertTriangle size={14} className={active ? '' : 'text-high'} aria-label={`${stageProblems(s.key)} issue(s)`} />}
+                      {bad && <AlertTriangle size={14} className={active ? '' : 'text-high-text'} aria-label={`${stageProblems(s.key)} issue(s)`} />}
                     </button>
                   </li>
                 );
@@ -260,7 +260,7 @@ export function TemplateBuilder({ open, onOpenChange, template }: { open: boolea
                   <p className="text-sm text-text-2">Safety notices are shown before the first step, on the console and on the glasses. Keep each one short and specific (PPE, isolation, hazards).</p>
                   {draft.safetyNotices.map((n, i) => (
                     <div key={i} className="flex items-start gap-2">
-                      <span className="mt-3 grid h-6 w-6 flex-none place-items-center rounded-full bg-[rgb(245_184_61/0.15)] text-[12px] text-medium num">{i + 1}</span>
+                      <span className="mt-3 grid h-6 w-6 flex-none place-items-center rounded-full bg-[rgb(245_184_61/0.15)] text-[12px] text-medium-text num">{i + 1}</span>
                       <Textarea aria-label={`Safety notice ${i + 1}`} className="!min-h-[64px]" value={n} maxLength={500} onChange={(e) => set('safetyNotices', draft.safetyNotices.map((x, j) => (j === i ? e.target.value : x)))} />
                       <IconButton label={`Remove safety notice ${i + 1}`} size="sm" tone="ghost" className="mt-2" onClick={() => set('safetyNotices', draft.safetyNotices.filter((_, j) => j !== i))}><Trash2 size={15} /></IconButton>
                     </div>
@@ -278,7 +278,7 @@ export function TemplateBuilder({ open, onOpenChange, template }: { open: boolea
                       {draft.steps.map((s, i) => {
                         const bad = showProblems && problems.some((p) => p.step === i);
                         return (
-                          <li key={s.id} className={clsx('flex items-center gap-1 rounded-2xl border pr-1', i === sel ? 'border-lime/60 bg-surface-2' : 'border-line bg-bg-2', bad && 'border-[rgb(255_90_78/0.6)]')}>
+                          <li key={s.id} className={clsx('flex items-center gap-1 rounded-2xl border pr-1', i === sel ? 'border-lime/60 bg-surface-2' : 'border-line bg-bg-2', bad && 'border-[rgb(255_40_0/0.6)]')}>
                             <button type="button" onClick={() => setSel(i)} aria-current={i === sel ? 'true' : undefined} className="flex min-w-0 flex-1 items-center gap-2 px-3 py-2.5 text-left">
                               <span className="num w-5 flex-none text-xs text-muted">{i + 1}</span>
                               <span className="flex-none text-text-2">{STEP_KIND_META[s.kind].icon}</span>
@@ -319,25 +319,25 @@ export function TemplateBuilder({ open, onOpenChange, template }: { open: boolea
                     <ReviewStat label="Est. minutes" value={draft.estimatedMinutes || '—'} />
                   </dl>
                   {problems.length ? (
-                    <div className="rounded-2xl border border-[rgb(255_90_78/0.35)] bg-[rgb(255_90_78/0.06)] p-4">
+                    <div className="rounded-2xl border border-[rgb(255_40_0/0.35)] bg-[rgb(255_40_0/0.06)] p-4">
                       <div className="mb-2 font-medium">Fix {problems.length} issue{problems.length > 1 ? 's' : ''} before saving</div>
                       <ul className="grid gap-1.5 text-sm">
                         {problems.map((p, i) => (
                           <li key={i}>
-                            <button type="button" className="text-left text-[#ffb1aa] underline-offset-2 hover:underline" onClick={() => { setStage(p.stage); if (p.step !== undefined) setSel(p.step); }}>{p.message}</button>
+                            <button type="button" className="text-left text-critical-text underline-offset-2 hover:underline" onClick={() => { setStage(p.stage); if (p.step !== undefined) setSel(p.step); }}>{p.message}</button>
                           </li>
                         ))}
                       </ul>
                     </div>
                   ) : (
-                    <p className="flex items-center gap-2 rounded-2xl border border-[rgb(78_217_142/0.3)] bg-[rgb(78_217_142/0.06)] p-4 text-sm"><Check size={16} className="text-ok" aria-hidden />Ready to save as <b className="font-medium">{draft.status}</b>.</p>
+                    <p className="flex items-center gap-2 rounded-2xl border border-[rgb(0_254_33/0.3)] bg-[rgb(0_254_33/0.06)] p-4 text-sm"><Check size={16} className="text-ok-text" aria-hidden />Ready to save as <b className="font-medium">{draft.status}</b>.</p>
                   )}
                   {template && <p className="text-sm text-text-2">Existing inspections are not changed — they keep the step snapshot (template v{template.version}) they were issued with.</p>}
                 </div>
               )}
 
               {showProblems && stage !== 'review' && stageProblems(stage) > 0 && (
-                <ul className="mt-5 grid max-w-2xl gap-1 text-sm text-[#ffb1aa]" role="alert">
+                <ul className="mt-5 grid max-w-2xl gap-1 text-sm text-critical-text" role="alert">
                   {problems.filter((p) => p.stage === stage).map((p, i) => <li key={i}>• {p.message}</li>)}
                 </ul>
               )}
@@ -487,11 +487,11 @@ export function SafetyCard({ notices, compact, empty }: { notices: string[]; com
   if (!notices.length) return empty ? <p className="p-4 text-sm text-muted">{empty}</p> : null;
   return (
     <section className={clsx('rounded-[var(--radius-lg)] border border-[rgb(245_184_61/0.4)] bg-[rgb(245_184_61/0.07)]', compact ? 'p-4' : 'p-5')} aria-label="Safety notices">
-      <div className="flex items-center gap-2 font-medium text-[#f7c96a]"><ShieldAlert size={17} aria-hidden />Safety first</div>
+      <div className="flex items-center gap-2 font-medium text-medium-text"><ShieldAlert size={17} aria-hidden />Safety first</div>
       <ul className="mt-3 grid gap-2">
         {notices.map((n, i) => (
           <li key={i} className="flex gap-2.5 text-sm leading-relaxed">
-            <span className="num mt-0.5 grid h-5 w-5 flex-none place-items-center rounded-full bg-[rgb(245_184_61/0.18)] text-[11px] text-[#f7c96a]">{i + 1}</span>
+            <span className="num mt-0.5 grid h-5 w-5 flex-none place-items-center rounded-full bg-[rgb(245_184_61/0.18)] text-[11px] text-medium-text">{i + 1}</span>
             <span>{n}</span>
           </li>
         ))}

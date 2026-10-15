@@ -388,8 +388,8 @@ export function GatewayDialog({ open, onOpenChange, siteId }: { open: boolean; o
       <Dialog open={open} onOpenChange={onOpenChange} title={`Gateway "${result.name}" created`}
         footer={<Button variant="primary" onClick={() => onOpenChange(false)}>I have stored the key</Button>}>
         <div className="grid gap-4">
-          <div role="alert" className="flex gap-3 rounded-[var(--radius-lg)] border border-[rgb(242_100_20/0.4)] bg-[rgb(242_100_20/0.08)] p-4 text-sm">
-            <AlertTriangle size={18} className="mt-0.5 flex-none text-high" aria-hidden />
+          <div role="alert" className="flex gap-3 rounded-[var(--radius-lg)] border border-[rgb(255_159_28/0.4)] bg-[rgb(255_159_28/0.08)] p-4 text-sm">
+            <AlertTriangle size={18} className="mt-0.5 flex-none text-high-text" aria-hidden />
             <div>
               <div className="font-medium">Copy this API key now. It will not be shown again.</div>
               <div className="mt-1 text-text-2">Hydris stores only a hash. Configure it on the edge gateway as a bearer token. If it is lost, revoke this gateway and create a new one.</div>

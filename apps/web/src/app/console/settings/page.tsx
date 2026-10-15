@@ -27,7 +27,7 @@ export default function SettingsPage() {
           {({ organization: o }) => (
             <div className="grid gap-4 fade-in">
               {o.isDemo && (
-                <div className="flex flex-wrap items-start gap-3 rounded-[var(--radius-xl)] border border-dashed border-[rgb(216_255_101/0.45)] px-5 py-4 text-sm">
+                <div className="flex flex-wrap items-start gap-3 rounded-[var(--radius-xl)] border border-dashed border-[rgb(25_84_241/0.45)] px-5 py-4 text-sm">
                   <FlaskConical size={18} className="mt-0.5 flex-none text-lime" aria-hidden />
                   <div className="min-w-0 flex-1">
                     <div className="font-medium text-lime">Demo organization</div>
@@ -137,7 +137,7 @@ function SimulatorPanel() {
                   </div>
                   <span className="chip chip-dark-on-lime num">{r.live ? `Step ${step} / ${total}` : 'Paused (server restarted)'}</span>
                 </div>
-                <div className="h-2 overflow-hidden rounded-full bg-black/15" role="progressbar" aria-label={`${sc?.title ?? 'Scenario'} progress`} aria-valuemin={0} aria-valuemax={total} aria-valuenow={step}>
+                <div className="h-2 overflow-hidden rounded-full bg-ink/15" role="progressbar" aria-label={`${sc?.title ?? 'Scenario'} progress`} aria-valuemin={0} aria-valuemax={total} aria-valuenow={step}>
                   <div className="h-full rounded-full bg-lime-ink transition-[width] duration-500" style={{ width: `${(step / total) * 100}%` }} />
                 </div>
               </li>

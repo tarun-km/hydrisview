@@ -29,7 +29,7 @@ export function RulesCard({ q, sensor, canManage }: { q: UseQueryResult<{ rules:
       <ul className="grid gap-2">
         {q.data.rules.map((r) => (
           <li key={r.id} className="card-inset flex flex-wrap items-start gap-3 p-4" style={{ opacity: r.enabled ? 1 : 0.6 }}>
-            <span className="grid h-9 min-w-9 flex-none place-items-center rounded-full px-2 text-[12px] font-semibold" style={{ color: conditionTone(r.condition), background: 'rgb(255 255 255 / 0.04)', border: `1px solid ${conditionTone(r.condition)}` }} aria-hidden>{CONDITION_SHORT[r.condition]}</span>
+            <span className="grid h-9 min-w-9 flex-none place-items-center rounded-full px-2 text-[12px] font-semibold" style={{ color: conditionTone(r.condition), background: 'var(--color-tint)', border: `1px solid ${conditionTone(r.condition)}` }} aria-hidden>{CONDITION_SHORT[r.condition]}</span>
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-2">
                 <span className="font-medium">{CONDITION_LABELS[r.condition]}</span>

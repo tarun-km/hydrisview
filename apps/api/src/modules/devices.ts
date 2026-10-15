@@ -9,7 +9,7 @@ import { TTL } from '../config.js';
 import type { Ctx } from '../context.js';
 import { authenticate, tenant } from '../context.js';
 import {
-  alarmEvents, assets, auditEvents, deviceAssignments, deviceSessions, devices, inspections, maintenanceTasks, membershipSites, memberships, organizations, pairingChallenges, sites, users,
+  alarmEvents, assets, auditEvents, processAreas, deviceAssignments, deviceSessions, devices, inspections, maintenanceTasks, membershipSites, memberships, organizations, pairingChallenges, sites, users,
 } from '../db/schema.js';
 import type { Tx } from '../db/client.js';
 import { withSystem, withTenant } from '../db/tenant.js';
@@ -263,7 +263,18 @@ export async function deviceRoutes(app: FastifyInstance, ctx: Ctx, opts: { relax
     const tasks = await tx.select({ id: maintenanceTasks.id, title: maintenanceTasks.title, status: maintenanceTasks.status, priority: maintenanceTasks.priority, assetTag: assets.tag, checklist: maintenanceTasks.checklist })
       .from(maintenanceTasks).leftJoin(assets, eq(assets.id, maintenanceTasks.assetId))
       .where(and(eq(maintenanceTasks.assignedTo, p.userId), inArray(maintenanceTasks.status, ['open', 'assigned', 'in_progress', 'on_hold']))).limit(20);
+    // Plant map for the glasses: site layout, process areas and asset positions (metres).
+    let map = null;
+    if (site) {
+      const [lay] = await tx.select({ w: sites.layoutWidthM, h: sites.layoutHeightM }).from(sites).where(eq(sites.id, site.id));
+      const areas = await tx.select({ id: processAreas.id, name: processAreas.name, code: processAreas.code, polygon: processAreas.polygon }).from(processAreas).where(and(eq(processAreas.siteId, site.id), isNull(processAreas.archivedAt)));
+      const pins = await tx.select({ id: assets.id, tag: assets.tag, name: assets.name, status: assets.status, x: assets.positionX, y: assets.positionY,
+        openAlarms: sql<number>`(select count(*)::int from alarm_events e where e.asset_id = ${assets.id} and e.state in ('active','acknowledged','investigating'))` })
+        .from(assets).where(and(eq(assets.siteId, site.id), isNull(assets.archivedAt)));
+      map = { widthM: lay!.w, heightM: lay!.h, areas: areas.filter((a) => a.polygon), assets: pins.filter((p) => p.x !== null && p.y !== null) };
+    }
     return {
+      map,
       device: { id: d!.id, name: d!.name, kind: d!.kind, status: d!.status, sessionVersion: d!.sessionVersion },
       operator: op, organization: org, site: site ?? null, role: p.role,
       inspections: work.map(({ steps, ...w }) => ({ ...w, stepCount: steps.length })), alarms, tasks,

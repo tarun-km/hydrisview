@@ -6,10 +6,11 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import * as RPopover from '@radix-ui/react-popover';
 import * as RMenu from '@radix-ui/react-dropdown-menu';
+import * as RDialog from '@radix-ui/react-dialog';
 import clsx from 'clsx';
 import {
-  Activity, BarChart3, Bell, Boxes, Building2, ClipboardCheck, FileText, Glasses, LayoutGrid, LogOut, MonitorSmartphone, Route, ScrollText, Search,
-  Settings, ShieldCheck, Siren, UserRound, Users, Wrench,
+  Activity, BarChart3, Bell, Boxes, Building2, Check, ClipboardCheck, FileText, Glasses, LayoutGrid, LogOut, Menu, Monitor, MonitorSmartphone, Moon, Route, ScrollText, Search,
+  Settings, ShieldCheck, Siren, Sun, UserRound, Users, Wrench, X,
 } from 'lucide-react';
 import { ROLE_LABELS, type Permission } from '@hydris/domain';
 import { getAccessToken, refreshSession } from '@/lib/api';
@@ -19,6 +20,7 @@ import { invalidatePaths, useApi } from '@/lib/query';
 import { ago } from '@/lib/format';
 import { Avatar, IconButton, Tooltip } from '@/ui';
 import { useToast } from '@/ui/overlay';
+import { ThemeToggle, useTheme, type ThemeMode } from '@/ui/theme';
 import { Logo } from '@/site/Logo';
 import { CommandPalette } from './CommandPalette';
 
@@ -62,6 +64,8 @@ export function ConsoleShell({ children }: { children: ReactNode }) {
   const toast = useToast();
   const [status, setStatus] = useState<StreamStatus>('connecting');
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [mac, setMac] = useState(false);
+  useEffect(() => setMac(/Mac|iPhone|iPad/.test(navigator.platform)), []);
   const pending = useRef(new Set<string>());
 
   const items = useMemo(() => NAV.filter((n) => !n.perm || session.permissions.includes(n.perm)), [session.permissions]);
@@ -110,15 +114,15 @@ export function ConsoleShell({ children }: { children: ReactNode }) {
     <div className="min-h-dvh bg-bg">
       {/* Left rail — vertical capsule of circular actions (Usechannel rail / EHR side scroller) */}
       <aside className="fixed inset-y-0 left-0 z-30 hidden w-[84px] flex-col items-center gap-4 py-5 md:flex" aria-label="Console navigation">
-        <Link href="/console" aria-label="Hydris console home" className="mb-1"><Logo compact /></Link>
-        <nav className="flex min-h-0 flex-1 flex-col items-center gap-3 overflow-y-auto scrollbar-none rounded-full border border-line bg-surface px-2 py-3">
+        <Link href="/console" aria-label="Hydris console home" className="mb-1 grid h-12 w-12 place-items-center rounded-full bg-brand shadow-[0_8px_24px_rgb(23_70_228/0.35)] transition-transform hover:scale-105"><Logo compact size={24} /></Link>
+        <nav className="flex min-h-0 flex-1 flex-col items-center gap-3 overflow-y-auto scrollbar-none rounded-full border border-line bg-surface px-2 py-3 shadow-[var(--sheen)]">
           {groups.map((g, gi) => (
             <div key={g} className="flex flex-col items-center gap-1.5">
               {gi > 0 && <span className="my-1 h-px w-6 bg-line-2" aria-hidden />}
               {items.filter((i) => i.group === g).map((i) => (
                 <Tooltip key={i.href} label={i.label}>
                   <Link href={i.href} aria-label={i.label} aria-current={isActive(i.href) ? 'page' : undefined}
-                    className={clsx('grid h-11 w-11 place-items-center rounded-full transition-colors', isActive(i.href) ? 'bg-lime text-lime-ink' : 'text-text-2 hover:bg-surface-3 hover:text-text')}>
+                    className={clsx('relative grid h-11 w-11 place-items-center rounded-full transition-[background,color,transform] duration-150 active:scale-90', isActive(i.href) ? 'bg-lime text-lime-ink shadow-[inset_0_1px_0_rgb(255_255_255/0.45)]' : 'text-text-2 hover:bg-surface-3 hover:text-text')}>
                     {i.icon}
                   </Link>
                 </Tooltip>
@@ -134,13 +138,14 @@ export function ConsoleShell({ children }: { children: ReactNode }) {
       <div className="md:pl-[84px]">
         {/* Top context bar */}
         <header className="sticky top-0 z-20 flex items-center gap-3 border-b border-line bg-bg/85 px-4 py-3 backdrop-blur md:px-8">
-          <Link href="/console" className="md:hidden" aria-label="Hydris home"><Logo compact /></Link>
+          <Link href="/console" className="grid h-11 w-11 flex-none place-items-center rounded-full bg-brand md:hidden" aria-label="Hydris home"><Logo compact size={22} /></Link>
           <OrgSwitcher />
-          <button onClick={() => setPaletteOpen(true)} className="ml-auto flex h-11 min-w-0 flex-1 items-center gap-3 rounded-full border border-line bg-surface px-4 text-left text-sm text-muted transition-colors hover:border-line-2 sm:max-w-[380px]" aria-label="Search assets, sensors, documents and people">
+          <button onClick={() => setPaletteOpen(true)} className="ml-auto flex h-11 min-w-0 flex-1 items-center gap-3 rounded-full border border-line bg-surface px-4 text-left text-sm text-muted shadow-[var(--sheen)] transition-colors hover:border-line-2 hover:text-text-2 sm:max-w-[380px]" aria-label="Search assets, sensors, documents and people">
             <Search size={16} aria-hidden /> <span className="truncate">Search assets, sensors, SOPs…</span>
-            <kbd className="ml-auto hidden rounded-md border border-line-2 px-1.5 text-[11px] sm:inline">Ctrl K</kbd>
+            <kbd className="ml-auto hidden rounded-md border border-line-2 bg-surface-2 px-1.5 py-0.5 text-[11px] text-text-2 sm:inline">{mac ? '⌘' : 'Ctrl'} K</kbd>
           </button>
           <LiveStatus status={status} />
+          <ThemeToggle compact className="hidden sm:inline-grid" />
           <Notifications />
           <RMenu.Root>
             <RMenu.Trigger asChild>
@@ -153,6 +158,8 @@ export function ConsoleShell({ children }: { children: ReactNode }) {
                   <div className="text-xs text-muted">{session.role ? ROLE_LABELS[session.role] : ''} · {session.org?.name}</div>
                 </div>
                 <RMenu.Separator className="my-1 h-px bg-line" />
+                <ThemeMenuGroup />
+                <RMenu.Separator className="my-1 h-px bg-line" />
                 <MenuLink href="/console/account" icon={<UserRound size={15} />}>Account & security</MenuLink>
                 {session.user.isPlatformAdmin && <MenuLink href="/console/platform" icon={<ShieldCheck size={15} />}>Platform administration</MenuLink>}
                 {session.memberships.length > 1 && session.memberships.filter((m) => m.orgId !== session.org?.id).map((m) => (
@@ -160,7 +167,7 @@ export function ConsoleShell({ children }: { children: ReactNode }) {
                     <Building2 size={15} /> Switch to {m.orgName}
                   </RMenu.Item>
                 ))}
-                <RMenu.Item onSelect={() => void signOut().then(() => router.replace('/login'))} className="flex cursor-pointer items-center gap-2 rounded-xl px-3 py-2 text-sm text-[#ff8a80] outline-none data-[highlighted]:bg-surface-2">
+                <RMenu.Item onSelect={() => void signOut().then(() => router.replace('/login'))} className="flex cursor-pointer items-center gap-2 rounded-xl px-3 py-2 text-sm text-critical-text outline-none data-[highlighted]:bg-surface-2">
                   <LogOut size={15} /> Sign out
                 </RMenu.Item>
               </RMenu.Content>
@@ -169,26 +176,106 @@ export function ConsoleShell({ children }: { children: ReactNode }) {
         </header>
 
         {session.org?.isDemo && (
-          <div className="border-b border-dashed border-[rgb(216_255_101/0.35)] bg-[rgb(216_255_101/0.05)] px-4 py-2 text-center text-[12.5px] text-lime md:px-8">
-            Demo organization — telemetry and events marked <b>Synthetic</b> are generated by the Hydris simulator, not real plant measurements.
+          <div className="flex items-center justify-center gap-2 border-b border-dashed border-[rgb(25_84_241/0.3)] bg-[rgb(25_84_241/0.045)] px-4 py-2 text-center text-[12.5px] leading-snug text-lime md:px-8">
+            <span className="dot flex-none bg-lime" aria-hidden />
+            <span className="sm:hidden">Demo tenant — <b>Synthetic</b> data comes from the simulator.</span>
+            <span className="hidden sm:inline">Demo organization — telemetry and events marked <b>Synthetic</b> are generated by the Hydris simulator, not real plant measurements.</span>
           </div>
         )}
 
         <main id="main" className="mx-auto max-w-[1440px] px-4 pb-28 pt-8 md:px-8 md:pb-12">
           <span className="sr-only" aria-live="polite">{current?.label}</span>
-          {children}
+          <div key={pathname} className="page-enter">{children}</div>
         </main>
 
-        {/* Mobile bottom navigation */}
-        <nav className="fixed inset-x-3 bottom-3 z-30 flex gap-1 overflow-x-auto scrollbar-none rounded-full border border-line bg-surface/95 p-1.5 backdrop-blur md:hidden" aria-label="Console navigation">
-          {items.map((i) => (
-            <Link key={i.href} href={i.href} aria-label={i.label} aria-current={isActive(i.href) ? 'page' : undefined}
-              className={clsx('grid h-11 w-11 flex-none place-items-center rounded-full', isActive(i.href) ? 'bg-lime text-lime-ink' : 'text-text-2')}>{i.icon}</Link>
-          ))}
-        </nav>
+        {/* Mobile tab bar: four primary destinations + a "More" sheet (no hidden horizontal scroller) */}
+        <MobileNav items={items} isActive={isActive} />
       </div>
       <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} nav={items} />
     </div>
+  );
+}
+
+const PRIMARY_MOBILE = ['/console', '/console/alarms', '/console/telemetry', '/console/inspections'];
+const SHORT: Record<string, string> = { '/console': 'Overview', '/console/alarms': 'Alarms', '/console/telemetry': 'Sensors', '/console/inspections': 'Inspections' };
+
+function MobileNav({ items, isActive }: { items: NavItem[]; isActive: (href: string) => boolean }) {
+  const [open, setOpen] = useState(false);
+  const primary = items.filter((i) => PRIMARY_MOBILE.includes(i.href));
+  const rest = items.filter((i) => !PRIMARY_MOBILE.includes(i.href));
+  const moreActive = rest.some((i) => isActive(i.href));
+  const groups = [...new Set(rest.map((i) => i.group))];
+  const tab = 'flex h-12 flex-col items-center justify-center gap-1 rounded-full text-[10.5px] font-medium transition-[background,color,transform] active:scale-95';
+  return (
+    <>
+      <nav className="fixed inset-x-3 bottom-3 z-30 grid auto-cols-fr grid-flow-col gap-1 rounded-full border border-line-2 bg-surface/90 p-1.5 shadow-[var(--shadow-3),var(--sheen)] backdrop-blur-xl md:hidden" aria-label="Console navigation">
+        {primary.map((i) => (
+          <Link key={i.href} href={i.href} aria-current={isActive(i.href) ? 'page' : undefined} className={clsx(tab, isActive(i.href) ? 'bg-lime text-lime-ink' : 'text-text-2')}>
+            {i.icon}<span className="leading-none">{SHORT[i.href] ?? i.label}</span>
+          </Link>
+        ))}
+        {rest.length > 0 && (
+          <button type="button" onClick={() => setOpen(true)} aria-haspopup="dialog" aria-expanded={open} className={clsx(tab, moreActive ? 'bg-surface-3 text-text' : 'text-text-2')}>
+            <Menu size={19} aria-hidden /><span className="leading-none">More</span>
+          </button>
+        )}
+      </nav>
+      <RDialog.Root open={open} onOpenChange={setOpen}>
+        <RDialog.Portal>
+          <RDialog.Overlay className="fixed inset-0 z-40 bg-scrim backdrop-blur-[3px] fade-in md:hidden" />
+          <RDialog.Content className="sheet-up fixed inset-x-0 bottom-0 z-50 max-h-[85dvh] overflow-y-auto rounded-t-[28px] border border-line-2 bg-surface px-4 pb-[max(20px,env(safe-area-inset-bottom))] pt-3 shadow-[var(--shadow-3)] md:hidden">
+            <span aria-hidden className="mx-auto mb-3 block h-1 w-10 rounded-full bg-line-2" />
+            <div className="mb-1 flex items-center justify-between px-2">
+              <RDialog.Title className="t-section">All modules</RDialog.Title>
+              <RDialog.Close className="icon-btn icon-btn-sm icon-btn-ghost" aria-label="Close menu"><X size={16} /></RDialog.Close>
+            </div>
+            <RDialog.Description className="sr-only">Navigate to any console module</RDialog.Description>
+            {groups.map((g) => (
+              <div key={g} className="mt-3">
+                <div className="t-eyebrow px-2 pb-1.5">{g}</div>
+                <ul className="grid grid-cols-2 gap-2">
+                  {rest.filter((i) => i.group === g).map((i) => (
+                    <li key={i.href}>
+                      <Link href={i.href} onClick={() => setOpen(false)} aria-current={isActive(i.href) ? 'page' : undefined}
+                        className={clsx('flex min-h-[52px] items-center gap-3 rounded-2xl border px-3 py-2.5 text-[13.5px] transition-colors', isActive(i.href) ? 'border-transparent bg-lime text-lime-ink' : 'border-line bg-bg-2 text-text-2 active:bg-surface-2')}>
+                        <span className="flex-none">{i.icon}</span><span className="leading-tight">{i.label}</span>
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+            <Link href="/simulator" onClick={() => setOpen(false)} className="btn btn-secondary mt-5 w-full"><MonitorSmartphone size={16} aria-hidden />Open glasses simulator</Link>
+          </RDialog.Content>
+        </RDialog.Portal>
+      </RDialog.Root>
+    </>
+  );
+}
+
+const THEME_ITEMS: { value: ThemeMode; label: string; icon: ReactNode }[] = [
+  { value: 'system', label: 'System', icon: <Monitor size={15} aria-hidden /> },
+  { value: 'light', label: 'Light', icon: <Sun size={15} aria-hidden /> },
+  { value: 'dark', label: 'Dark', icon: <Moon size={15} aria-hidden /> },
+];
+/** Theme choice inside the account menu: a proper menu radio group (arrow keys + Enter, announced as checked). */
+function ThemeMenuGroup() {
+  const { mode, resolved, setMode } = useTheme();
+  return (
+    <RMenu.Group>
+      <RMenu.Label className="flex items-center justify-between px-3 pb-1 pt-1.5 text-[11.5px] uppercase tracking-[0.12em] text-muted">
+        Appearance{mode === 'system' && <span className="normal-case tracking-normal">now {resolved}</span>}
+      </RMenu.Label>
+      <RMenu.RadioGroup value={mode} onValueChange={(v) => setMode(v as ThemeMode)} className="grid grid-cols-3 gap-1 px-1 pb-1">
+        {THEME_ITEMS.map((t) => (
+          <RMenu.RadioItem key={t.value} value={t.value} onSelect={(e) => e.preventDefault()}
+            className="relative flex cursor-pointer flex-col items-center gap-1 rounded-xl px-2 py-2 text-[12px] text-text-2 outline-none transition-colors data-[highlighted]:bg-surface-2 data-[state=checked]:bg-pill data-[state=checked]:text-pill-ink">
+            {t.icon}{t.label}
+            <RMenu.ItemIndicator className="sr-only"><Check size={12} /> selected</RMenu.ItemIndicator>
+          </RMenu.RadioItem>
+        ))}
+      </RMenu.RadioGroup>
+    </RMenu.Group>
   );
 }
 

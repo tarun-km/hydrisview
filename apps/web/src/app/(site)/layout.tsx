@@ -6,7 +6,7 @@ import '@/site/site.css';
 
 export default function SiteLayout({ children }: { children: ReactNode }) {
   return (
-    <div className="relative min-h-screen overflow-x-clip bg-bg">
+    <div className="hx relative min-h-screen overflow-x-clip bg-bg">
       <noscript>
         <style>{'.reveal{opacity:1!important;transform:none!important}'}</style>
       </noscript>

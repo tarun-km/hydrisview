@@ -101,9 +101,9 @@ export function HierarchyNavigator({ detail, actions }: { detail: SiteDetail; ac
 
   return (
     <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
-      <div ref={wrap} className="relative rounded-[var(--radius-2xl)] border border-line bg-black p-4 sm:p-6">
+      <div ref={wrap} className="relative rounded-[var(--radius-2xl)] border border-line bg-bg-2 p-4 sm:p-6">
         <svg className="pointer-events-none absolute inset-0 hidden lg:block" width={box.w} height={box.h} aria-hidden>
-          {segs.filter((s) => !s.hot).map((s) => <path key={s.key} d={s.d} fill="none" stroke="rgb(255 255 255 / 0.16)" strokeWidth={1} />)}
+          {segs.filter((s) => !s.hot).map((s) => <path key={s.key} d={s.d} fill="none" stroke="var(--color-text)" strokeOpacity={0.16} strokeWidth={1} />)}
           {segs.filter((s) => s.hot).map((s) => <path key={s.key} d={s.d} fill="none" stroke="var(--color-cobalt-2)" strokeWidth={2} />)}
         </svg>
         <div className="relative grid gap-6 lg:grid-cols-3 lg:gap-16">
@@ -171,8 +171,8 @@ function Node({ nodeRef, selected, focused, onClick, eyebrow, title, meta, lead,
         className={clsx(
           'flex w-full items-center gap-3 text-left transition-colors',
           compact ? 'min-h-[52px] rounded-full px-4 py-2' : 'min-h-[64px] rounded-[22px] px-5 py-3',
-          selected ? 'bg-cobalt-2 text-white shadow-[0_8px_30px_rgb(0_103_255/0.35)]' : muted ? 'border border-dashed border-line-2 bg-transparent hover:bg-surface' : 'bg-surface-2 hover:bg-surface-3',
-          focused && 'ring-2 ring-white/80 ring-offset-2 ring-offset-black',
+          selected ? 'bg-cobalt-2 text-white shadow-[0_8px_30px_rgb(25_84_241/0.35)]' : muted ? 'border border-dashed border-line-2 bg-transparent hover:bg-surface' : 'bg-surface-2 hover:bg-surface-3',
+          focused && 'ring-2 ring-text/80 ring-offset-2 ring-offset-bg-2',
         )}>
         {lead}
         <span className="min-w-0 flex-1">
@@ -188,7 +188,7 @@ function Node({ nodeRef, selected, focused, onClick, eyebrow, title, meta, lead,
 
 function PanelAction({ onClick, icon, children, primary }: { onClick: () => void; icon: ReactNode; children: ReactNode; primary?: boolean }) {
   return (
-    <button type="button" onClick={onClick} className={clsx('btn btn-sm', primary ? 'bg-cobalt-2 text-white hover:bg-cobalt' : 'border-[rgb(17_18_17/0.18)] bg-transparent text-ink hover:bg-[rgb(17_18_17/0.06)]')}>
+    <button type="button" onClick={onClick} className={clsx('btn btn-sm', primary ? 'bg-cobalt-2 text-white hover:bg-lime-3' : 'border-ink/20 bg-transparent text-ink hover:bg-ink/[0.06]')}>
       {icon}{children}
     </button>
   );
@@ -260,7 +260,7 @@ function DetailPanel({ focus, detail, actions, siteName }: { focus: Focus; detai
       <>
         <div className="flex items-start justify-between gap-3">
           <PanelHead eyebrow={`${ASSET_TYPE_LABELS[x.type]} · ${x.tag}`} title={x.name} />
-          <Link href={`/console/assets/${x.id}`} aria-label={`Open asset ${x.tag}`} className="icon-btn flex-none border-transparent bg-cobalt-2 text-white hover:bg-cobalt"><ArrowUpRight size={18} /></Link>
+          <Link href={`/console/assets/${x.id}`} aria-label={`Open asset ${x.tag}`} className="icon-btn flex-none border-transparent bg-cobalt-2 text-white hover:bg-lime-3"><ArrowUpRight size={18} /></Link>
         </div>
         <div className="mt-3 flex flex-wrap gap-2">
           <StateChip state={x.status} label={ASSET_STATUS_LABELS[x.status]} />
@@ -282,7 +282,7 @@ function DetailPanel({ focus, detail, actions, siteName }: { focus: Focus; detai
         ]} />
         <p className="mt-4 text-sm text-ink-2">Select a facility, process area or asset to see its record.</p>
         <div className="mt-6 flex flex-wrap gap-2">
-          <Link href={`/console/map?siteId=${site.id}`} className="btn btn-sm bg-cobalt-2 text-white hover:bg-cobalt"><MapIcon size={14} /> Plant map</Link>
+          <Link href={`/console/map?siteId=${site.id}`} className="btn btn-sm bg-cobalt-2 text-white hover:bg-lime-3"><MapIcon size={14} /> Plant map</Link>
           {actions.canSite && <PanelAction onClick={actions.onEditSite} icon={<Pencil size={14} />}>Edit site</PanelAction>}
           {actions.canSite && <PanelAction onClick={actions.onAddFacility} icon={<Plus size={14} />}>Add facility</PanelAction>}
         </div>
@@ -290,7 +290,7 @@ function DetailPanel({ focus, detail, actions, siteName }: { focus: Focus; detai
     );
   }
   return (
-    <aside aria-label="Selected record" aria-live="polite" className="self-start rounded-[var(--radius-2xl)] bg-white p-6 text-ink shadow-[var(--shadow-3)] xl:sticky xl:top-24">
+    <aside aria-label="Selected record" aria-live="polite" className="self-start rounded-[var(--radius-2xl)] border border-[var(--paper-border)] bg-paper p-6 text-ink shadow-[var(--shadow-3)] xl:sticky xl:top-24">
       {body}
     </aside>
   );
@@ -311,7 +311,7 @@ function AssetMiniList({ items }: { items: AssetSummary[] }) {
     <ul className="mt-4 grid max-h-[220px] gap-1 overflow-y-auto">
       {items.map((x) => (
         <li key={x.id}>
-          <Link href={`/console/assets/${x.id}`} className="flex items-center gap-2 rounded-xl px-2 py-1.5 text-sm hover:bg-[rgb(17_18_17/0.06)]">
+          <Link href={`/console/assets/${x.id}`} className="flex items-center gap-2 rounded-xl px-2 py-1.5 text-sm hover:bg-ink/[0.06]">
             <span className="dot" style={{ background: healthColor(x) }} aria-hidden />
             <span className="font-medium">{x.tag}</span>
             <span className="truncate text-ink-2">{x.name}</span>

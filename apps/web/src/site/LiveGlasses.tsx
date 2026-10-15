@@ -16,7 +16,7 @@ const KEYS: { key: GlassesKey; label: string; icon: typeof ChevronUp }[] = [
 
 export function SyntheticNotice({ className }: { className?: string }) {
   return (
-    <p className={clsx('inline-flex flex-wrap items-center gap-2 rounded-full border border-dashed border-lime/60 px-4 py-2 text-[13px] text-lime', className)}>
+    <p className={clsx('inline-flex flex-wrap items-center gap-2 rounded-full border border-dashed border-[var(--hx-accent-text)] px-4 py-2 text-[13px] text-[var(--hx-accent-text)]', className)}>
       <span className="dot pulse-dot bg-lime" aria-hidden />
       Synthetic demonstration data — isolated from customer data
     </p>
@@ -57,38 +57,13 @@ function useGlassesFrame(scenario: ScenarioKey) {
   // The frame stays `inert` until the visitor engages with it, so the viewport's own focus
   // handling cannot steal focus from this page.
   const [active, setActive] = useState(false);
-  const patched = useRef(false);
   useEffect(() => {
     setLoaded(false);
     setActive(false);
-    patched.current = false;
   }, [scenario, nonce]);
-
-  // The viewport keeps its highlighted item visible with scrollIntoView(), which also scrolls
-  // every ancestor document — i.e. this page. Once the frame has loaded we confine that call to
-  // the frame's own scroll containers; until then, undo page scrolls the visitor did not cause.
-  useEffect(() => {
-    if (!inView) return;
-    let y = window.scrollY;
-    let intentAt = 0;
-    const intent = () => { intentAt = performance.now(); };
-    const onScroll = () => {
-      if (patched.current || performance.now() - intentAt < 1200) { y = window.scrollY; return; }
-      if (Math.abs(window.scrollY - y) > 1) window.scrollTo(0, y);
-    };
-    const evs = ['wheel', 'touchstart', 'touchmove', 'pointerdown', 'keydown'] as const;
-    evs.forEach((e) => window.addEventListener(e, intent, { passive: true, capture: true }));
-    window.addEventListener('scroll', onScroll, { passive: true });
-    return () => {
-      evs.forEach((e) => window.removeEventListener(e, intent, { capture: true }));
-      window.removeEventListener('scroll', onScroll);
-    };
-  }, [inView, scenario, nonce]);
 
   const onFrameLoad = useCallback(() => {
     setLoaded(true);
-    confineScrollIntoView(frameRef.current);
-    patched.current = true;
   }, []);
 
   const activate = useCallback(() => {
@@ -105,31 +80,6 @@ function useGlassesFrame(scenario: ScenarioKey) {
   }, []);
 
   return { boxRef, frameRef, scale, loaded, onFrameLoad, send, lastKey, restart: () => setNonce((n) => n + 1), nonce, active, activate, inView };
-}
-
-/** Replace scrollIntoView inside the (same-origin) frame with a version that never scrolls the host page. */
-function confineScrollIntoView(frame: HTMLIFrameElement | null) {
-  try {
-    const w = frame?.contentWindow as (Window & typeof globalThis & { __hydrisConfined?: boolean }) | null | undefined;
-    if (!w || w.__hydrisConfined) return;
-    w.Element.prototype.scrollIntoView = function confined(this: Element) {
-      const r = this.getBoundingClientRect();
-      for (let p = this.parentElement; p; p = p.parentElement) {
-        const oy = w.getComputedStyle(p).overflowY;
-        if ((oy === 'auto' || oy === 'scroll') && p.scrollHeight > p.clientHeight) {
-          const pr = p.getBoundingClientRect();
-          if (r.top < pr.top) p.scrollTop -= pr.top - r.top;
-          else if (r.bottom > pr.bottom) p.scrollTop += r.bottom - pr.bottom;
-          return;
-        }
-      }
-      if (r.top < 0) w.scrollBy(0, r.top);
-      else if (r.bottom > w.innerHeight) w.scrollBy(0, r.bottom - w.innerHeight);
-    };
-    w.__hydrisConfined = true;
-  } catch {
-    /* cross-origin or unavailable: the scroll guard above still applies */
-  }
 }
 
 function Viewport({ scenario, f, title, eager }: { scenario: ScenarioKey; f: ReturnType<typeof useGlassesFrame>; title: string; eager?: boolean }) {
@@ -158,7 +108,7 @@ function Viewport({ scenario, f, title, eager }: { scenario: ScenarioKey; f: Ret
       {f.loaded && !f.active && (
         <button type="button" onClick={f.activate}
           className="group absolute inset-0 flex items-end justify-center rounded-[inherit] pb-4 outline-offset-[-4px]">
-          <span className="rounded-full border border-line-2 bg-black/75 px-3.5 py-1.5 text-[12.5px] text-text-2 opacity-80 backdrop-blur transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100">
+          <span className="rounded-full border border-line-2 bg-black/75 px-3.5 py-1.5 text-[12.5px] text-text-2 opacity-0 backdrop-blur transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100">
             Click to use the keyboard in the viewport
           </span>
         </button>
@@ -212,9 +162,9 @@ export function DemoStudio({ variant = 'full', initial = 'normal_operations' }: 
             className={clsx('group w-full rounded-[20px] border px-4 py-3.5 text-left transition-colors', on ? 'border-transparent bg-lime text-lime-ink' : 'border-line bg-surface hover:border-line-2 hover:bg-surface-2')}>
             <span className="flex items-baseline justify-between gap-3">
               <span className="text-[15.5px] font-medium tracking-[-0.01em]">{SCENARIOS[k].title}</span>
-              <span className={clsx('num text-[12px]', on ? 'text-lime-ink/70' : 'text-muted')}>{String(i + 1).padStart(2, '0')}</span>
+              <span className={clsx('num text-[12px]', on ? 'text-lime-ink/90' : 'text-muted')}>{String(i + 1).padStart(2, '0')}</span>
             </span>
-            <span className={clsx('mt-1 block text-[13.5px] leading-snug', on ? 'text-lime-ink/75' : 'text-text-2')}>{SCENARIOS[k].summary}</span>
+            <span className={clsx('mt-1 block text-[13.5px] leading-snug', on ? 'text-lime-ink/90' : 'text-text-2')}>{SCENARIOS[k].summary}</span>
           </button>
         ) : (
           <button key={k} type="button" aria-pressed={on} onClick={() => setScenario(k)}

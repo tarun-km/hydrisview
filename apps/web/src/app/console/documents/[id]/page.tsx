@@ -4,13 +4,13 @@ import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { Archive, ArrowLeft, CheckCircle2, Info, Pencil, Printer, RotateCcw } from 'lucide-react';
+import { Archive, CheckCircle2, Info, Pencil, Printer, RotateCcw } from 'lucide-react';
 import { ASSET_TYPE_LABELS, DOCUMENT_KIND_LABELS } from '@hydris/domain';
 import { patch } from '@/lib/api';
 import { invalidatePaths, useApi } from '@/lib/query';
 import { useCan } from '@/lib/session';
 import { fmtDate, fmtDateTime } from '@/lib/format';
-import { Button, Card, Chip, ErrorState, KeyValues, Skeleton, StateChip } from '@/ui';
+import { Button, Card, Chip, ErrorState, KeyValues, Skeleton, StateChip, BackLink as UiBackLink } from '@/ui';
 import { ConfirmDialog } from '@/ui/overlay';
 import { DocumentBody, DocumentFormDialog, KIND_SHORT } from '@/console/work/documents';
 import type { DocumentFull } from '@/console/work/shared';
@@ -78,7 +78,7 @@ export default function DocumentReaderPage() {
           <Card title="Details">
             <KeyValues columns={1} items={[
               ['Kind', DOCUMENT_KIND_LABELS[d.kind]],
-              ['Applies to', d.assetId ? <Link className="text-[#9ebcff] hover:underline" href={`/console/assets/${d.assetId}`}>Specific asset</Link> : d.assetType ? ASSET_TYPE_LABELS[d.assetType] : 'Any asset'],
+              ['Applies to', d.assetId ? <Link className="text-accent hover:underline" href={`/console/assets/${d.assetId}`}>Specific asset</Link> : d.assetType ? ASSET_TYPE_LABELS[d.assetType] : 'Any asset'],
               ['Version', <span key="v" className="num">{d.version}</span>],
               ['Approved', d.approvedAt ? <span className="num">{fmtDateTime(d.approvedAt)}</span> : 'Not approved'],
               ['Last updated', <span key="u" className="num">{fmtDateTime(d.updatedAt)}</span>],
@@ -101,5 +101,5 @@ export default function DocumentReaderPage() {
 }
 
 function BackLink() {
-  return <Link href="/console/documents" className="mb-4 inline-flex items-center gap-1.5 text-sm text-text-2 hover:text-text"><ArrowLeft size={15} aria-hidden />Documents & SOPs</Link>;
+  return <UiBackLink href="/console/documents">Documents & SOPs</UiBackLink>;
 }

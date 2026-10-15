@@ -152,7 +152,7 @@ export function DocumentFormDialog({ open, onOpenChange, doc }: { open: boolean;
         <Input label="Tags" value={f.tags} onChange={(e) => setF({ ...f, tags: e.target.value })} placeholder="blower, changeover, aeration" hint="Comma separated, up to 20." error={touched ? errors.tags : null} />
         {redraft && (
           <p role="note" className="flex gap-2 rounded-2xl border border-[rgb(245_184_61/0.4)] bg-[rgb(245_184_61/0.08)] px-4 py-3 text-sm">
-            <AlertTriangle size={16} className="mt-0.5 flex-none text-medium" aria-hidden />
+            <AlertTriangle size={16} className="mt-0.5 flex-none text-medium-text" aria-hidden />
             <span>You changed the content of an approved document. Saving creates <b className="font-medium">version {doc!.version + 1} as a draft</b>; until it is approved again it is hidden from operators, field glasses and the procedures assistant.</span>
           </p>
         )}

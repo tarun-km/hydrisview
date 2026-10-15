@@ -9,7 +9,9 @@ import { DeviceLink } from './link';
 export interface GAlarm { id: string; title: string; severity: 'critical' | 'high' | 'medium' | 'low'; state: string; triggeredAt: string; assetTag: string | null; triggerValue: number | null; unit: string | null; recommendedAction: string | null; synthetic: boolean }
 export interface GInspectionSummary { id: string; title: string; status: string; priority: string; dueAt: string | null; assetTag: string | null; assetName: string | null; stepCount: number; revision: number }
 export interface GTask { id: string; title: string; status: string; priority: string; assetTag: string | null; checklist: { id: string; label: string; done: boolean }[] }
+import type { GMap } from './PlantMap';
 export interface GContext {
+  map?: GMap | null;
   device: { id: string; name: string; kind: string };
   operator: { id: string; name: string };
   organization: { name: string; isDemo: boolean };
@@ -39,7 +41,10 @@ export interface GlassesData {
   asset(id: string): Promise<GAsset>;
   assist(q: string, assetId?: string): Promise<GAssist>;
   toggleChecklist(taskId: string, itemId: string, done: boolean): Promise<void>;
+  notifications(): Promise<{ notifications: GNotification[]; unread: number }>;
+  markNotificationsRead(): Promise<void>;
 }
+export interface GNotification { id: string; title: string; body: string | null; severity: 'info' | 'success' | 'warning' | 'critical'; readAt: string | null; createdAt: string; kind: string }
 
 // ---------------- Live (paired device) ----------------
 export class LiveData implements GlassesData {
@@ -74,6 +79,12 @@ export class LiveData implements GlassesData {
   }
   assist(q: string, assetId?: string) {
     return this.link.call<GAssist>(`/assist?q=${encodeURIComponent(q)}${assetId ? `&assetId=${assetId}` : ''}`);
+  }
+  notifications() {
+    return this.link.call<{ notifications: GNotification[]; unread: number }>('/notifications');
+  }
+  async markNotificationsRead() {
+    await this.link.call('/notifications/read', { method: 'POST', json: {} });
   }
   async toggleChecklist(taskId: string, itemId: string, done: boolean) {
     await this.link.call(`/maintenance/${taskId}/checklist/${itemId}`, { method: 'POST', json: { done } });
@@ -132,6 +143,12 @@ export class DemoData implements GlassesData {
   }
   async context(): Promise<GContext> {
     return {
+      map: {
+        widthM: 120, heightM: 80,
+        areas: ([['EQ', [[6, 10], [44, 10], [44, 40], [6, 40]]], ['AER', [[50, 6], [82, 6], [82, 40], [50, 40]]], ['DOS', [[30, 46], [62, 46], [62, 62], [30, 62]]], ['CLR', [[68, 44], [100, 44], [100, 62], [68, 62]]], ['DIS', [[86, 64], [116, 64], [116, 78], [86, 78]]]] as [string, [number, number][]][])
+          .map(([code, polygon]) => ({ id: code, code, name: code, polygon })),
+        assets: SIM_PLANT.assets.map((a) => ({ id: a.tag, tag: a.tag, name: a.name, status: 'operational', x: (a.x / 100) * 120, y: (a.y / 100) * 80, openAlarms: this.alarms().filter((x) => x.assetTag === a.tag).length })),
+      },
       device: { id: 'demo', name: 'Demo glasses', kind: 'simulator' }, operator: { id: 'demo-op', name: 'Demo Operator' },
       organization: { name: 'Riverbend demo plant', isDemo: true }, site: { id: 'demo-site', name: SIM_PLANT.site.name, code: SIM_PLANT.site.code }, role: 'field_operator',
       inspections: this.status === 'submitted' ? [] : [{ id: 'demo-insp', title: 'Pump routine inspection · P-101', status: this.status, priority: 'normal', dueAt: new Date(this.started + 3 * 3600_000).toISOString(), assetTag: 'P-101', assetName: 'Transfer pump P-101', stepCount: DEMO_STEPS.length, revision: 1 }],
@@ -179,6 +196,19 @@ export class DemoData implements GlassesData {
       sources: key ? [{ id: key, title: DEMO_DOCS[key]!.title, kind: 'sop', version: 1, passage: DEMO_DOCS[key]!.passage }] : [],
       notice: 'Demo excerpt. In production, answers are excerpts of your organization’s approved documents.', telemetry: [],
     };
+  }
+  private readIds = new Set<string>();
+  async notifications() {
+    const base = Date.now() - this.started;
+    const items = ([
+      { id: 'n1', kind: 'inspection_assigned', severity: 'info', title: 'New inspection: Pump routine inspection · P-101', body: 'Assigned by your supervisor', createdAt: new Date(Date.now() - 600_000).toISOString(), readAt: null },
+      { id: 'n2', kind: 'maintenance_assigned', severity: 'info', title: 'Maintenance assigned: Dosing pump diaphragm check', body: null, createdAt: new Date(Date.now() - 1_800_000).toISOString(), readAt: null },
+      ...this.alarms().filter((a) => a.severity === 'critical' || a.severity === 'high').map((a) => ({ id: `n-${a.id}`, kind: 'alarm', severity: (a.severity === 'critical' ? 'critical' : 'warning') as GNotification['severity'], title: a.title, body: `${a.triggerValue} ${a.unit}`, createdAt: new Date(Date.now() - Math.min(base, 60_000)).toISOString(), readAt: null })),
+    ] as GNotification[]).map((n) => ({ ...n, readAt: this.readIds.has(n.id) ? n.createdAt : null }));
+    return { notifications: items, unread: items.filter((n) => !n.readAt).length };
+  }
+  async markNotificationsRead() {
+    for (const n of (await this.notifications()).notifications) this.readIds.add(n.id);
   }
   async toggleChecklist(_t: string, itemId: string, done: boolean) {
     this.checklist = this.checklist.map((c) => (c.id === itemId ? { ...c, done } : c));

@@ -45,7 +45,7 @@ export function SensorValue({ value, unit, decimals, freshness, size = 'sm' }: {
 }
 
 export const CONDITION_SHORT: Record<AlarmCondition, string> = { high_high: 'HH', high: 'H', low: 'L', low_low: 'LL', stale: 'Stale' };
-export const conditionTone = (c: AlarmCondition) => (c === 'high_high' || c === 'low_low' ? 'var(--color-critical)' : 'var(--color-high)');
+export const conditionTone = (c: AlarmCondition) => (c === 'high_high' || c === 'low_low' ? 'var(--color-critical-text)' : 'var(--color-high-text)');
 
 export function fmtDuration(s: number): string {
   if (s < 60) return `${s} s`;

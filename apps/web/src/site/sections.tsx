@@ -38,12 +38,12 @@ export function WorkflowStepper() {
             const start = Math.min(i, 4);
             return (
               <div key={s.n} className="relative" style={{ gridColumn: `${start + 1} / span 2`, gridRow: i + 1, marginLeft: i === 5 ? '50%' : undefined }}>
-                <div className={clsx('flex h-14 items-center justify-between rounded-full px-6 text-[18px]', lime ? 'bg-lime text-lime-ink' : 'bg-white/70')}>
+                <div className={clsx('flex h-14 items-center justify-between rounded-full px-6 text-[18px]', lime ? 'bg-lime text-lime-ink' : 'bg-paper')}>
                   <span>{s.t}</span>
                   <span className="num text-[15px] opacity-70">{s.n}</span>
                 </div>
                 <div className="mt-2 flex flex-wrap gap-2 pb-5">
-                  {s.subs.map((x) => <span key={x} className="tag-pill border-ink/80 bg-paper text-ink">{x}</span>)}
+                  {s.subs.map((x) => <span key={x} className="tag-pill bg-white text-ink">{x}</span>)}
                 </div>
               </div>
             );
@@ -53,7 +53,7 @@ export function WorkflowStepper() {
       {/* Accessible list (also the mobile layout) */}
       <ol className="grid gap-3 lg:sr-only">
         {STEPS.map((s, i) => (
-          <li key={s.n} className={clsx('rounded-[24px] p-5', i === 0 || i === STEPS.length - 1 ? 'bg-lime text-lime-ink' : 'bg-white/70')}>
+          <li key={s.n} className={clsx('rounded-[24px] p-5', i === 0 || i === STEPS.length - 1 ? 'bg-lime text-lime-ink' : 'bg-paper')}>
             <div className="flex items-baseline justify-between">
               <h3 className="text-[20px] tracking-[-0.02em]">{s.t}</h3>
               <span className="num text-[14px] opacity-70">{s.n}</span>
@@ -86,7 +86,7 @@ export function SafetyBlock({ headingId = 'safety-title' }: { headingId?: string
       <div className="mt-14 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {SAFETY.map((s, i) => (
           <article key={s.t} className={clsx('reveal flex flex-col rounded-[28px] p-6 lg:min-h-[300px]', i === 0 ? 'bg-paper text-ink' : 'border border-line bg-surface', `reveal-d${Math.min(i, 3)}`)}>
-            <span className={clsx('grid h-12 w-12 place-items-center rounded-full', i === 0 ? 'bg-ink text-lime' : 'bg-surface-3 text-text')}>
+            <span className={clsx('grid h-12 w-12 place-items-center rounded-full', i === 0 ? 'bg-lime text-white' : 'bg-surface-3 text-text')}>
               <s.icon size={20} aria-hidden />
             </span>
             <h3 className="t-section mt-auto pt-10">{s.t}</h3>
@@ -171,11 +171,11 @@ export function RoadmapBlock() {
       <div className="reveal rounded-[28px] bg-lime p-6 text-lime-ink sm:p-8">
         <div className="flex items-center justify-between">
           <h3 className="t-section">Available now</h3>
-          <span className="inline-flex h-9 items-center rounded-full bg-lime-ink px-4 text-[13px] text-lime">In this release</span>
+          <span className="inline-flex h-9 items-center rounded-full bg-white px-4 text-[13px] font-medium text-[#1746e4]">In this release</span>
         </div>
         <ul className="mt-8 grid gap-0">
           {AVAILABLE_NOW.map((a) => (
-            <li key={a} className="flex items-start gap-3 border-t border-lime-ink/15 py-3.5 text-[15.5px]">
+            <li key={a} className="flex items-start gap-3 border-t border-white/20 py-3.5 text-[15.5px]">
               <Check size={18} strokeWidth={2.2} className="mt-0.5 flex-none" aria-hidden />{a}
             </li>
           ))}

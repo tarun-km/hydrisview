@@ -40,28 +40,31 @@ export function GlassesArt({ className, title = 'Line illustration of monocular-
           <stop offset="1" stopColor="#fff" stopOpacity="0.01" />
         </linearGradient>
         <radialGradient id="hudGlow" cx="0.5" cy="0.5" r="0.6">
-          <stop offset="0" stopColor="var(--color-lime)" stopOpacity="0.55" />
-          <stop offset="1" stopColor="var(--color-lime)" stopOpacity="0" />
+          <stop offset="0" stopColor="#ffffff" stopOpacity="0.32" />
+          <stop offset="1" stopColor="#ffffff" stopOpacity="0" />
         </radialGradient>
       </defs>
-      {/* temples */}
-      <path d="M44 92 C 26 96, 14 104, 6 122" fill="none" stroke="currentColor" strokeWidth="10" strokeLinecap="round" opacity="0.55" />
-      <path d="M616 92 C 634 96, 646 104, 654 122" fill="none" stroke="currentColor" strokeWidth="10" strokeLinecap="round" opacity="0.55" />
-      {/* frame front */}
-      <path d="M40 78 C 40 66, 52 60, 66 60 L 286 60 C 304 60, 312 72, 330 72 C 348 72, 356 60, 374 60 L 594 60 C 608 60, 620 66, 620 78 L 620 104 L 40 104 Z" fill="#1d1d1d" stroke="currentColor" strokeWidth="2" />
-      {/* lenses */}
-      <rect x="66" y="74" width="218" height="140" rx="56" fill="url(#lensFill)" stroke="currentColor" strokeWidth="9" />
-      <rect x="376" y="74" width="218" height="140" rx="56" fill="url(#lensFill)" stroke="currentColor" strokeWidth="9" />
+      {/* temples (hinge stubs, receding) */}
+      <path d="M62 84 C 40 86, 22 92, 8 108" fill="none" stroke="currentColor" strokeWidth="9" strokeLinecap="round" opacity="0.45" />
+      <path d="M598 84 C 620 86, 638 92, 652 108" fill="none" stroke="currentColor" strokeWidth="9" strokeLinecap="round" opacity="0.45" />
+      {/* lenses: one continuous acetate rim each */}
+      {[0, 1].map((side) => (
+        <g key={side} transform={side ? 'translate(660 0) scale(-1 1)' : undefined}>
+          <path d="M66 92 C66 74 80 66 100 66 L262 66 C282 66 292 76 290 96 L284 150 C278 194 250 214 208 214 L146 214 C102 214 76 192 70 150 Z"
+            fill="url(#lensFill)" stroke="currentColor" strokeWidth="11" strokeLinejoin="round" />
+          <path d="M96 88 C 130 80, 170 78, 210 80" fill="none" stroke="#fff" strokeOpacity="0.14" strokeWidth="3" strokeLinecap="round" />
+        </g>
+      ))}
       {/* bridge */}
-      <path d="M284 112 C 300 94, 360 94, 376 112" fill="none" stroke="currentColor" strokeWidth="8" strokeLinecap="round" />
-      {/* camera + sensor */}
-      <circle cx="84" cy="80" r="6" fill="#0a0a0a" stroke="currentColor" strokeWidth="2" />
-      <circle cx="576" cy="80" r="3" fill="var(--color-lime)" />
+      <path d="M290 94 C 306 78, 354 78, 370 94" fill="none" stroke="currentColor" strokeWidth="10" strokeLinecap="round" />
+      {/* camera + status LED */}
+      <circle cx="90" cy="76" r="5.5" fill="#081116" stroke="currentColor" strokeWidth="2" />
+      <circle cx="572" cy="76" r="3" fill="#00fe21" />
       {/* in-lens display (right eye) */}
       <ellipse cx="486" cy="146" rx="90" ry="60" fill="url(#hudGlow)" />
-      <rect x="440" y="116" width="92" height="62" rx="10" fill="rgb(216 255 101 / 0.12)" stroke="var(--color-lime)" strokeWidth="1.5" />
-      <path d="M452 132 h40 M452 146 h64 M452 160 h28" stroke="var(--color-lime)" strokeWidth="3" strokeLinecap="round" />
-      <circle cx="512" cy="160" r="4" fill="var(--color-lime)" />
+      <rect x="440" y="116" width="92" height="62" rx="10" fill="rgb(255 255 255 / 0.10)" stroke="#ffffff" strokeWidth="1.5" />
+      <path d="M452 132 h40 M452 146 h64 M452 160 h28" stroke="#ffffff" strokeWidth="3" strokeLinecap="round" />
+      <circle cx="512" cy="160" r="4" fill="#ffffff" />
     </svg>
   );
 }
@@ -78,7 +81,7 @@ export function PlantSchematic({ className, highlight, showRoute = true, tone = 
     const a = SIM_PLANT.assets.find((x) => x.tag === tag)!;
     return { x: 6 + a.x * 0.92, y: 8 + a.y * 0.9 };
   };
-  const ink = tone === 'paper' ? '#111211' : '#f3f4f1';
+  const ink = tone === 'paper' ? 'var(--color-ink)' : 'var(--color-text)';
   const route = ROUND.map((t, i) => { const p = pos(t); return `${i ? 'L' : 'M'}${p.x} ${p.y}`; }).join(' ');
   return (
     <svg viewBox="0 0 100 80" role="img" aria-label={`Schematic of reference plant ${SIM_PLANT.facility.code}: ${SIM_PLANT.assets.map((a) => a.tag).join(', ')}, with the operator inspection round`} className={className}>
@@ -91,7 +94,7 @@ export function PlantSchematic({ className, highlight, showRoute = true, tone = 
         return <path key={a + b} d={`M${p.x} ${p.y} C ${(p.x + q.x) / 2} ${p.y}, ${(p.x + q.x) / 2} ${q.y}, ${q.x} ${q.y}`} fill="none" stroke={ink} strokeOpacity="0.45" strokeWidth="0.45" />;
       })}
       {showRoute && (
-        <path d={route} fill="none" stroke={tone === 'paper' ? '#111211' : 'var(--color-lime)'} strokeWidth="0.55" className="flow-line flow-line-slow" style={{ strokeDasharray: '0.6 1.6' }} />
+        <path d={route} fill="none" stroke={tone === 'paper' ? 'var(--hx-blue)' : 'var(--hx-tint)'} strokeWidth="0.55" className="flow-line flow-line-slow" style={{ strokeDasharray: '0.6 1.6' }} />
       )}
       {SIM_PLANT.assets.map((a) => {
         const p = pos(a.tag);
@@ -99,7 +102,7 @@ export function PlantSchematic({ className, highlight, showRoute = true, tone = 
         return (
           <g key={a.tag}>
             {hot && <circle cx={p.x} cy={p.y} r="3.2" fill="var(--color-high)" className="flow-pulse" />}
-            <circle cx={p.x} cy={p.y} r={a.type === 'tank' || a.type === 'clarifier' ? 3 : 2} fill={hot ? 'var(--color-high)' : tone === 'paper' ? '#e9e9e7' : '#111211'} stroke={hot ? 'var(--color-high)' : ink} strokeWidth="0.45" />
+            <circle cx={p.x} cy={p.y} r={a.type === 'tank' || a.type === 'clarifier' ? 3 : 2} fill={hot ? 'var(--color-high)' : tone === 'paper' ? 'var(--color-paper)' : 'var(--color-bg)'} stroke={hot ? 'var(--color-high)' : ink} strokeWidth="0.45" />
             <text x={p.x + 3.6} y={p.y + 1} fontSize="2.6" fill={ink} fillOpacity="0.85" fontFamily="var(--font-sans)">{a.tag}</text>
           </g>
         );
@@ -118,7 +121,7 @@ export function RealityIcon({ kind }: { kind: 'noise' | 'wet' | 'gloves' | 'roun
       {kind === 'wet' && <g {...common}><path d="M24 12c5 7 8 11 8 15a8 8 0 0 1-16 0c0-4 3-8 8-15z" /><path d="M20 28a4 4 0 0 0 4 4" /></g>}
       {kind === 'gloves' && <g {...common}><path d="M17 35V22c0-1.5 2.5-1.5 2.5 0v-6c0-1.6 2.6-1.6 2.6 0v-2c0-1.6 2.6-1.6 2.6 0v2c0-1.6 2.6-1.6 2.6 0v8l2-2.6c1-1.3 3.2-.2 2.4 1.4L28 35z" /></g>}
       {kind === 'rounds' && <g {...common}><circle cx="15" cy="31" r="2.5" /><circle cx="33" cy="17" r="2.5" /><path d="M17 29c4-4 3-10 8-10s3 0 6-1" strokeDasharray="2 3" /></g>}
-      {kind === 'permit' && <g {...common}><rect x="15" y="13" width="18" height="22" rx="2" /><path d="M19 19h10M19 24h10M19 29h6" /><circle cx="31" cy="31" r="4" fill="#0a0a0a" /><path d="M29.5 31l1 1 2-2" /></g>}
+      {kind === 'permit' && <g {...common}><rect x="15" y="13" width="18" height="22" rx="2" /><path d="M19 19h10M19 24h10M19 29h6" /><circle cx="31" cy="31" r="4" fill="var(--color-bg)" /><path d="M29.5 31l1 1 2-2" /></g>}
       {kind === 'light' && <g {...common}><circle cx="24" cy="24" r="5" /><path d="M24 13v3M24 32v3M13 24h3M32 24h3M16.5 16.5l2 2M29.5 29.5l2 2M16.5 31.5l2-2M29.5 18.5l2-2" /></g>}
     </svg>
   );

@@ -1,30 +1,33 @@
 import Link from 'next/link';
 import type { ReactNode } from 'react';
 import { Logo } from '@/site/Logo';
+import { ThemeToggle } from '@/ui/theme';
+import { ThemedLogo } from './ThemedLogo';
 
-/** Split layout for auth flows: editorial statement left, focused form right. */
+/** Split layout for auth flows: brand-book royal-blue statement panel left, focused form right. */
 export function AuthFrame({ title, subtitle, children }: { title: string; subtitle?: ReactNode; children: ReactNode }) {
   return (
     <div className="grid min-h-dvh lg:grid-cols-[1.05fr_1fr]">
-      <aside className="relative hidden overflow-hidden border-r border-line bg-bg-2 p-12 lg:flex lg:flex-col lg:justify-between">
-        <Link href="/" aria-label="Hydris home"><Logo /></Link>
-        <div>
-          <p className="t-eyebrow mb-5">Hydris Field Glasses</p>
-          <p className="t-hero max-w-[14ch]">Plant context, <span className="text-lime">in view.</span></p>
-          <p className="mt-6 max-w-md text-text-2">Live telemetry, guided inspections and approved procedures for wastewater teams — on smart glasses and in a secure console.</p>
+      <aside className="relative hidden overflow-hidden bg-[radial-gradient(120%_120%_at_100%_0%,#2a63ff_0%,#1746e4_42%,#0c1e85_100%)] p-12 text-white lg:flex lg:flex-col lg:justify-between">
+        {/* brand outline mark as quiet texture */}
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src="/brand/mark-stroke.png" alt="" aria-hidden className="pointer-events-none absolute -bottom-24 -right-28 w-[620px] max-w-none select-none opacity-[0.14] mix-blend-screen" />
+        <Link href="/" aria-label="Hydris AI home" className="relative w-fit rounded-full"><Logo tone="white" /></Link>
+        <div className="relative">
+          <p className="t-eyebrow mb-5 !text-white/85">Hydris Field Glasses</p>
+          <p className="t-hero max-w-[14ch]">Plant context, in view.</p>
+          <p className="mt-6 max-w-md text-[17px] leading-relaxed text-white/90">Live telemetry, guided inspections and approved procedures for wastewater teams — on smart glasses and in a secure console.</p>
         </div>
-        <div className="flex flex-wrap gap-2">
-          {['Tenant-isolated', 'Audited', 'Advisory only — no remote control'].map((t) => <span key={t} className="chip chip-outline">{t}</span>)}
+        <div className="relative flex flex-wrap gap-2">
+          {['Tenant-isolated', 'Audited', 'Advisory only — no remote control'].map((t) => (
+            <span key={t} className="chip border-white/30 bg-white/10 text-white backdrop-blur-sm">{t}</span>
+          ))}
         </div>
-        <svg aria-hidden className="pointer-events-none absolute -right-24 top-24 h-[520px] w-[520px] text-line-2" viewBox="0 0 400 400" fill="none">
-          {Array.from({ length: 9 }, (_, i) => <path key={i} d={`M${20 + i * 6} ${380 - i * 10} C ${120 + i * 9} ${260 - i * 22}, ${220 - i * 4} ${300 - i * 30}, ${380 - i * 8} ${40 + i * 14}`} stroke="currentColor" />)}
-          <path d="M40 360 C 140 250, 230 280, 360 70" stroke="var(--color-lime)" strokeWidth="3" strokeLinecap="round" />
-          <circle cx="360" cy="70" r="7" fill="var(--color-lime)" />
-        </svg>
       </aside>
-      <main id="main" className="flex items-center justify-center px-5 py-12">
-        <div className="w-full max-w-[420px]">
-          <Link href="/" className="mb-10 inline-block lg:hidden" aria-label="Hydris home"><Logo /></Link>
+      <main id="main" className="relative flex items-center justify-center px-5 py-12">
+        <div className="absolute right-4 top-4 sm:right-6 sm:top-6"><ThemeToggle size="sm" /></div>
+        <div className="w-full max-w-[420px] fade-in">
+          <Link href="/" className="mb-10 inline-block rounded-full lg:hidden" aria-label="Hydris AI home"><ThemedLogo /></Link>
           <h1 className="t-page">{title}</h1>
           {subtitle && <p className="mt-2 text-text-2">{subtitle}</p>}
           <div className="mt-8">{children}</div>

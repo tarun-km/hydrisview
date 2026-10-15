@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import clsx from 'clsx';
 import { ArrowUpRight, Zap } from 'lucide-react';
-import { ContourField, GlassesArt, RealityIcon } from '@/site/art';
+import { GlassesArt, RealityIcon } from '@/site/art';
 import { PlatformDiagram } from '@/site/diagrams';
 import { DemoStudio, HeroGlassesPreview } from '@/site/LiveGlasses';
 import { ArrowCircle, CtaBand, HlIcon, HlPill, SectionLabel, StatPill } from '@/site/primitives';
@@ -31,11 +31,12 @@ export default function HomePage() {
       <section className="site-container site-section" aria-labelledby="safety-title"><SafetyBlock /></section>
       <Architecture />
       <Roadmap />
+      <BrandMoment />
       <section className="site-container site-section-tight" aria-label="Frequently asked questions">
         <Faq
           title="Straight answers to common questions"
           intro="If you run a plant and want to know whether Hydris fits, these are the questions operations leads ask first."
-          action={<Link href="/contact" className="btn bg-ink text-paper hover:bg-black">Ask our team <ArrowUpRight size={16} aria-hidden /></Link>}
+          action={<Link href="/contact" className="btn btn-primary">Ask our team <ArrowUpRight size={16} aria-hidden /></Link>}
           items={[
             { q: 'Can Hydris start, stop or adjust equipment?', a: 'No. Hydris is advisory only. It has no write path to SCADA, PLCs, pumps, valves, blowers or dosing systems. It shows context and records what operators observe and do.' },
             { q: 'Which glasses does it run on today?', a: 'Today the glasses experience runs as a 600 × 600 web viewport, with a browser simulator for training and demos. A native adapter for Meta Ray-Ban Display class monocular glasses is planned; we will confirm hardware support with you before any rollout.' },
@@ -52,66 +53,107 @@ export default function HomePage() {
 /* ---------------------------------------------------------------- Hero */
 function Hero() {
   return (
-    <section className="site-container pt-6 lg:pt-12" aria-labelledby="hero-title">
-      <div className="reveal flex flex-wrap items-center gap-2">
-        <span className="chip chip-outline">ETP · STP · WTP operations</span>
-        <span className="chip chip-outline"><span className="dot bg-lime" aria-hidden /> Advisory only — never actuates</span>
-      </div>
-      <h1 id="hero-title" className="t-display reveal mt-8 max-w-[17ch] lg:mt-10">
-        Your plant, <HlPill tone="lime" icon={<span className="h-[0.16em] w-[0.16em] rounded-full bg-lime-ink" aria-hidden />}>live</HlPill> in the operator’s field of view — rounds, alarms and <HlPill tone="surface">SOP</HlPill> approved procedures, hands-free.
-      </h1>
+    <section className="site-container pt-4 lg:pt-6" aria-labelledby="hero-title">
+      <div className="stage-blue px-5 pb-8 pt-10 sm:px-8 lg:px-14 lg:pb-14 lg:pt-16">
+        <div aria-hidden className="brand-stroke absolute -right-48 -top-40 h-[980px] w-[700px] text-white/30 lg:-right-10" />
+        <div className="relative">
+          <div className="reveal flex flex-wrap items-center gap-2">
+            <span className="chip chip-outline">Hydris AI · Field Glasses</span>
+            <span className="chip chip-outline">ETP · STP · WTP</span>
+            <span className="chip chip-outline"><span className="dot bg-white" aria-hidden /> Advisory only — never actuates</span>
+          </div>
+          <h1 id="hero-title" className="t-display reveal mt-8 max-w-[18ch] lg:mt-10">
+            Your plant, <HlPill tone="lime" icon={<span className="h-[0.16em] w-[0.16em] rounded-full bg-[#1746e4]" aria-hidden />}>live</HlPill> in the operator’s field of view — rounds, alarms and approved procedures, hands-free.
+          </h1>
 
-      <div className="site-grid mt-10 gap-y-10 lg:mt-14">
-        <div className="reveal reveal-d1 col-span-12 md:col-span-6 lg:col-span-5">
-          <p className="t-lead text-text-2">
-            Hydris Field Glasses puts live telemetry, guided inspections and approved SOPs on a monocular display, so wastewater operators keep their eyes on the
-            equipment and their hands on the job. Supervisors run sites, assets, alarms and the glasses fleet from a secure Operator Console.
-          </p>
-          <div className="mt-8 flex flex-wrap gap-3">
-            <Link href="/contact?type=demo" className="btn btn-primary btn-lg">Request a demo <ArrowUpRight size={16} aria-hidden /></Link>
-            <Link href="/demo" className="btn btn-outline btn-lg">Try the live viewport</Link>
-          </div>
-        </div>
-        <div className="reveal reveal-d2 col-span-12 flex flex-col items-start gap-3 md:col-span-6 md:items-end lg:col-span-6 lg:col-start-7">
-          <div className="flex flex-wrap gap-3 md:justify-end">
-            <StatPill k="Control commands sent" v="0 — advisory" lime />
-            <StatPill k="Display canvas" v="600 × 600" />
-          </div>
-          <div className="flex flex-wrap gap-3 md:justify-end">
-            <StatPill k="Inputs" v="4 buttons" />
-            <StatPill k="Pairing code" v="5 min, single-use" />
-            <StatPill k="Scenarios" v="10" />
-          </div>
-        </div>
-      </div>
-
-      {/* Stage: contour field, glasses line-art, live viewport */}
-      <div className="stage reveal relative mt-14 overflow-hidden lg:mt-20">
-        <ContourField className="absolute inset-0 h-full w-full text-[#3b3d39]" cx={360} cy={360} rings={18} />
-        <div className="relative grid gap-12 px-4 pb-16 pt-10 sm:px-8 lg:grid-cols-12 lg:items-center lg:px-12 lg:py-16">
-          <div className="lg:col-span-7">
-            <div className="flex items-center gap-3 text-[13px] text-muted">
-              <span className="dot pulse-dot bg-ok" aria-hidden /> Riverbend Industrial Park · ETP-01 · synthetic reference plant
-            </div>
-            <GlassesArt className="mt-8 h-auto w-full max-w-[640px] text-[#8b8d88]" />
-            <div className="mt-8 grid max-w-[620px] grid-cols-1 gap-3 sm:grid-cols-2">
-              <div className="float-y rounded-[24px] bg-paper p-5 text-ink shadow-[var(--shadow-2)]">
-                <div className="flex items-center justify-between text-[13px] text-ink-2"><span>VT-101 · Transfer pump P-101</span><span className="dot bg-high" aria-hidden /></div>
-                <div className="mt-3 flex items-baseline gap-2"><span className="t-kpi">5.6</span><span className="text-[14px] text-ink-2">mm/s</span></div>
-                <div className="mt-2 text-[13px] text-ink-2">High limit 4.5 · rising for 4 min</div>
+          <div className="site-grid mt-10 gap-y-10 lg:mt-14">
+            <div className="reveal reveal-d1 col-span-12 md:col-span-6 lg:col-span-5">
+              <p className="t-lead text-white/90">
+                Hydris Field Glasses puts live telemetry, guided inspections and approved SOPs on a monocular display, so wastewater operators keep their eyes on the
+                equipment and their hands on the job. Supervisors run sites, assets, alarms and the glasses fleet from a secure Operator Console.
+              </p>
+              <div className="mt-8 flex flex-wrap gap-3">
+                <Link href="/contact?type=demo" className="btn btn-light btn-lg">Request a demo <ArrowUpRight size={16} aria-hidden /></Link>
+                <Link href="/demo" className="btn btn-outline-ink btn-lg">Try the live viewport</Link>
               </div>
-              <div className="rounded-[24px] bg-lime p-5 text-lime-ink">
-                <div className="text-[13px] text-lime-ink/70">Morning round</div>
-                <div className="mt-3 t-kpi">3<span className="text-[22px] text-lime-ink/60"> / 7</span></div>
-                <div className="mt-2 text-[13px] text-lime-ink/75">Next: aeration blower BL-102</div>
+            </div>
+            <div className="reveal reveal-d2 col-span-12 flex flex-col items-start gap-3 md:col-span-6 md:items-end lg:col-span-6 lg:col-start-7">
+              <div className="flex flex-wrap gap-3 md:justify-end">
+                <StatPill k="Control commands sent" v="0 — advisory" lime />
+                <StatPill k="Display canvas" v="600 × 600" />
+              </div>
+              <div className="flex flex-wrap gap-3 md:justify-end">
+                <StatPill k="Inputs" v="4 buttons" />
+                <StatPill k="Pairing code" v="5 min, single-use" />
+                <StatPill k="Scenarios" v="10" />
               </div>
             </div>
           </div>
-          <div className="mx-auto w-full max-w-[420px] pb-6 lg:col-span-5">
-            <HeroGlassesPreview scenario="pump_vibration" />
-            <p className="mt-12 text-center text-[12.5px] text-muted">Live viewport · synthetic data · use the buttons</p>
+
+          {/* Product moment: glasses line-art + the live viewport */}
+          <div className="reveal mt-14 grid gap-12 rounded-[28px] bg-[#0c1e85]/45 px-4 pb-16 pt-10 ring-1 ring-white/15 sm:px-8 lg:mt-20 lg:grid-cols-12 lg:items-center lg:rounded-[32px] lg:px-12 lg:py-14">
+            <div className="lg:col-span-7">
+              <div className="flex items-center gap-3 text-[13px] text-white/85">
+                <span className="dot pulse-dot bg-ok" aria-hidden /> Riverbend Industrial Park · ETP-01 · synthetic reference plant
+              </div>
+              <GlassesArt className="mt-8 h-auto w-full max-w-[640px] text-white/85" />
+              <div className="mt-8 grid max-w-[620px] grid-cols-1 gap-3 sm:grid-cols-2">
+                <div className="float-y rounded-[24px] bg-white p-5 text-ink shadow-[0_24px_60px_rgb(8_17_22/0.35)]">
+                  <div className="flex items-center justify-between text-[13px] text-ink-2"><span>VT-101 · Transfer pump P-101</span><span className="dot bg-[#ff2800]" aria-hidden /></div>
+                  <div className="mt-3 flex items-baseline gap-2"><span className="t-kpi">5.6</span><span className="text-[14px] text-ink-2">mm/s</span></div>
+                  <div className="mt-2 text-[13px] text-ink-2">High limit 4.5 · rising for 4 min</div>
+                </div>
+                <div className="rounded-[24px] bg-[#081116] p-5 text-white">
+                  <div className="text-[13px] text-white/80">Morning round</div>
+                  <div className="mt-3 t-kpi">3<span className="text-[22px] text-white/70"> / 7</span></div>
+                  <div className="mt-2 text-[13px] text-white/80">Next: aeration blower BL-102</div>
+                </div>
+              </div>
+            </div>
+            <div className="mx-auto w-full max-w-[420px] pb-6 lg:col-span-5">
+              <HeroGlassesPreview scenario="pump_vibration" />
+              <p className="mt-12 text-center text-[12.5px] text-white/85">Live viewport · synthetic data · use the buttons</p>
+            </div>
           </div>
         </div>
+      </div>
+    </section>
+  );
+}
+
+/* --------------------------------------------------------- Brand */
+function BrandMoment() {
+  const values = [
+    { t: 'Clarity', d: 'One calm view of what matters at the asset — never a wall of numbers.' },
+    { t: 'Responsibility', d: 'Advisory by design, audited end to end, honest about what is planned.' },
+    { t: 'Thoughtful innovation', d: 'New technology only where it makes an operator’s shift safer or simpler.' },
+  ];
+  return (
+    <section className="site-container site-section-tight" aria-labelledby="brand-title">
+      <div className="stage-blue stage-deep px-5 py-14 sm:px-10 lg:px-14 lg:py-24">
+        <div aria-hidden className="brand-stroke absolute -bottom-56 -left-40 h-[900px] w-[640px] text-white/20" />
+        <div className="relative site-grid gap-y-10">
+          <div className="col-span-12 lg:col-span-7">
+            <SectionLabel className="reveal !text-white/85">About Hydris AI</SectionLabel>
+            <h2 id="brand-title" className="t-statement reveal mt-8">Guiding water systems with clarity and confidence.</h2>
+            <p className="reveal mt-6 max-w-[56ch] text-[16.5px] leading-relaxed text-white/85">
+              Founded in 2024, Hydris AI turns the tribal knowledge of experienced operators into intelligent, real-time guidance — so every shift runs with the
+              judgement of your best people.
+            </p>
+          </div>
+          <div className="reveal col-span-12 flex items-center justify-center lg:col-span-4 lg:col-start-9">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/brand/mark-white.png" alt="" width={220} height={224} className="h-auto w-[160px] lg:w-[220px]" />
+          </div>
+        </div>
+        <ul className="relative mt-14 grid gap-4 md:grid-cols-3">
+          {values.map((v, i) => (
+            <li key={v.t} className={`reveal reveal-d${i} border-t border-white/30 pt-6`}>
+              <h3 className="text-[22px] font-semibold tracking-[-0.02em]">{v.t}</h3>
+              <p className="mt-2 text-[15px] leading-relaxed text-white/85">{v.d}</p>
+            </li>
+          ))}
+        </ul>
       </div>
     </section>
   );
@@ -278,7 +320,7 @@ function CapCard({ title, body, href, tone = 'dark', className, wide }: { title:
         <h3 className="t-section max-w-[14ch]">{title}</h3>
         <CapLink href={href} label={`More about ${title.toLowerCase()}`} tone={tone === 'lime' ? 'ink' : 'light'} />
       </div>
-      <p className={clsx('mt-auto pt-8 text-[15px] leading-relaxed', tone === 'lime' ? 'text-lime-ink/75' : 'text-text-2', wide && 'max-w-[60ch]')}>{body}</p>
+      <p className={clsx('mt-auto pt-8 text-[15px] leading-relaxed', tone === 'lime' ? 'text-lime-ink/90' : 'text-text-2', wide && 'max-w-[60ch]')}>{body}</p>
     </article>
   );
 }

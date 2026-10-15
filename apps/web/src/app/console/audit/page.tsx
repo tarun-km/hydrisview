@@ -106,7 +106,7 @@ export default function AuditPage() {
                         const expanded = open === e.id;
                         return (
                           <Fragment key={e.id}>
-                            <tr className={cx(expanded && 'bg-white/[0.03]')} data-href="" onClick={() => setOpen(expanded ? null : e.id)}>
+                            <tr className={cx(expanded && 'bg-tint')} data-href="" onClick={() => setOpen(expanded ? null : e.id)}>
                               <td className="pr-0">
                                 <button type="button" className="icon-btn icon-btn-sm h-7 w-7 border-transparent bg-transparent" aria-expanded={expanded} aria-controls={`audit-${e.id}`}
                                   aria-label={expanded ? 'Hide details' : 'Show details'} onClick={(ev) => { ev.stopPropagation(); setOpen(expanded ? null : e.id); }}>
@@ -121,7 +121,7 @@ export default function AuditPage() {
                                 {e.actorName ?? e.actorLabel ?? (e.actorDeviceId ? 'Field glasses' : 'System')}
                                 {e.actorDeviceId && <div className="text-xs text-muted">via glasses</div>}
                               </td>
-                              <td><code className={cx('rounded-md px-1.5 py-0.5 font-mono text-[12.5px]', /revoked|failed|reuse|deactivated|suspended/.test(e.action) ? 'bg-[rgb(255_90_78/0.12)] text-[#ff8a80]' : 'bg-surface-2 text-text-2')}>{e.action}</code></td>
+                              <td><code className={cx('rounded-md px-1.5 py-0.5 font-mono text-[12.5px]', /revoked|failed|reuse|deactivated|suspended/.test(e.action) ? 'bg-[rgb(255_40_0/0.12)] text-critical-text' : 'bg-surface-2 text-text-2')}>{e.action}</code></td>
                               <td className="whitespace-nowrap text-text-2">{e.entityType ? pretty(e.entityType) : '—'}</td>
                               <td><span className="block max-w-[360px] truncate" title={e.summary ?? undefined}>{e.summary ?? <span className="text-muted">—</span>}</span></td>
                               <td className="whitespace-nowrap font-mono text-[12.5px] text-muted">{e.ip ?? '—'}</td>

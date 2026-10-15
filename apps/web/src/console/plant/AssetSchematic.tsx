@@ -9,10 +9,10 @@ import { ASSET_TYPE_LABELS, type AssetType } from '@hydris/domain';
  * alarm colour when not).
  */
 export function AssetSchematic({ type, accent = 'var(--color-lime)', className }: { type: AssetType; accent?: string; className?: string }) {
-  const S = { fill: 'none', stroke: 'rgb(243 244 241 / 0.78)', strokeWidth: 2, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const };
-  const F = { fill: 'rgb(255 255 255 / 0.04)', stroke: 'rgb(243 244 241 / 0.78)', strokeWidth: 2, strokeLinejoin: 'round' as const };
+  const S = { fill: 'none', stroke: 'var(--color-text)', strokeOpacity: 0.78, strokeWidth: 2, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const };
+  const F = { fill: 'var(--color-tint)', stroke: 'var(--color-text)', strokeOpacity: 0.78, strokeWidth: 2, strokeLinejoin: 'round' as const };
   const A = { fill: 'none', stroke: accent, strokeWidth: 3, strokeLinecap: 'round' as const };
-  const pipe = (d: string) => <path d={d} {...S} strokeWidth={10} stroke="rgb(255 255 255 / 0.08)" />;
+  const pipe = (d: string) => <path d={d} {...S} strokeWidth={10} stroke="var(--color-chart-track)" strokeOpacity={1} />;
   const base = <path d="M40 228 H360" {...S} strokeOpacity={0.35} strokeDasharray="2 8" />;
 
   const art: Record<AssetType, ReactNode> = {

@@ -170,7 +170,7 @@ function SiteMap({ siteId, sites, onSite, initialAsset }: { siteId: string; site
 
             {/* top-left HUD: site capsule + state machine capsule */}
             <div data-map-ui className="absolute left-3 top-3 flex max-w-[calc(100%-80px)] flex-wrap items-center gap-2">
-              <label className="relative inline-flex h-11 items-center rounded-full border border-line-2 bg-[rgb(27_27_27/0.9)] pl-4 pr-2 backdrop-blur">
+              <label className="relative inline-flex h-11 items-center rounded-full border border-line-2 bg-surface/90 pl-4 pr-2 backdrop-blur">
                 <MapPin size={15} className="text-lime" aria-hidden />
                 <span className="sr-only">Site</span>
                 <select value={site.id} onChange={(e) => onSite(e.target.value)} className="h-full max-w-[200px] cursor-pointer appearance-none truncate bg-transparent pl-2 pr-6 text-sm outline-none">
@@ -179,7 +179,7 @@ function SiteMap({ siteId, sites, onSite, initialAsset }: { siteId: string; site
                 <span className="pointer-events-none absolute right-3 text-muted" aria-hidden>▾</span>
               </label>
               {canReadRoutes && (
-                <div role="tablist" aria-label="Map mode" className="capsule capsule-lime border-line-2 bg-[rgb(27_27_27/0.9)] backdrop-blur">
+                <div role="tablist" aria-label="Map mode" className="capsule capsule-lime border-line-2 bg-surface/90 backdrop-blur">
                   <button type="button" role="tab" aria-selected={mode === 'explore'} onClick={() => goMode('explore')}><Crosshair size={14} aria-hidden />Explore</button>
                   <button type="button" role="tab" aria-selected={mode === 'edit'} onClick={() => goMode('edit')} disabled={!canManageRoutes}
                     title={canManageRoutes ? undefined : 'Requires permission to manage inspections'} className="disabled:cursor-not-allowed disabled:opacity-40"><Pencil size={14} aria-hidden />Edit</button>
@@ -366,11 +366,11 @@ function Legend() {
             {items.map(([l, c]) => <li key={l} className="flex items-center gap-2"><span className="dot" style={{ background: c }} aria-hidden />{l}</li>)}
             <li className="flex items-center gap-2"><span className="grid h-4 w-4 place-items-center rounded-full bg-lime text-[9px] font-bold text-lime-ink">1</span>Route stop</li>
             <li className="flex items-center gap-2"><span className="h-[3px] w-5 rounded-full bg-lime ring-2 ring-black" aria-hidden />Route (dashed while editing)</li>
-            <li className="flex items-center gap-2"><span className="h-3 w-5 rounded-sm border border-white/30 bg-white/5" aria-hidden />Process area</li>
+            <li className="flex items-center gap-2"><span className="h-3 w-5 rounded-sm border border-text/30 bg-text/5" aria-hidden />Process area</li>
           </ul>
         </div>
       ) : (
-        <button type="button" onClick={() => setOpen(true)} className="chip h-9 border-line-2 bg-[rgb(27_27_27/0.9)] px-4 backdrop-blur">Legend</button>
+        <button type="button" onClick={() => setOpen(true)} className="chip h-9 border-line-2 bg-surface/90 px-4 backdrop-blur">Legend</button>
       )}
     </div>
   );

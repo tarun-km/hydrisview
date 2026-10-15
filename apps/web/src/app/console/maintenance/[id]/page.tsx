@@ -5,13 +5,13 @@ import { useParams } from 'next/navigation';
 import { useState, type ReactNode } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import clsx from 'clsx';
-import { ArrowLeft, Ban, Check, CheckCircle2, Info, Pause, Pencil, Play, RotateCcw, Send } from 'lucide-react';
+import { Ban, Check, CheckCircle2, Info, Pause, Pencil, Play, RotateCcw, Send } from 'lucide-react';
 import { MAINTENANCE_STATUS_LABELS, MAINTENANCE_TRANSITIONS, canTransitionMaintenance, type MaintenanceAction } from '@hydris/domain';
 import { post } from '@/lib/api';
 import { invalidatePaths, useApi } from '@/lib/query';
 import { useCan, useSession } from '@/lib/session';
 import { ago, fmtDateTime, label as humanize, until } from '@/lib/format';
-import { Button, Card, Chip, ErrorState, KeyValues, PageHeader, Skeleton, StateChip, SyntheticBadge, Timeline } from '@/ui';
+import { Button, Card, Chip, ErrorState, KeyValues, PageHeader, Skeleton, StateChip, SyntheticBadge, Timeline, BackLink as UiBackLink } from '@/ui';
 import { ConfirmDialog, useToast } from '@/ui/overlay';
 import { AttachmentList, UploadButton } from '@/console/work/attachments';
 import { EditTaskDialog, NO_ACTUATION } from '@/console/work/maintenance-forms';
@@ -151,7 +151,7 @@ export default function MaintenanceDetailPage() {
         </div>
       </PageHeader>
 
-      <div role="note" className="mb-4 flex items-start gap-3 rounded-[var(--radius-xl)] border border-[rgb(59_123_255/0.35)] bg-[rgb(59_123_255/0.07)] p-4 text-sm text-text-2">
+      <div role="note" className="mb-4 flex items-start gap-3 rounded-[var(--radius-xl)] border border-[rgb(138_96_240/0.35)] bg-[rgb(138_96_240/0.07)] p-4 text-sm text-text-2">
         <Info size={17} className="mt-0.5 flex-none text-cobalt" aria-hidden /><span>{NO_ACTUATION}</span>
       </div>
 
@@ -177,7 +177,7 @@ export default function MaintenanceDetailPage() {
                 {t.checklist.map((c) => (
                   <li key={c.id}>
                     <button type="button" role="checkbox" aria-checked={c.done} disabled={!canToggle || busy === `c-${c.id}`} onClick={() => void toggle(c.id, !c.done)}
-                      className={clsx('flex w-full items-center gap-3 rounded-2xl border px-4 py-3 text-left transition-colors', c.done ? 'border-[rgb(78_217_142/0.3)] bg-[rgb(78_217_142/0.06)]' : 'border-line bg-bg-2', canToggle && 'hover:border-line-2', !canToggle && 'cursor-default')}>
+                      className={clsx('flex w-full items-center gap-3 rounded-2xl border px-4 py-3 text-left transition-colors', c.done ? 'border-[rgb(0_254_33/0.3)] bg-[rgb(0_254_33/0.06)]' : 'border-line bg-bg-2', canToggle && 'hover:border-line-2', !canToggle && 'cursor-default')}>
                       <span className={clsx('grid h-6 w-6 flex-none place-items-center rounded-lg border', c.done ? 'border-transparent bg-ok text-ink' : 'border-line-2')}>{c.done && <Check size={15} aria-hidden />}</span>
                       <span className={clsx('min-w-0 flex-1 text-sm', c.done && 'text-text-2 line-through decoration-text-2/40')}>{c.label}</span>
                       {c.done && c.doneAt && <span className="text-xs text-muted num">{ago(c.doneAt)}</span>}
@@ -213,7 +213,7 @@ export default function MaintenanceDetailPage() {
         <aside className="grid content-start gap-4">
           <Card title="Details">
             <KeyValues columns={1} items={[
-              ['Asset', t.asset ? <Link className="text-[#9ebcff] hover:underline" href={`/console/assets/${t.asset.id}`}>{t.asset.tag} · {t.asset.name}</Link> : 'No specific asset'],
+              ['Asset', t.asset ? <Link className="text-accent hover:underline" href={`/console/assets/${t.asset.id}`}>{t.asset.tag} · {t.asset.name}</Link> : 'No specific asset'],
               ['Assignee', t.assignee?.name ?? 'Unassigned'],
               ['Due', t.dueAt ? <span className="num">{fmtDateTime(t.dueAt)}{isOpen && <span className="text-muted"> · {until(t.dueAt)}</span>}</span> : 'No due date'],
               ['Created', <span key="c" className="num">{fmtDateTime(t.createdAt)}</span>],
@@ -251,5 +251,5 @@ export default function MaintenanceDetailPage() {
 }
 
 function BackLink() {
-  return <Link href="/console/maintenance" className="mb-4 inline-flex items-center gap-1.5 text-sm text-text-2 hover:text-text"><ArrowLeft size={15} aria-hidden />All maintenance</Link>;
+  return <UiBackLink href="/console/maintenance">All maintenance</UiBackLink>;
 }

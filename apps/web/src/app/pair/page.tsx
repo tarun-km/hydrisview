@@ -3,12 +3,13 @@
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useState, type FormEvent } from 'react';
-import { Check, Glasses, ShieldCheck, X } from 'lucide-react';
+import { ArrowLeft, Check, Glasses, KeyRound, ShieldCheck, UserRoundCheck, X } from 'lucide-react';
 import { ROLE_LABELS, formatPairingCode, isValidPairingCode, type Role } from '@hydris/domain';
 import { api, errorMessage, post } from '@/lib/api';
 import { useSessionCtx } from '@/lib/session';
 import { Button, Input, Select } from '@/ui';
-import { Logo } from '@/site/Logo';
+import { ThemedLogo } from '@/console/ThemedLogo';
+import { ThemeToggle } from '@/ui/theme';
 
 interface Lookup {
   challenge: { code: string; device: { kind: string; model?: string; appVersion?: string; display?: { width: number; height: number }; name?: string }; requestedAt: string; expiresAt: string };
@@ -80,20 +81,38 @@ function PairFlow() {
     }
   };
 
-  if (state.status !== 'authed') return <div className="grid min-h-dvh place-items-center"><span className="pulse-dot"><Logo /></span></div>;
+  if (state.status !== 'authed') return <div className="grid min-h-dvh place-items-center"><span className="pulse-dot"><ThemedLogo /></span></div>;
 
   return (
-    <main id="main" className="mx-auto flex min-h-dvh max-w-[520px] flex-col px-5 py-8">
-      <div className="mb-10 flex items-center justify-between">
-        <Link href="/console" aria-label="Console"><Logo /></Link>
-        <Link href="/console/devices" className="text-sm text-text-2">Fleet</Link>
+    <main id="main" className="mx-auto flex min-h-dvh max-w-[540px] flex-col px-5 py-6 sm:py-8">
+      <div className="mb-8 flex items-center justify-between sm:mb-12">
+        <Link href="/console" aria-label="Hydris console"><ThemedLogo /></Link>
+        <div className="flex items-center gap-2">
+          <ThemeToggle compact size="sm" />
+          <Link href="/console/devices" className="btn btn-ghost btn-sm"><ArrowLeft size={15} aria-hidden />Field glasses</Link>
+        </div>
       </div>
+      <ol aria-label="Pairing steps" className="mb-8 grid grid-cols-3 gap-2">
+        {['Enter code', 'Confirm device', 'Connected'].map((label, i) => {
+          const step = done ? 2 : lookup ? 1 : 0;
+          const state = i < step ? 'done' : i === step ? 'current' : 'todo';
+          return (
+            <li key={label} aria-current={state === 'current' ? 'step' : undefined} className="grid gap-2">
+              <span className={`h-1 rounded-full transition-colors duration-500 ${state === 'todo' ? 'bg-surface-3' : 'bg-lime'}`} aria-hidden />
+              <span className={`text-xs ${state === 'todo' ? 'text-muted' : 'text-text'}`}><span className="num text-muted">0{i + 1}</span> {label}</span>
+            </li>
+          );
+        })}
+      </ol>
       {done ? (
         <div className="card grid gap-4 text-center fade-in">
-          <span className={`mx-auto grid h-16 w-16 place-items-center rounded-full ${done === 'approved' ? 'bg-lime text-lime-ink' : 'bg-surface-3'}`}>{done === 'approved' ? <Check size={28} /> : <X size={28} />}</span>
+          <span className={`pop-in mx-auto grid h-16 w-16 place-items-center rounded-full ${done === 'approved' ? 'bg-lime text-lime-ink shadow-[0_0_0_10px_rgb(25_84_241/0.1)]' : 'bg-surface-3'}`}>{done === 'approved' ? <Check size={28} /> : <X size={28} />}</span>
           <h1 className="t-section">{done === 'approved' ? 'Approved' : 'Pairing denied'}</h1>
           <p className="text-text-2">{done === 'approved' ? 'The glasses will finish connecting within a few seconds and load the assigned context.' : 'The code can no longer be used. Generate a new one on the glasses if needed.'}</p>
-          <Link href="/console/devices" className="btn btn-secondary">Go to Field glasses</Link>
+          <div className="mt-2 grid gap-2 sm:grid-cols-2">
+            <Link href="/console/devices" className="btn btn-primary">Go to Field glasses</Link>
+            <button type="button" className="btn btn-secondary" onClick={() => { setDone(null); setLookup(null); setCode(''); setName(''); }}>Pair another</button>
+          </div>
         </div>
       ) : !lookup ? (
         <form onSubmit={find} className="grid gap-5">
@@ -105,6 +124,14 @@ function PairFlow() {
             className="num h-16 text-center text-[28px] tracking-[0.2em]" hint="8 characters. Letters and digits only; dashes are optional." maxLength={9} autoFocus />
           {error && <p role="alert" className="field-error">{error}</p>}
           <Button type="submit" variant="primary" size="lg" busy={busy} disabled={!isValidPairingCode(code)}>Continue</Button>
+          <section aria-labelledby="how" className="card card-tight mt-4 bg-bg-2">
+            <h2 id="how" className="t-eyebrow mb-3">How pairing works</h2>
+            <ul className="grid gap-3 text-sm text-text-2">
+              <li className="flex gap-3"><span className="grid h-8 w-8 flex-none place-items-center rounded-full bg-surface-2 text-text"><Glasses size={15} aria-hidden /></span><span>Open the Hydris app on the glasses (or the browser simulator). It shows an 8-character code.</span></li>
+              <li className="flex gap-3"><span className="grid h-8 w-8 flex-none place-items-center rounded-full bg-surface-2 text-text"><KeyRound size={15} aria-hidden /></span><span>Enter that code here. Codes expire after a few minutes and work once.</span></li>
+              <li className="flex gap-3"><span className="grid h-8 w-8 flex-none place-items-center rounded-full bg-surface-2 text-text"><UserRoundCheck size={15} aria-hidden /></span><span>Choose the site and operator. The glasses receive their own revocable credential, never your password.</span></li>
+            </ul>
+          </section>
         </form>
       ) : (
         <div className="grid gap-5 fade-in">
@@ -119,7 +146,7 @@ function PairFlow() {
               <div className="text-sm text-ink-2">Code <b className="num">{formatPairingCode(lookup.challenge.code)}</b> · requested {new Date(lookup.challenge.requestedAt).toLocaleTimeString()}{lookup.challenge.device.display ? ` · ${lookup.challenge.device.display.width}×${lookup.challenge.device.display.height}` : ''}</div>
             </div>
           </div>
-          <p className="flex gap-2 rounded-2xl border border-[rgb(245_184_61/0.35)] bg-[rgb(245_184_61/0.07)] p-4 text-sm text-[#f7c96a]">
+          <p className="flex gap-2 rounded-2xl border border-[rgb(245_184_61/0.35)] bg-[rgb(245_184_61/0.07)] p-4 text-sm text-medium-text">
             <ShieldCheck size={18} className="mt-0.5 flex-none" /> Only approve if the same code is showing on glasses you are holding. Never approve a code someone sent you.
           </p>
           {lookup.existingDevice && <p className="text-sm text-text-2">These glasses were previously registered as <b>{lookup.existingDevice.name}</b> ({lookup.existingDevice.status}). Approving re-pairs them and ends older sessions.</p>}

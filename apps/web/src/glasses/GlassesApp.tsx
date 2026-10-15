@@ -3,18 +3,19 @@
 import QRCode from 'qrcode';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
-  AlertTriangle, BookOpen, Check, ChevronRight, CircleDot, ClipboardCheck, Cog, Glasses, Info, RefreshCw, ShieldAlert, Signal, SignalZero, Wifi, WifiOff, Wrench, X,
+  AlertTriangle, Bell, Layers, LocateFixed, Map as MapIcon, BookOpen, Sparkles, Check, ChevronRight, CircleDot, ClipboardCheck, Cog, Glasses, Info, RefreshCw, ShieldAlert, Signal, SignalZero, Wifi, WifiOff, Wrench, X,
 } from 'lucide-react';
 import { FRESHNESS_LABELS, inspectionProgress, isScenarioKey, type InspectionStep, type StepValue } from '@hydris/domain';
 import { openStream } from '@/lib/realtime';
 import { DeviceError, DeviceLink, type PairingChallenge } from './link';
-import { DemoData, LiveData, type GAlarm, type GAsset, type GAssist, type GContext, type GInspection, type GlassesData } from './data';
+import { DemoData, LiveData, type GAlarm, type GAsset, type GAssist, type GContext, type GInspection, type GlassesData, type GNotification } from './data';
 import { emitToHost, useHudInput, type InputKey } from './input';
+import { PlantMap, routeDistance } from './PlantMap';
 import { HudContext, HudItem, HudMetric, HudPill, HudTitle, SEV_HUD, useFitScale, useHud, type HudControl } from './hud';
 
 type Screen =
   | { name: 'home' } | { name: 'alerts' } | { name: 'alert'; id: string } | { name: 'inspections' } | { name: 'inspection'; id: string }
-  | { name: 'tasks' } | { name: 'task'; id: string } | { name: 'asset'; id: string } | { name: 'assist'; q: string; assetId?: string } | { name: 'status' };
+  | { name: 'tasks' } | { name: 'task'; id: string } | { name: 'asset'; id: string } | { name: 'assist'; q: string; assetId?: string } | { name: 'status' } | { name: 'notifications' } | { name: 'ai' } | { name: 'map' };
 type Phase = 'boot' | 'setup' | 'ready' | 'app' | 'revoked' | 'suspended' | 'unassigned';
 
 const APP_VERSION = '0.2.0';
@@ -383,6 +384,9 @@ function ScreenView({ screen, ctx, data, nav, online }: { screen: Screen; ctx: G
     case 'asset': return <AssetContext id={screen.id} data={data} nav={nav} />;
     case 'assist': return <Assist q={screen.q} assetId={screen.assetId} data={data} online={online} />;
     case 'status': return <Status ctx={ctx} online={online} />;
+    case 'notifications': return <Notifications data={data} nav={nav} online={online} />;
+    case 'ai': return <HydrisAI ctx={ctx} nav={nav} />;
+    case 'map': return <MapScreen ctx={ctx} nav={nav} />;
   }
 }
 
@@ -394,6 +398,9 @@ function Home({ ctx, nav }: { ctx: GContext; nav: Nav }) {
     { key: 'alerts', icon: <AlertTriangle size={26} />, label: 'Alerts', meta: ctx.alarms.length ? `${ctx.alarms.length} open${crit ? ` · ${crit} critical` : ''}` : 'none', tone: crit ? 'critical' as const : active ? 'high' as const : undefined, go: () => nav.push({ name: 'alerts' }) },
     { key: 'insp', icon: <ClipboardCheck size={26} />, label: 'Inspections', meta: `${ctx.inspections.length} assigned`, go: () => nav.push({ name: 'inspections' }) },
     { key: 'tasks', icon: <Wrench size={26} />, label: 'Maintenance', meta: `${ctx.tasks.length} tasks`, go: () => nav.push({ name: 'tasks' }) },
+    { key: 'map', icon: <MapIcon size={26} />, label: 'Plant map', meta: 'route to next asset', go: () => nav.push({ name: 'map' }) },
+    { key: 'ai', icon: <Sparkles size={26} />, label: 'Ask Hydris AI', meta: 'procedures & answers', go: () => nav.push({ name: 'ai' }) },
+    { key: 'notif', icon: <Bell size={26} />, label: 'Notifications', meta: 'updates for you', go: () => nav.push({ name: 'notifications' }) },
     { key: 'status', icon: <Cog size={26} />, label: 'Device & session', meta: ctx.device.name, go: () => nav.push({ name: 'status' }) },
   ];
   const cursor = useHud({ actions: [...(next ? [{ key: 'next', onSelect: () => nav.push({ name: 'inspection', id: next.id }) }] : []), ...items.map((i) => ({ key: i.key, onSelect: i.go }))] });
@@ -750,6 +757,106 @@ function Status({ ctx, online }: { ctx: GContext; online: boolean }) {
         <Kv k="App version" v={APP_VERSION} /><Kv k="Server time" v={new Date(ctx.serverTime).toLocaleTimeString()} />
       </dl>
       <p className="mt-auto text-[16px] text-white/45">To unpair or hand over these glasses, ask an administrator (Console → Field glasses). Revocation ends this session immediately.</p>
+    </div>
+  );
+}
+
+function Notifications({ data, nav, online }: { data: GlassesData; nav: Nav; online: boolean }) {
+  const [r, setR] = useState<{ notifications: GNotification[]; unread: number } | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  useEffect(() => {
+    if (!online) return;
+    data.notifications().then((x) => { setR(x); if (x.unread) void data.markNotificationsRead(); }).catch((e) => setErr(e instanceof Error ? e.message : 'Unavailable'));
+  }, [data, online]);
+  const rows = r?.notifications ?? [];
+  const cursor = useHud({ actions: rows.map((n) => ({ key: n.id, onSelect: () => { if (n.kind === 'alarm') nav.push({ name: 'alerts' }); else if (n.kind.startsWith('inspection')) nav.push({ name: 'inspections' }); else if (n.kind.startsWith('maintenance')) nav.push({ name: 'tasks' }); } })) });
+  if (!online) return <Centered icon={<WifiOff size={40} />} title="Offline" body="Notifications load when the connection returns." />;
+  if (err) return <Centered icon={<AlertTriangle size={40} />} title="Unavailable" body={err} />;
+  if (!r) return <Centered icon={<RefreshCw size={40} className="animate-spin" />} title="Loading" body="Fetching notifications…" />;
+  return (
+    <div className="flex h-full flex-col">
+      <HudTitle eyebrow={`${r.unread} unread`}>Notifications</HudTitle>
+      {rows.length ? (
+        <div className="grid gap-2.5 overflow-y-auto pb-2 scrollbar-none">
+          {rows.map((n, i) => (
+            <HudItem key={n.id} active={cursor === i} tone={n.severity === 'critical' ? 'critical' : n.severity === 'warning' ? 'high' : undefined}>
+              <CircleDot size={22} className={n.readAt ? 'text-white/30' : 'text-lime'} />
+              <span className="min-w-0 flex-1"><span className="block truncate text-white">{n.title}</span><span className="block text-[17px] text-white/55">{n.body ? `${n.body} · ` : ''}{timeAgo(n.createdAt)}</span></span>
+            </HudItem>
+          ))}
+        </div>
+      ) : <p className="text-[22px] text-white/60">You are all caught up.</p>}
+    </div>
+  );
+}
+
+/** Hydris AI: grounded answers from approved procedures and live asset data — never generated instructions. */
+function HydrisAI({ ctx, nav }: { ctx: GContext; nav: Nav }) {
+  const [q, setQ] = useState('');
+  const inputRef = useRef<HTMLInputElement>(null);
+  const suggestions = [
+    ...ctx.alarms.slice(0, 2).map((a) => `What do I do about: ${a.title}?`),
+    ...(ctx.inspections[0]?.assetTag ? [`How do I inspect ${ctx.inspections[0].assetTag}?`] : []),
+    'Pump vibration response',
+    'Lockout / tagout steps',
+    'Low dissolved oxygen',
+  ].slice(0, 5);
+  const ask = (text: string) => { if (text.trim()) nav.push({ name: 'assist', q: text.trim() }); };
+  const cursor = useHud({ actions: [{ key: 'type', onSelect: () => inputRef.current?.focus() }, ...suggestions.map((s) => ({ key: s, onSelect: () => ask(s) }))] });
+  return (
+    <div className="flex h-full flex-col">
+      <HudTitle eyebrow="Hydris AI"><span className="flex items-center gap-3"><Sparkles size={30} className="text-lime" />Ask a question</span></HudTitle>
+      <form onSubmit={(e) => { e.preventDefault(); ask(q); }} className={`mb-3 rounded-[26px] border-2 px-5 py-3 ${cursor === 0 ? 'border-lime bg-lime/10' : 'border-white/10'}`}>
+        <input ref={inputRef} value={q} onChange={(e) => setQ(e.target.value)} placeholder="Type with a keyboard, or pick below…" aria-label="Ask Hydris AI"
+          className="w-full bg-transparent text-[22px] text-white outline-none placeholder:text-white/40" />
+      </form>
+      <div className="grid gap-2 overflow-y-auto scrollbar-none">
+        {suggestions.map((s, i) => <HudItem key={s} active={cursor === i + 1} onClick={() => ask(s)}><span className="truncate">{s}</span></HudItem>)}
+      </div>
+      <p className="mt-auto pt-2 text-[15px] leading-snug text-white/45">Answers quote your organization’s approved SOPs with sources. Voice input is planned for hardware.</p>
+    </div>
+  );
+}
+
+/** Rydeon-style plant map: luminous route from the operator's last asset to the next target. */
+function MapScreen({ ctx, nav }: { ctx: GContext; nav: Nav }) {
+  const map = ctx.map;
+  const pins = map?.assets ?? [];
+  const byTag = (t: string | null | undefined) => pins.find((p) => p.tag === t)?.id ?? null;
+  const targets = [
+    ...ctx.inspections.map((i) => ({ id: byTag(i.assetTag), why: `Inspection · ${i.title}` })),
+    ...ctx.alarms.map((a) => ({ id: byTag(a.assetTag), why: `Alarm · ${a.title}` })),
+  ].filter((t): t is { id: string; why: string } => !!t.id).filter((t, i, arr) => arr.findIndex((x) => x.id === t.id) === i);
+  const [ti, setTi] = useState(0);
+  const [zoom, setZoom] = useState(2);
+  const [all, setAll] = useState(true);
+  const target = targets[ti] ?? null;
+  const from = pins.find((p) => p.id !== target?.id)?.id ?? null;
+  const tp = pins.find((p) => p.id === target?.id);
+  useHud({
+    actions: [{ key: 'open', onSelect: () => { if (target) nav.push({ name: 'asset', id: target.id }); } }],
+    onKey: (k) => {
+      if (k === 'left' || k === 'right') { if (targets.length) setTi((i) => (i + (k === 'right' ? 1 : targets.length - 1)) % targets.length); return true; }
+      if (k === 'up') { setZoom((z) => Math.min(3, z + 0.5)); return true; }
+      if (k === 'down') { setZoom((z) => (z <= 1 ? (setAll((v) => !v), 1) : z - 0.5)); return true; }
+      return false;
+    },
+  });
+  if (!map) return <Centered icon={<MapIcon size={40} />} title="No plant map" body="Asset positions for this site have not been configured in the console." />;
+  const d = routeDistance(map, from, target?.id);
+  return (
+    <div className="relative -mx-4 h-full">
+      <PlantMap map={map} fromId={from} toId={target?.id} zoom={zoom} showAll={all} size={436} />
+      <div className="absolute right-0 top-3 grid gap-3" aria-hidden>
+        <span className="grid h-[52px] w-[52px] place-items-center rounded-full bg-[#2a2c2e]/90 text-white"><Layers size={24} /></span>
+        <span className="grid h-[52px] w-[52px] place-items-center rounded-full bg-[#2a2c2e]/90 text-white"><LocateFixed size={24} /></span>
+      </div>
+      <div className="absolute inset-x-6 bottom-1 flex items-center gap-3 rounded-full bg-white px-5 py-2.5 text-[18px] text-[#0b0c0d]">
+        <span className="h-3 w-3 flex-none rounded-full bg-[#1954F1]" />
+        <span className="min-w-0 flex-1 truncate font-medium">{tp ? `${tp.tag} · ${target!.why}` : 'No targets — all clear'}</span>
+        {d !== null && <span className="num font-semibold">{d} m · {Math.max(1, Math.round(d / 72))} min</span>}
+      </div>
+      <p className="sr-only">Left and right switch target, up zooms in, down zooms out or toggles labels, select opens the equipment.</p>
     </div>
   );
 }

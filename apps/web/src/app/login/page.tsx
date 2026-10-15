@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useState, type FormEvent } from 'react';
 import { AuthFrame } from '@/console/AuthFrame';
-import { Button, Input } from '@/ui';
+import { Button, Input, PasswordInput } from '@/ui';
 import { errorMessage } from '@/lib/api';
 import { useSessionCtx } from '@/lib/session';
 
@@ -48,7 +48,7 @@ function LoginForm() {
         {!mfaToken ? (
           <>
             <Input label="Work email" type="email" autoComplete="username" required autoFocus value={email} onChange={(e) => setEmail(e.target.value)} />
-            <Input label="Password" type="password" autoComplete="current-password" required value={password} onChange={(e) => setPassword(e.target.value)} />
+            <PasswordInput label="Password" autoComplete="current-password" required value={password} onChange={(e) => setPassword(e.target.value)} />
           </>
         ) : (
           <Input label="Authentication code" inputMode="numeric" autoComplete="one-time-code" pattern="\d{6}" maxLength={6} required autoFocus value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))} className="num text-center text-2xl tracking-[0.4em]" />

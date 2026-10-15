@@ -6,12 +6,12 @@ import type { ReactNode } from 'react';
 
 type Tone = 'dark' | 'lime' | 'paper' | 'ghost';
 function Box({ x, y, w, h, title, lines = [], tone = 'dark', step }: { x: number; y: number; w: number; h: number; title: string; lines?: string[]; tone?: Tone; step?: string }) {
-  const fill = tone === 'lime' ? 'var(--color-lime)' : tone === 'paper' ? 'var(--color-paper)' : tone === 'ghost' ? 'transparent' : '#1b1b1b';
-  const ink = tone === 'lime' || tone === 'paper' ? '#141714' : '#f3f4f1';
-  const sub = tone === 'lime' || tone === 'paper' ? 'rgb(20 23 20 / 0.7)' : '#a9aba6';
+  const fill = tone === 'lime' ? 'var(--color-lime)' : tone === 'paper' ? 'var(--color-paper)' : tone === 'ghost' ? 'transparent' : 'var(--color-surface)';
+  const ink = tone === 'lime' ? '#ffffff' : tone === 'paper' ? 'var(--color-ink)' : 'var(--color-text)';
+  const sub = tone === 'lime' ? 'rgb(255 255 255 / 0.82)' : tone === 'paper' ? 'var(--color-ink-2)' : 'var(--color-muted)';
   return (
     <g>
-      <rect x={x} y={y} width={w} height={h} rx={Math.min(28, h / 2)} fill={fill} stroke={tone === 'ghost' ? 'rgb(255 255 255 / 0.25)' : tone === 'dark' ? 'rgb(255 255 255 / 0.14)' : 'none'} strokeDasharray={tone === 'ghost' ? '5 6' : undefined} />
+      <rect x={x} y={y} width={w} height={h} rx={Math.min(28, h / 2)} fill={fill} stroke={tone === 'ghost' ? 'var(--color-line-2)' : tone === 'dark' ? 'var(--color-line-2)' : 'none'} strokeDasharray={tone === 'ghost' ? '5 6' : undefined} />
       {step && <text x={x + w - 22} y={y + 34} textAnchor="end" fontSize="14" fill={sub} fontFamily="var(--font-sans)">{step}</text>}
       <text x={x + 22} y={y + 36} fontSize="19" fill={ink} fontFamily="var(--font-sans)" style={{ letterSpacing: '-0.01em' }}>{title}</text>
       {lines.map((l, i) => (
@@ -21,15 +21,15 @@ function Box({ x, y, w, h, title, lines = [], tone = 'dark', step }: { x: number
   );
 }
 
-function Flow({ d, reverse, slow, color = 'var(--color-lime)', label, lx, ly, muted }: { d: string; reverse?: boolean; slow?: boolean; color?: string; label?: string; lx?: number; ly?: number; muted?: boolean }) {
+function Flow({ d, reverse, slow, color = 'var(--hx-tint)', label, lx, ly, muted }: { d: string; reverse?: boolean; slow?: boolean; color?: string; label?: string; lx?: number; ly?: number; muted?: boolean }) {
   return (
     <g>
-      <path d={d} fill="none" stroke="rgb(255 255 255 / 0.12)" strokeWidth="2" />
+      <path d={d} fill="none" stroke="var(--color-line-2)" strokeWidth="2" />
       <path d={d} fill="none" stroke={color} strokeWidth="2.5" className={clsx('flow-line', reverse && 'flow-line-rev', slow && 'flow-line-slow')} opacity={muted ? 0.6 : 1} />
       {label && lx !== undefined && ly !== undefined && (
         <g>
-          <rect x={lx - 4} y={ly - 15} width={label.length * 7.4 + 16} height="24" rx="12" fill="#0a0a0a" stroke="rgb(255 255 255 / 0.14)" />
-          <text x={lx + 4} y={ly + 2} fontSize="12.5" fill="#c4c6c0" fontFamily="var(--font-sans)">{label}</text>
+          <rect x={lx - 4} y={ly - 15} width={label.length * 7.4 + 16} height="24" rx="12" fill="var(--color-bg)" stroke="var(--color-line-2)" />
+          <text x={lx + 4} y={ly + 2} fontSize="12.5" fill="var(--color-text-2)" fontFamily="var(--font-sans)">{label}</text>
         </g>
       )}
     </g>
@@ -41,9 +41,9 @@ function StackItem({ title, body, tone = 'dark', tag }: { title: string; body: R
     <li className={clsx('relative rounded-[22px] p-5', tone === 'lime' ? 'bg-lime text-lime-ink' : tone === 'ghost' ? 'border border-dashed border-line-2' : 'border border-line bg-surface')}>
       <div className="flex items-start justify-between gap-3">
         <h3 className="t-card">{title}</h3>
-        {tag && <span className={clsx('num text-[13px]', tone === 'lime' ? 'text-lime-ink/70' : 'text-muted')}>{tag}</span>}
+        {tag && <span className={clsx('num text-[13px]', tone === 'lime' ? 'text-lime-ink/90' : 'text-muted')}>{tag}</span>}
       </div>
-      <p className={clsx('mt-1.5 text-[14px] leading-relaxed', tone === 'lime' ? 'text-lime-ink/75' : 'text-text-2')}>{body}</p>
+      <p className={clsx('mt-1.5 text-[14px] leading-relaxed', tone === 'lime' ? 'text-lime-ink/90' : 'text-text-2')}>{body}</p>
     </li>
   );
 }
@@ -51,7 +51,7 @@ function StackItem({ title, body, tone = 'dark', tag }: { title: string; body: R
 function StackConnector({ label }: { label?: string }) {
   return (
     <li aria-hidden className="flex items-center gap-3 py-1 pl-8">
-      <svg width="4" height="40" viewBox="0 0 4 40"><path d="M2 0v40" stroke="var(--color-lime)" strokeWidth="2.5" className="flow-line" /></svg>
+      <svg width="4" height="40" viewBox="0 0 4 40"><path d="M2 0v40" stroke="var(--hx-tint)" strokeWidth="2.5" className="flow-line" /></svg>
       {label && <span className="text-[12.5px] text-muted">{label}</span>}
     </li>
   );
@@ -70,27 +70,27 @@ export function PlatformDiagram() {
         <Flow d="M270 452 C 360 452, 360 330, 440 330" slow label="manual & lab entry" lx={262} ly={430} muted />
         <Flow d="M760 220 C 840 220, 840 150, 920 150" label="live context" lx={784} ly={160} />
         <Flow d="M760 360 C 840 360, 840 420, 920 420" label="rounds · alarms · SOPs" lx={770} ly={428} />
-        <Flow d="M920 456 C 830 456, 830 392, 760 392" reverse slow color="#9ebcff" />
-        <Flow d="M1060 210 V 360" slow color="#9ebcff" label="dispatch & assign" lx={1072} ly={290} />
+        <Flow d="M920 456 C 830 456, 830 392, 760 392" reverse slow color="var(--hx-purple)" />
+        <Flow d="M1060 210 V 360" slow color="var(--hx-purple)" label="dispatch & assign" lx={1072} ly={290} />
         {/* no control path */}
         <path d="M440 200 C 360 120, 330 120, 270 120" fill="none" stroke="var(--color-critical)" strokeWidth="2" strokeDasharray="4 7" opacity="0.8" />
         <g transform="translate(352 128)">
-          <circle r="13" fill="#0a0a0a" stroke="var(--color-critical)" strokeWidth="2" />
+          <circle r="13" fill="var(--color-bg)" stroke="var(--color-critical)" strokeWidth="2" />
           <path d="M-5 -5 L5 5 M5 -5 L-5 5" stroke="var(--color-critical)" strokeWidth="2.2" strokeLinecap="round" />
         </g>
-        <text x="292" y="98" fontSize="13" fill="#ff8a80" fontFamily="var(--font-sans)">No control path — advisory only</text>
+        <text x="292" y="98" fontSize="13" fill="var(--hx-alert-text)" fontFamily="var(--font-sans)">No control path — advisory only</text>
 
         <Box x={40} y={70} w={230} h={100} title="Plant equipment" lines={['Pumps, blowers, tanks,', 'analyzers · your SCADA/PLC']} />
         <Box x={40} y={236} w={230} h={120} title="Edge gateway" lines={['Per-site API key', 'HTTPS POST, ≤ 500/batch', 'MQTT · OPC UA: planned']} />
         <Box x={40} y={400} w={230} h={104} title="Lab & manual" lines={['Grab samples, field', 'readings with provenance']} tone="ghost" />
 
-        <rect x="440" y="150" width="320" height="300" rx="32" fill="#141414" stroke="var(--color-lime)" strokeOpacity="0.55" strokeWidth="1.5" />
-        <text x="468" y="194" fontSize="22" fill="#f3f4f1" fontFamily="var(--font-sans)">Hydris platform</text>
-        <text x="468" y="218" fontSize="13.5" fill="#a9aba6" fontFamily="var(--font-sans)">Multi-tenant · audited · least privilege</text>
+        <rect x="440" y="150" width="320" height="300" rx="32" fill="var(--color-bg-2)" stroke="var(--color-lime)" strokeOpacity="0.55" strokeWidth="1.5" />
+        <text x="468" y="194" fontSize="22" fill="var(--color-text)" fontFamily="var(--font-sans)">Hydris platform</text>
+        <text x="468" y="218" fontSize="13.5" fill="var(--color-muted)" fontFamily="var(--font-sans)">Multi-tenant · audited · least privilege</text>
         {['Ingestion & validation', 'Alarm evaluation', 'Tenant-isolated storage', 'Realtime stream (SSE)'].map((t, i) => (
           <g key={t}>
-            <rect x="464" y={240 + i * 49} width="272" height="40" rx="20" fill={i === 3 ? 'var(--color-lime)' : '#222'} />
-            <text x="484" y={265 + i * 49} fontSize="14.5" fill={i === 3 ? '#141714' : '#e5e6e2'} fontFamily="var(--font-sans)">{t}</text>
+            <rect x="464" y={240 + i * 49} width="272" height="40" rx="20" fill={i === 3 ? 'var(--color-lime)' : 'var(--color-surface-2)'} />
+            <text x="484" y={265 + i * 49} fontSize="14.5" fill={i === 3 ? '#ffffff' : 'var(--color-text)'} fontFamily="var(--font-sans)">{t}</text>
           </g>
         ))}
         <circle cx="440" cy="280" r="5" fill="var(--color-lime)" />
@@ -110,7 +110,7 @@ export function PlatformDiagram() {
         <StackItem title="Operator Console" body="Sites, assets, alarms, inspections, maintenance, operators and the glasses fleet." />
         <StackConnector label="rounds · alarms · SOPs" />
         <StackItem title="Field Glasses" tone="lime" body="Live context, guided rounds and approved SOPs; step responses are queued offline and synced back." />
-        <li className="mt-4 rounded-[18px] border border-[rgb(255_90_78/0.35)] p-4 text-[14px] text-[#ff8a80]">No control path from Hydris to plant equipment — advisory only.</li>
+        <li className="mt-4 rounded-[18px] border border-[rgb(255_90_78/0.35)] p-4 text-[14px] text-[var(--hx-alert-text)]">No control path from Hydris to plant equipment — advisory only.</li>
       </ol>
       <figcaption className="sr-only">Diagram of how plant data reaches operators through Hydris.</figcaption>
     </figure>
@@ -121,7 +121,7 @@ const PIPE = [
   { n: '01', t: 'Plant equipment', l: ['Sensors on pumps, blowers,', 'tanks and analyzers'] },
   { n: '02', t: 'Edge gateway', l: ['Per-site key, HTTPS POST', 'MQTT / OPC UA planned'] },
   { n: '03', t: 'Ingestion API', l: ['Gateway auth, rate limits', 'Unknown tags rejected per item'] },
-  { n: '04', t: 'Validate & normalise', l: ['Units, timestamps, quality', 'Duplicates dropped by message ID'] },
+  { n: '04', t: 'Validate & normalise', l: ['Units, timestamps, quality flags', 'Duplicate message IDs ignored'] },
   { n: '05', t: 'Store & evaluate', l: ['Tenant-scoped time series', 'Deadband + on-delay alarms'] },
   { n: '06', t: 'Realtime (SSE)', l: ['Per-connection authorisation', 'Last-Event-ID replay'] },
   { n: '07', t: 'Operator Console', l: ['Live overview, alarms,', 'history & CSV export'] },
@@ -147,7 +147,7 @@ export function PipelineDiagram() {
         <Flow d={`M${col(2)} ${300 + H / 2 + 22} C ${col(1) + W} ${440}, ${col(0) + W + 60} ${440}, ${col(0) + W / 2} ${300 + H}`} slow />
         {/* rejected branch */}
         <path d={`M${col(2) + W / 2} ${60 + H} V 230`} stroke="rgb(255 138 128 / 0.7)" strokeWidth="2" strokeDasharray="3 6" fill="none" />
-        <text x={col(2) + W / 2 + 10} y={222} fontSize="13" fill="#ff8a80" fontFamily="var(--font-sans)">rejected items returned with a reason</text>
+        <text x={col(2) + W / 2 + 10} y={222} fontSize="13" fill="var(--hx-alert-text)" fontFamily="var(--font-sans)">rejected items returned with a reason</text>
         {PIPE.slice(0, 4).map((p, i) => <Box key={p.n} x={col(i)} y={60} w={W} h={H} title={p.t} lines={p.l} step={p.n} tone={i === 3 ? 'paper' : 'dark'} />)}
         <Box x={col(3)} y={300} w={W} h={H} title={PIPE[4]!.t} lines={PIPE[4]!.l} step={PIPE[4]!.n} />
         <Box x={col(2)} y={300} w={W} h={H} title={PIPE[5]!.t} lines={PIPE[5]!.l} step={PIPE[5]!.n} tone="lime" />

@@ -25,7 +25,7 @@ export function RouteProfile({ metrics, hover, onHover }: { metrics: RouteMetric
     <div>
       <div className="relative h-[108px] px-3" role="group" aria-label="Route profile: asset health along the route by walking distance">
         {/* baseline with casing */}
-        <div className="absolute inset-x-3 bottom-[14px] h-[6px] rounded-full bg-[#050505]" aria-hidden />
+        <div className="absolute inset-x-3 bottom-[14px] h-[6px] rounded-full bg-bg" aria-hidden />
         <div className="absolute inset-x-3 bottom-[16px] h-[2px] rounded-full bg-lime" aria-hidden />
         <div className="absolute inset-x-3 bottom-0 top-0">
           {stops.map((s, i) => {
@@ -41,7 +41,7 @@ export function RouteProfile({ metrics, hover, onHover }: { metrics: RouteMetric
                 onMouseEnter={() => onHover(i)} onMouseLeave={() => onHover(null)} onFocus={() => onHover(i)} onBlur={() => onHover(null)}>
                 <span className={clsx('w-[6px] rounded-full transition-all group-focus-visible:ring-2 group-focus-visible:ring-lime', on && 'w-[10px]')}
                   style={{ height: `${Math.round(lvl * 72)}px`, background: color, opacity: hover === null || on ? 1 : 0.45 }} />
-                <span className={clsx('mt-1 grid h-[14px] w-[14px] place-items-center rounded-full border-2 border-[#050505] bg-lime text-[8px] font-bold text-lime-ink transition-transform', on && 'scale-150')} aria-hidden />
+                <span className={clsx('mt-1 grid h-[14px] w-[14px] place-items-center rounded-full border-2 border-bg bg-lime text-[8px] font-bold text-lime-ink transition-transform', on && 'scale-150')} aria-hidden />
               </button>
             );
           })}
@@ -106,7 +106,7 @@ export function DispatchDialog({ open, onOpenChange, route, siteId, assetsById, 
           <ButtonLink href="/console/inspections" variant="primary" icon={<ClipboardCheck size={16} />}>Open inspections</ButtonLink>
         </>}>
         <div className="flex items-start gap-3">
-          <CheckCircle2 className="mt-0.5 text-ok" size={22} aria-hidden />
+          <CheckCircle2 className="mt-0.5 text-ok-text" size={22} aria-hidden />
           <p className="text-[15px]">
             {result.created} inspection{result.created === 1 ? '' : 's'} created for <b>{route.name}</b>
             {result.created < route.assetIds.length ? ` (${route.assetIds.length - result.created} stop${route.assetIds.length - result.created === 1 ? '' : 's'} skipped: asset unavailable or no published template)` : ''}.

@@ -199,25 +199,25 @@ export function PlantCanvas(p: PlantCanvasProps) {
     <div ref={box} tabIndex={0} onKeyDown={onKeyDown}
       role="region" aria-roledescription="map" aria-label={`Plant layout map, ${W} by ${H} metres. Drag or use arrow keys to pan, plus and minus to zoom, 0 to fit.`}
       onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerUp}
-      className={clsx('relative h-full w-full touch-none select-none overflow-hidden bg-[#070807] outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-lime', p.placing ? 'cursor-crosshair' : 'cursor-grab active:cursor-grabbing')}>
+      className={clsx('relative h-full w-full touch-none select-none overflow-hidden bg-bg outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-lime', p.placing ? 'cursor-crosshair' : 'cursor-grab active:cursor-grabbing')}>
       {v && (
         <svg width={size.w} height={size.h} viewBox={vb} className="absolute inset-0" aria-hidden>
           {/* metre grid across the layout */}
-          <g stroke="rgb(255 255 255 / 0.045)" strokeWidth={1} vectorEffect="non-scaling-stroke">
+          <g stroke="var(--color-text)" strokeOpacity={0.05} strokeWidth={1} vectorEffect="non-scaling-stroke">
             {Array.from({ length: Math.floor(W / grid) + 1 }, (_, i) => <line key={`gx${i}`} x1={i * grid} y1={0} x2={i * grid} y2={H} vectorEffect="non-scaling-stroke" />)}
             {Array.from({ length: Math.floor(H / grid) + 1 }, (_, i) => <line key={`gy${i}`} x1={0} y1={i * grid} x2={W} y2={i * grid} vectorEffect="non-scaling-stroke" />)}
           </g>
           {/* contour backdrop (decorative) */}
-          <g fill="none" stroke="rgb(255 255 255 / 0.07)" strokeWidth={1}>
+          <g fill="none" stroke="var(--color-text)" strokeOpacity={0.08} strokeWidth={1}>
             {contours.map((d, i) => <path key={i} d={d} vectorEffect="non-scaling-stroke" />)}
           </g>
-          <rect x={0} y={0} width={W} height={H} fill="none" stroke="rgb(255 255 255 / 0.22)" strokeWidth={1.2} strokeDasharray="6 6" vectorEffect="non-scaling-stroke" />
+          <rect x={0} y={0} width={W} height={H} fill="none" stroke="var(--color-text)" strokeOpacity={0.24} strokeWidth={1.2} strokeDasharray="6 6" vectorEffect="non-scaling-stroke" />
           {p.layers.areas && p.areas.filter((a) => a.polygon && a.polygon.length >= 3).map((a) => (
-            <polygon key={a.id} points={a.polygon!.map(([x, y]) => `${x},${y}`).join(' ')} fill="rgb(255 255 255 / 0.035)" stroke="rgb(255 255 255 / 0.32)" strokeWidth={1.2} vectorEffect="non-scaling-stroke" strokeLinejoin="round" />
+            <polygon key={a.id} points={a.polygon!.map(([x, y]) => `${x},${y}`).join(' ')} fill="var(--color-tint)" stroke="var(--color-text)" strokeOpacity={0.34} strokeWidth={1.2} vectorEffect="non-scaling-stroke" strokeLinejoin="round" />
           ))}
           {showRoute && (
             <g fill="none" strokeLinecap="round" strokeLinejoin="round">
-              <polyline points={routePts.map((a) => `${a.positionX},${a.positionY}`).join(' ')} stroke="#050505" strokeWidth={11} strokeOpacity={0.9} vectorEffect="non-scaling-stroke" />
+              <polyline points={routePts.map((a) => `${a.positionX},${a.positionY}`).join(' ')} stroke="var(--color-bg)" strokeWidth={11} strokeOpacity={0.9} vectorEffect="non-scaling-stroke" />
               <polyline points={routePts.map((a) => `${a.positionX},${a.positionY}`).join(' ')} stroke="var(--color-lime)" strokeWidth={4} vectorEffect="non-scaling-stroke"
                 strokeDasharray={p.routeMode === 'edit' ? '10 7' : undefined} />
             </g>
@@ -263,23 +263,23 @@ export function PlantCanvas(p: PlantCanvasProps) {
                     <span className="absolute h-7 w-7 animate-ping rounded-full opacity-60" style={{ background: color }} aria-hidden />
                   )}
                   {inRoute ? (
-                    <span className={clsx('relative grid h-7 w-7 place-items-center rounded-full border-2 border-[#050505] bg-lime text-[12px] font-semibold text-lime-ink shadow-[0_0_0_2px_rgb(216_255_101/0.25)] transition-transform num', hovered && 'scale-125 shadow-[0_0_0_4px_rgb(255_255_255/0.9)]')}>
+                    <span className={clsx('relative grid h-7 w-7 place-items-center rounded-full border-2 border-bg bg-lime text-[12px] font-semibold text-lime-ink shadow-[0_0_0_2px_rgb(25_84_241/0.25)] transition-transform num', hovered && 'scale-125 shadow-[0_0_0_4px_var(--color-text)]')}>
                       {idx! + 1}
-                      <span className="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border border-[#050505]" style={{ background: color }} aria-hidden />
+                      <span className="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border border-bg" style={{ background: color }} aria-hidden />
                     </span>
                   ) : (
-                    <span className={clsx('relative rounded-full transition-all', selected ? 'h-5 w-5 ring-[3px] ring-cobalt-2 ring-offset-2 ring-offset-[#070807]' : 'h-3.5 w-3.5 ring-2 ring-[#070807]', dim && 'opacity-45')}
+                    <span className={clsx('relative rounded-full transition-all', selected ? 'h-5 w-5 ring-[3px] ring-cobalt-2 ring-offset-2 ring-offset-bg' : 'h-3.5 w-3.5 ring-2 ring-bg', dim && 'opacity-45')}
                       style={{ background: color, boxShadow: `0 0 0 5px color-mix(in srgb, ${color} 22%, transparent)` }} aria-hidden />
                   )}
                 </button>
                 {p.layers.labels && (v.s > 3 || selected || hovered) && (
-                  <span className={clsx('pointer-events-none absolute left-1/2 top-[40px] -translate-x-1/2 whitespace-nowrap rounded-full px-2 py-0.5 text-[11px]', selected ? 'bg-cobalt-2 text-white' : 'bg-black/70 text-text-2', dim && 'opacity-50')}>{a.tag}</span>
+                  <span className={clsx('pointer-events-none absolute left-1/2 top-[40px] -translate-x-1/2 whitespace-nowrap rounded-full px-2 py-0.5 text-[11px]', selected ? 'bg-cobalt-2 text-white' : 'bg-surface/85 text-text-2 shadow-[var(--shadow-1)]', dim && 'opacity-50')}>{a.tag}</span>
                 )}
                 {showRoute && a.id === firstStop && (
                   <span className="pointer-events-none absolute bottom-[38px] left-[30px] inline-flex items-center gap-1 rounded-full bg-lime px-2 py-0.5 text-[10.5px] font-semibold uppercase tracking-wide text-lime-ink">Start</span>
                 )}
                 {showRoute && a.id === lastStop && lastStop !== firstStop && (
-                  <span className="pointer-events-none absolute bottom-[38px] left-[30px] inline-flex items-center gap-1 rounded-full border border-lime bg-[#050505] px-2 py-0.5 text-[10.5px] font-semibold uppercase tracking-wide text-lime"><Flag size={11} aria-hidden />Finish</span>
+                  <span className="pointer-events-none absolute bottom-[38px] left-[30px] inline-flex items-center gap-1 rounded-full border border-lime bg-bg px-2 py-0.5 text-[10.5px] font-semibold uppercase tracking-wide text-lime"><Flag size={11} aria-hidden />Finish</span>
                 )}
               </div>
             );
@@ -295,7 +295,7 @@ export function PlantCanvas(p: PlantCanvasProps) {
         <RPopover.Root>
           <Tooltip label="Map layers">
             <RPopover.Trigger asChild>
-              <button type="button" aria-label="Map layers" className="icon-btn border-line-2 bg-[rgb(36_36_36/0.88)] backdrop-blur"><Layers size={18} /></button>
+              <button type="button" aria-label="Map layers" className="icon-btn border-line-2 bg-surface/90 backdrop-blur"><Layers size={18} /></button>
             </RPopover.Trigger>
           </Tooltip>
           <RPopover.Portal>
@@ -325,7 +325,7 @@ export function PlantCanvas(p: PlantCanvasProps) {
 function MapBtn({ label, onClick, children }: { label: string; onClick: () => void; children: ReactNode }) {
   return (
     <Tooltip label={label}>
-      <button type="button" aria-label={label} onClick={onClick} className="icon-btn border-line-2 bg-[rgb(36_36_36/0.88)] backdrop-blur">{children}</button>
+      <button type="button" aria-label={label} onClick={onClick} className="icon-btn border-line-2 bg-surface/90 backdrop-blur">{children}</button>
     </Tooltip>
   );
 }

@@ -4,7 +4,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { useEffect, useState, type FormEvent } from 'react';
 import { ROLE_LABELS, type Role } from '@hydris/domain';
 import { AuthFrame } from '@/console/AuthFrame';
-import { Button, ErrorState, Input, LoadingBlock } from '@/ui';
+import { Button, ErrorState, Input, LoadingBlock, PasswordInput } from '@/ui';
 import { errorMessage, publicGet, publicPost, type SessionView } from '@/lib/api';
 import { useSessionCtx } from '@/lib/session';
 
@@ -45,7 +45,7 @@ export default function AcceptInvitation() {
     <AuthFrame title={`Join ${preview.orgName}`} subtitle={<>You were invited as <b className="text-text">{ROLE_LABELS[preview.role]}</b> with {preview.email}.</>}>
       <form onSubmit={submit} className="grid gap-4">
         {!preview.existingAccount && <Input label="Full name" required autoComplete="name" value={name} onChange={(e) => setName(e.target.value)} />}
-        <Input label={preview.existingAccount ? 'Your existing Hydris password' : 'Create a password'} type="password" autoComplete={preview.existingAccount ? 'current-password' : 'new-password'} required value={pw} onChange={(e) => setPw(e.target.value)} hint={preview.existingAccount ? 'This email already has a Hydris account.' : '12+ characters'} />
+        <PasswordInput label={preview.existingAccount ? 'Your existing Hydris password' : 'Create a password'} autoComplete={preview.existingAccount ? 'current-password' : 'new-password'} required value={pw} onChange={(e) => setPw(e.target.value)} hint={preview.existingAccount ? 'This email already has a Hydris account.' : '12+ characters'} />
         {error && <p role="alert" className="field-error">{error}</p>}
         <Button type="submit" variant="primary" size="lg" busy={busy} disabled={!pw || (!preview.existingAccount && name.trim().length < 2)}>Accept invitation</Button>
       </form>

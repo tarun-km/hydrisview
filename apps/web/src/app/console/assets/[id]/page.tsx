@@ -1,5 +1,6 @@
 'use client';
 
+import { RangeBar } from '@/ui/charts';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
@@ -82,7 +83,7 @@ function AssetView({ d }: { d: AssetDetail }) {
       </header>
 
       {/* Device hero */}
-      <section aria-label="Live readings" className="relative overflow-hidden rounded-[var(--radius-2xl)] border border-line bg-[radial-gradient(ellipse_at_50%_45%,#1f201e_0%,#0a0a0a_70%)]">
+      <section aria-label="Live readings" className="relative overflow-hidden rounded-[var(--radius-2xl)] border border-line bg-[radial-gradient(ellipse_at_50%_45%,#1f201e_0%,#081116_70%)]">
         <div className="hatch pointer-events-none absolute inset-0 opacity-[0.25]" aria-hidden />
         <div className="relative grid gap-4 p-4 sm:p-6 lg:min-h-[420px] lg:grid-cols-[1fr_minmax(0,1.4fr)_1fr] lg:items-center">
           <div className="order-2 grid gap-3 sm:grid-cols-2 lg:order-1 lg:grid-cols-1">
@@ -215,7 +216,7 @@ function ValueCard({ s }: { s: Sensor }) {
   const def = MEASURAND_DEFS[s.measurand];
   const stale = s.freshness === 'stale' || s.freshness === 'no_data';
   return (
-    <Link href={`/console/telemetry/${s.id}`} className="panel-glass group block p-4 transition-colors hover:border-[rgb(216_255_101/0.5)]" aria-label={`${def.label} ${s.tag}: ${s.lastValue === null ? 'no data' : `${fmtValue(s.lastValue, s.measurand)} ${s.unit}`}, ${s.freshness}. Open trend.`}>
+    <Link href={`/console/telemetry/${s.id}`} className="panel-glass group block p-4 transition-colors hover:border-[rgb(25_84_241/0.5)]" aria-label={`${def.label} ${s.tag}: ${s.lastValue === null ? 'no data' : `${fmtValue(s.lastValue, s.measurand)} ${s.unit}`}, ${s.freshness}. Open trend.`}>
       <div className="flex items-center justify-between gap-2">
         <span className="truncate text-[13px] text-text-2">{def.label} · {s.tag}</span>
         <ArrowUpRight size={15} className="text-muted group-hover:text-lime" aria-hidden />
@@ -230,6 +231,12 @@ function ValueCard({ s }: { s: Sensor }) {
         {s.lastSource === 'simulator' && <span className="text-[11px] text-lime">synthetic</span>}
       </div>
       <div className="mt-1 text-[11.5px] text-muted">{s.lastTs ? `observed ${fmtDateTime(s.lastTs)}` : 'no measurement received'}</div>
+      {def.typicalRange && (
+        <div className="mt-3 grid gap-1">
+          <RangeBar value={stale ? null : s.lastValue} band={def.typicalRange} ariaLabel={`${stale || s.lastValue === null ? 'No current value' : `${fmtValue(s.lastValue, s.measurand)} ${s.unit}`}; typical ${def.typicalRange[0]} to ${def.typicalRange[1]} ${s.unit}`} />
+          <div className="flex justify-between text-[10.5px] text-muted num" aria-hidden><span>typical {def.typicalRange[0]}–{def.typicalRange[1]}</span>{!stale && s.lastValue !== null && (s.lastValue < def.typicalRange[0] || s.lastValue > def.typicalRange[1]) && <span className="text-high-text">outside band</span>}</div>
+        </div>
+      )}
     </Link>
   );
 }
@@ -265,15 +272,15 @@ function StatusCard({ d }: { d: AssetDetail }) {
         <form className="grid gap-4" onSubmit={(e) => { e.preventDefault(); if (dirty) submit(); }}>
           <div className="field">
             <label htmlFor="op-status" className="!text-ink-2">Recorded status</label>
-            <Select id="op-status" value={status} onChange={(e) => setStatus(e.target.value as AssetStatus)} options={assetStatusOptions} className="!border-[rgb(17_18_17/0.18)] !bg-white !text-ink" />
+            <Select id="op-status" value={status} onChange={(e) => setStatus(e.target.value as AssetStatus)} options={assetStatusOptions} className="!border-ink/20 !bg-paper !text-ink" />
           </div>
           <div className="field">
             <label htmlFor="op-notes" className="!text-ink-2">Operator notes</label>
-            <Textarea id="op-notes" value={notes} onChange={(e) => setNotes(e.target.value)} maxLength={4000} placeholder="Shift observations, temporary workarounds, isolation status…" className="!border-[rgb(17_18_17/0.18)] !bg-white !text-ink" />
+            <Textarea id="op-notes" value={notes} onChange={(e) => setNotes(e.target.value)} maxLength={4000} placeholder="Shift observations, temporary workarounds, isolation status…" className="!border-ink/20 !bg-paper !text-ink" />
           </div>
           <div className="flex items-center justify-between gap-3">
             <span className="text-xs text-ink-2">Last updated {ago(a.updatedAt)}</span>
-            <button type="submit" className="btn btn-sm bg-ink text-paper hover:bg-black disabled:opacity-40" disabled={!dirty || save.isPending} aria-busy={save.isPending || undefined}>
+            <button type="submit" className="btn btn-sm bg-ink text-paper hover:opacity-90 disabled:opacity-40" disabled={!dirty || save.isPending} aria-busy={save.isPending || undefined}>
               {save.isPending ? 'Saving…' : 'Save'}
             </button>
           </div>

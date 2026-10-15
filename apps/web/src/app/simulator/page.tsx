@@ -10,7 +10,8 @@ import { useSessionCtx } from '@/lib/session';
 import { useApi } from '@/lib/query';
 import { Button, Capsule, Chip, IconButton } from '@/ui';
 import { useToast } from '@/ui/overlay';
-import { Logo } from '@/site/Logo';
+import { ThemedLogo } from '@/console/ThemedLogo';
+import { ThemeToggle } from '@/ui/theme';
 
 interface LogLine { at: string; event: string; detail?: unknown }
 interface SimInfo { available: boolean; canControl: boolean; scenarios: { key: ScenarioKey; title: string; summary: string; expected: string[]; steps: number }[]; stepSeconds: number; running: { id: string; scenarioKey: string; step: number; live: boolean }[] }
@@ -83,17 +84,18 @@ export default function SimulatorPage() {
   return (
     <div className="min-h-dvh bg-bg">
       <header className="flex flex-wrap items-center gap-3 border-b border-line px-5 py-3">
-        <Link href="/console" aria-label="Back to console"><Logo /></Link>
+        <Link href="/console" aria-label="Back to console"><ThemedLogo /></Link>
         <Chip tone="outline">Glasses simulator</Chip>
         <div className="ml-auto flex flex-wrap items-center gap-2">
           <Capsule label="Display size" value={size} onChange={setSize} options={(Object.keys(SIZES) as SizeKey[]).map((k) => ({ value: k, label: k.replace('x', '×') }))} />
           <Capsule label="Presentation" value={chrome} onChange={setChrome} options={[{ value: 'frame', label: 'Device frame' }, { value: 'viewport', label: 'Viewport only' }]} />
           <Link href="/glasses?sim=1" target="_blank" className="btn btn-ghost btn-sm"><ExternalLink size={14} /> Open viewport alone</Link>
+          <ThemeToggle compact size="sm" />
         </div>
       </header>
 
       <div className="grid gap-6 p-5 lg:grid-cols-[1fr_440px]">
-        <section aria-label="Simulated device" className="grid place-items-center overflow-hidden rounded-[var(--radius-2xl)] border border-line bg-[radial-gradient(circle_at_50%_40%,#1a1d14_0%,#0a0a0a_60%)] py-10">
+        <section aria-label="Simulated device" className="grid place-items-center overflow-hidden rounded-[var(--radius-2xl)] border border-line bg-[radial-gradient(circle_at_50%_40%,#1a1d14_0%,#081116_60%)] py-10">
           <div style={{ transform: `scale(${scale})`, transformOrigin: 'top center', height: (h + (chrome === 'frame' ? 160 : 0)) * scale }}>
             <div className={chrome === 'frame' ? 'relative rounded-[120px] border-[14px] border-[#1d1f1c] bg-[#121311] px-[60px] py-[70px] shadow-[0_40px_120px_rgb(0_0_0/0.6)]' : ''}>
               {chrome === 'frame' && <>

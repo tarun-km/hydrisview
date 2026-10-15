@@ -83,7 +83,7 @@ function SensorGrid({ rows }: { rows: SensorRow[] }) {
         <section key={g.assetId ?? 'none'} aria-labelledby={`g-${g.assetId ?? 'none'}`}>
           <div className="mb-3 flex items-center gap-3">
             <h2 id={`g-${g.assetId ?? 'none'}`} className="t-card min-w-0 truncate">
-              {g.assetId ? <Link href={`/console/assets/${g.assetId}`} className="hover:underline">{g.tag}</Link> : 'Not linked to an asset'}
+              {g.assetId ? <Link href={`/console/assets/${g.assetId}`} className="link-quiet text-text">{g.tag}</Link> : 'Not linked to an asset'}
               {g.name && <span className="ml-2 font-normal text-muted">{g.name}</span>}
             </h2>
             <span className="t-label num ml-auto flex-none">{g.items.length} sensor{g.items.length === 1 ? '' : 's'}</span>

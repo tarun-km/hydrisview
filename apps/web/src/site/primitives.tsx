@@ -7,6 +7,7 @@ import { ArrowUpRight, Check, Clock } from 'lucide-react';
 export function SectionLabel({ children, className, index }: { children: ReactNode; className?: string; index?: string }) {
   return (
     <p className={clsx('flex items-center gap-3 text-[15px] tracking-[-0.01em] text-muted', className)}>
+      <span aria-hidden className="rule" />
       {index && <span className="num text-[13px] opacity-80">/{index}</span>}
       <span>{children}</span>
     </p>
@@ -73,21 +74,33 @@ export function AvailabilityTag({ status, onPaper }: { status: Availability; onP
 }
 
 /** Page intro used by inner pages: label, huge statement, lead paragraph, optional aside. */
-export function PageIntro({ label, title, lead, aside, children }: { label: string; title: ReactNode; lead?: ReactNode; aside?: ReactNode; children?: ReactNode }) {
+export function PageIntro({ label, title, lead, aside, children, tags }: { label: string; title: ReactNode; lead?: ReactNode; aside?: ReactNode; children?: ReactNode; tags?: string[] }) {
   return (
-    <section className="site-container pb-16 pt-10 lg:pb-24 lg:pt-16" aria-labelledby="page-title">
-      <SectionLabel className="reveal">{label}</SectionLabel>
-      <div className="site-grid mt-8 gap-y-10 lg:mt-12">
-        <h1 id="page-title" className="t-display reveal col-span-12 xl:col-span-11">{title}</h1>
-        {(lead || aside) && (
-          <div className="col-span-12 grid gap-8 md:grid-cols-12 lg:mt-6">
-            <div className="md:col-span-6 lg:col-span-5 lg:col-start-7">
-              {lead && <div className="t-lead reveal reveal-d1 text-text-2">{lead}</div>}
-              {children}
-            </div>
-            {aside && <div className="reveal reveal-d2 md:col-span-6 md:row-start-1 lg:col-span-5">{aside}</div>}
+    <section className="site-container pb-10 pt-4 lg:pb-16 lg:pt-6" aria-labelledby="page-title">
+      <div className="stage-blue px-5 pb-12 pt-10 sm:px-8 lg:px-14 lg:pb-20 lg:pt-16">
+        <div aria-hidden className="brand-stroke absolute -right-48 -top-40 h-[900px] w-[640px] text-white/25 lg:-right-16" />
+        <div className="relative">
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <SectionLabel className="reveal">{label}</SectionLabel>
+            {tags && (
+              <ul className="reveal flex flex-wrap gap-2" aria-label="Topics">
+                {tags.map((t) => <li key={t} className="tag-pill !h-9 !px-4 !text-[13.5px] text-white">{t}</li>)}
+              </ul>
+            )}
           </div>
-        )}
+          <div className="site-grid mt-8 gap-y-10 lg:mt-12">
+            <h1 id="page-title" className="t-display reveal col-span-12 xl:col-span-11">{title}</h1>
+            {(lead || aside) && (
+              <div className="col-span-12 grid gap-8 md:grid-cols-12 lg:mt-6">
+                <div className="md:col-span-6 lg:col-span-5 lg:col-start-7">
+                  {lead && <div className="t-lead reveal reveal-d1 text-white/90">{lead}</div>}
+                  {children}
+                </div>
+                {aside && <div className="reveal reveal-d2 md:col-span-6 md:row-start-1 lg:col-span-5">{aside}</div>}
+              </div>
+            )}
+          </div>
+        </div>
       </div>
     </section>
   );
@@ -99,13 +112,13 @@ export function CtaBand({ title, body }: { title?: ReactNode; body?: ReactNode }
       <div className="card-lime reveal relative overflow-hidden rounded-[28px] px-6 py-12 sm:px-10 lg:rounded-[40px] lg:px-16 lg:py-20">
         <svg aria-hidden className="pointer-events-none absolute -right-24 -top-24 h-[420px] w-[420px] opacity-30 lg:h-[620px] lg:w-[620px]" viewBox="0 0 200 200">
           {Array.from({ length: 9 }, (_, i) => (
-            <circle key={i} cx="100" cy="100" r={20 + i * 10} fill="none" stroke="#141714" strokeWidth="0.6" />
+            <circle key={i} cx="100" cy="100" r={20 + i * 10} fill="none" stroke="#ffffff" strokeWidth="0.6" />
           ))}
         </svg>
         <div className="relative grid gap-10 lg:grid-cols-12 lg:items-end">
           <div className="lg:col-span-8">
             <h2 id="cta-title" className="t-hero">{title ?? <>See Hydris on a plant <span className="whitespace-nowrap">like yours.</span></>}</h2>
-            <p className="mt-6 max-w-xl text-[17px] leading-relaxed text-lime-ink/75">
+            <p className="mt-6 max-w-xl text-[17px] leading-relaxed text-lime-ink/90">
               {body ?? 'A 30-minute walkthrough: the glasses viewport, the operator console and how your gateway telemetry would reach both. We will be clear about what is available today and what is planned.'}
             </p>
           </div>

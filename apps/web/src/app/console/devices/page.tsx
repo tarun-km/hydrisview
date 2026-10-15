@@ -9,6 +9,7 @@ import { ago } from '@/lib/format';
 import { Avatar, ButtonLink, Capsule, EmptyState, KpiCard, PageHeader, QueryView, Skeleton } from '@/ui';
 import { DeviceKindChip, DeviceStateChip, GlassesArt } from '@/console/admin/glasses';
 import { NoAccess, type DeviceRow } from '@/console/admin/parts';
+import { Donut, type Datum } from '@/ui/charts';
 
 type Filter = 'all' | 'connected' | 'disconnected' | 'assigned' | 'suspended' | 'revoked';
 const FILTERS: { value: Filter; label: string; test: (d: DeviceRow) => boolean }[] = [
@@ -52,7 +53,7 @@ export default function DevicesPage() {
             return (
               <div className="grid gap-5 fade-in">
                 <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-                  <KpiCard label="Connected now" value={<>{counts.connected}<span className="text-[0.5em] opacity-50">/{active.length}</span></>} sub="Open stream or seen in the last 90 s" />
+                  <FleetRing devices={active} />
                   <KpiCard tone="dark" label="Assigned to an operator" value={counts.assigned} sub={`${active.filter((d) => d.status === 'active' && !d.assignee).length} active without an operator`} />
                   <KpiCard tone="dark" label="Suspended" value={counts.suspended} accent={counts.suspended ? 'high' : undefined} sub="Signed out until reactivated" />
                   <KpiCard tone="dark" label="Simulators" value={active.filter((d) => d.kind === 'simulator').length} sub={`${active.filter((d) => d.kind === 'hardware').length} hardware devices`} />
@@ -109,6 +110,25 @@ function DeviceCard({ d }: { d: DeviceRow }) {
         </div>
       </div>
     </Link>
+  );
+}
+
+/** Connected vs total ring (paper island), broken down by live state. */
+function FleetRing({ devices }: { devices: DeviceRow[] }) {
+  const n = (s: string) => devices.filter((d) => d.state === s).length;
+  const data: Datum[] = [
+    { key: 'connected', label: 'Connected', value: n('connected'), color: 'var(--color-signal)' },
+    { key: 'disconnected', label: 'Disconnected', value: n('disconnected'), color: 'var(--color-medium)' },
+    { key: 'suspended', label: 'Suspended', value: n('suspended'), color: 'var(--color-high)' },
+    { key: 'other', label: 'Not yet paired', value: devices.length - n('connected') - n('disconnected') - n('suspended'), color: 'var(--color-ink-2)' },
+  ].filter((d) => d.value > 0 || d.key === 'connected');
+  return (
+    <section className="card card-paper flex min-h-[148px] flex-col justify-between gap-3 p-5 sm:p-6" aria-labelledby="fleet-ring">
+      <span id="fleet-ring" className="text-[13.5px] leading-snug opacity-75">Connected now</span>
+      <Donut data={data} size={104} thickness={10} legend={false} table center={<>{n('connected')}<span className="text-[0.5em] opacity-50">/{devices.length}</span></>}
+        ariaLabel={`${n('connected')} of ${devices.length} field glasses connected now`} empty="None paired" />
+      <span className="text-[12.5px] leading-snug opacity-70">Open stream or seen in the last 90 s</span>
+    </section>
   );
 }
 

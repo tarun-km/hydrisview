@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { Suspense, useState, type FormEvent } from 'react';
 import { AuthFrame } from '@/console/AuthFrame';
-import { Button, Input } from '@/ui';
+import { Button, Input, PasswordInput } from '@/ui';
 import { errorMessage, publicPost } from '@/lib/api';
 
 function ResetForm() {
@@ -35,8 +35,8 @@ function ResetForm() {
         <div className="card grid gap-3"><p className="t-card">Password updated</p><Link href="/login" className="btn btn-primary">Sign in</Link></div>
       ) : (
         <form onSubmit={submit} className="grid gap-4">
-          <Input label="New password" type="password" autoComplete="new-password" minLength={12} required value={pw} onChange={(e) => setPw(e.target.value)} hint="12+ characters" />
-          <Input label="Repeat password" type="password" autoComplete="new-password" required value={pw2} onChange={(e) => setPw2(e.target.value)} error={mismatch ? 'Passwords do not match' : null} />
+          <PasswordInput label="New password" autoComplete="new-password" minLength={12} required value={pw} onChange={(e) => setPw(e.target.value)} hint="12+ characters" />
+          <PasswordInput label="Repeat password" autoComplete="new-password" required value={pw2} onChange={(e) => setPw2(e.target.value)} error={mismatch ? 'Passwords do not match' : null} />
           {error && <p role="alert" className="field-error">{error}</p>}
           <Button type="submit" variant="primary" size="lg" busy={busy} disabled={pw.length < 12 || pw !== pw2}>Update password</Button>
         </form>

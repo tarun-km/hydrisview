@@ -4,13 +4,13 @@ import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useState, type ReactNode } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { Activity, ArrowLeft, Boxes, Check, FileText, Info, UserPlus, Wrench } from 'lucide-react';
+import { Activity, Boxes, Check, FileText, Info, UserPlus, Wrench } from 'lucide-react';
 import { ALARM_STATES, ALARM_STATE_LABELS, CONDITION_LABELS, MEASURAND_DEFS, type AlarmAction, type AlarmState } from '@hydris/domain';
 import { post } from '@/lib/api';
 import { invalidatePaths, useAction, useApi } from '@/lib/query';
 import { useCan, useSession } from '@/lib/session';
 import { ago, fmtDateTime, fmtValue } from '@/lib/format';
-import { Button, ButtonLink, Card, KeyValues, PageHeader, QueryView, SeverityChip, Skeleton, StateChip, SyntheticBadge, Textarea, Timeline, cx } from '@/ui';
+import { Button, ButtonLink, Card, KeyValues, PageHeader, QueryView, SeverityChip, Skeleton, StateChip, SyntheticBadge, Textarea, Timeline, cx, BackLink as UiBackLink } from '@/ui';
 import { ConfirmDialog } from '@/ui/overlay';
 import type { AlarmDetailResponse, AlarmHistoryEntry, Member } from '@/console/alarms-telemetry/types';
 import { AssignDialog, FollowUpDialog } from '@/console/alarms-telemetry/AlarmDialogs';
@@ -44,7 +44,7 @@ export default function AlarmDetailPage() {
   const q = useApi<AlarmDetailResponse>(`/alarms/${id}`, { refetchInterval: 30_000 });
   return (
     <>
-      <Link href="/console/alarms" className="mb-4 inline-flex items-center gap-2 text-sm text-text-2 hover:text-text"><ArrowLeft size={16} strokeWidth={1.8} aria-hidden />All alarms</Link>
+      <UiBackLink href="/console/alarms">All alarms</UiBackLink>
       <QueryView q={q} loading={<DetailSkeleton />}>{(d) => <AlarmDetail d={d} refetch={() => void q.refetch()} />}</QueryView>
     </>
   );
@@ -147,7 +147,7 @@ function AlarmDetail({ d, refetch }: { d: AlarmDetailResponse; refetch: () => vo
               <h2 id="rec-h" className="t-card">Recommended action</h2>
               {a.recommendedAction ? <p className="mt-3 whitespace-pre-line text-[15px] leading-relaxed">{a.recommendedAction}</p> : <p className="mt-3 text-sm muted">No recommended action configured for this rule.</p>}
               {d.procedure && (
-                <Link href={`/console/documents/${d.procedure.id}`} className="mt-4 inline-flex items-center gap-2 rounded-full border border-[rgb(17_18_17/0.18)] px-4 py-2 text-sm font-medium hover:bg-black/5">
+                <Link href={`/console/documents/${d.procedure.id}`} className="mt-4 inline-flex items-center gap-2 rounded-full border border-ink/20 px-4 py-2 text-sm font-medium hover:bg-ink/5">
                   <FileText size={16} strokeWidth={1.8} aria-hidden />Open procedure: {d.procedure.title}
                 </Link>
               )}
@@ -204,7 +204,7 @@ function AlarmDetail({ d, refetch }: { d: AlarmDetailResponse; refetch: () => vo
       {d.allowedActions.map((x) => (
         <ConfirmDialog key={x} open={confirm === x} onOpenChange={(v) => setConfirm(v ? x : null)} title={ACTIONS[x].title} confirmLabel={ACTIONS[x].label}
           noteLabel={ACTIONS[x].noteLabel} noteRequired={ACTIONS[x].required} onConfirm={run(x)}
-          body={<>{ACTIONS[x].body}{x === 'resolve' && !cleared && <span className="mt-2 block text-[#ff9a5c]">The measured value has not returned to normal yet.</span>}</>} />
+          body={<>{ACTIONS[x].body}{x === 'resolve' && !cleared && <span className="mt-2 block text-high-text">The measured value has not returned to normal yet.</span>}</>} />
       ))}
       {members.data && <AssignDialog open={assignOpen} onOpenChange={setAssignOpen} alarmId={a.id} currentId={a.assignedTo} members={members.data.members} meId={me.id} />}
       <FollowUpDialog open={followOpen} onOpenChange={setFollowOpen} alarm={a} />
@@ -231,7 +231,7 @@ function Stepper({ state, at }: { state: AlarmState; at: Record<AlarmState, stri
           <li key={s} className="relative flex min-w-0 flex-col items-center text-center" aria-current={current ? 'step' : undefined}>
             {i > 0 && <span className={cx('absolute top-[13px] h-0.5 rounded-full', i <= cur ? 'bg-lime' : 'bg-surface-3')} style={{ left: 'calc(-50% + 18px)', right: 'calc(50% + 18px)' }} aria-hidden />}
             <span className={cx('relative grid h-7 w-7 place-items-center rounded-full text-[11px] font-semibold',
-              done && 'bg-lime/80 text-lime-ink', current && 'bg-lime text-lime-ink ring-4 ring-[rgb(216_255_101/0.18)]', !done && !current && 'border border-line-2 bg-surface text-muted')}>
+              done && 'bg-lime/80 text-lime-ink', current && 'bg-lime text-lime-ink ring-4 ring-[rgb(25_84_241/0.18)]', !done && !current && 'border border-line-2 bg-surface text-muted')}>
               {done ? <Check size={14} strokeWidth={2.4} aria-hidden /> : i + 1}
             </span>
             <span className={cx('mt-2 max-w-full text-[11.5px] leading-tight sm:text-[12.5px]', current ? 'font-medium text-text' : done ? 'text-text-2' : 'text-muted')}>{ALARM_STATE_LABELS[s]}</span>

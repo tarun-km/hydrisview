@@ -145,7 +145,7 @@ export function describeError(e: unknown): string {
 export function FormError({ error }: { error: unknown }) {
   if (!error) return null;
   return (
-    <p role="alert" className="flex items-start gap-2 rounded-2xl border border-[rgb(255_90_78/0.3)] bg-[rgb(255_90_78/0.06)] px-4 py-3 text-sm text-[#ffb1aa]">
+    <p role="alert" className="flex items-start gap-2 rounded-2xl border border-[rgb(255_40_0/0.3)] bg-[rgb(255_40_0/0.06)] px-4 py-3 text-sm text-critical-text">
       <AlertTriangle size={16} className="mt-0.5 flex-none text-critical" aria-hidden />
       <span>{describeError(error)}</span>
     </p>
@@ -156,7 +156,7 @@ export function FormError({ error }: { error: unknown }) {
 export function ConflictBanner({ message, onReload, busy }: { message: string; onReload: () => void; busy?: boolean }) {
   return (
     <div role="alert" className="mb-4 flex flex-wrap items-center gap-4 rounded-[var(--radius-xl)] border border-[rgb(245_184_61/0.4)] bg-[rgb(245_184_61/0.08)] p-4">
-      <AlertTriangle size={20} className="text-medium" aria-hidden />
+      <AlertTriangle size={20} className="text-medium-text" aria-hidden />
       <div className="min-w-0 flex-1">
         <div className="font-medium">This record changed since you loaded it</div>
         <div className="text-sm text-text-2">{message} Reload to see the latest version before trying again.</div>

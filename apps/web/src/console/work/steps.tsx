@@ -51,7 +51,7 @@ export function StepPreview({ step, index, total, compact }: { step: InspectionS
       </div>
       <div className="mt-3 text-[17px] font-medium leading-snug">{step.title || <span className="text-muted">Untitled step</span>}</div>
       {step.caution && (
-        <div className="mt-3 flex gap-2 rounded-xl border border-[rgb(245_184_61/0.35)] bg-[rgb(245_184_61/0.08)] px-3 py-2 text-sm text-[#f7c96a]">
+        <div className="mt-3 flex gap-2 rounded-xl border border-[rgb(245_184_61/0.35)] bg-[rgb(245_184_61/0.08)] px-3 py-2 text-sm text-medium-text">
           <AlertTriangle size={15} className="mt-0.5 flex-none" aria-hidden /><span>{step.caution}</span>
         </div>
       )}
@@ -227,7 +227,7 @@ export function StepRecorder({ step, inspectionId, current, onRecord }: {
         )}
         {preview && step.kind !== 'photo' && <span className="text-xs text-muted">Will be recorded as</span>}
         {preview && step.kind !== 'photo' && <OutcomeChip outcome={preview} />}
-        {saved && !busy && <span role="status" className="text-xs text-ok">Saved</span>}
+        {saved && !busy && <span role="status" className="text-xs text-ok-text">Saved</span>}
       </div>
       {err && <p role="alert" className="field-error">{err}</p>}
     </div>

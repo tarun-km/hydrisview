@@ -1,16 +1,16 @@
 'use client';
 
 import Link from 'next/link';
-import { useParams } from 'next/navigation';
-import { useState } from 'react';
+import { useParams, useRouter } from 'next/navigation';
+import { useEffect, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import clsx from 'clsx';
-import { AlertTriangle, ArrowLeft, Ban, CalendarClock, CheckCircle2, ChevronDown, ChevronUp, Pause, Play, Send, Undo2, UserRoundCog, Wrench } from 'lucide-react';
+import { AlertTriangle, Ban, CalendarClock, CheckCircle2, ChevronDown, ChevronUp, Pause, Play, Send, Undo2, UserRoundCog, Wrench } from 'lucide-react';
 import { ASSET_TYPE_LABELS, INSPECTION_EDITABLE, INSPECTION_STATUS_LABELS, MAINTENANCE_STATUS_LABELS, canTransitionInspection, type InspectionAction, type StepValue } from '@hydris/domain';
 import { ApiError, post } from '@/lib/api';
 import { invalidatePaths, useApi } from '@/lib/query';
 import { fmtDateTime, until } from '@/lib/format';
-import { Button, Card, Chip, ErrorState, KeyValues, PageHeader, Progress, Skeleton, StateChip, Switch, SyntheticBadge, Timeline } from '@/ui';
+import { Button, Card, Chip, ErrorState, KeyValues, PageHeader, Progress, Skeleton, StateChip, Switch, SyntheticBadge, Timeline, BackLink as UiBackLink } from '@/ui';
 import { ConfirmDialog, Dialog, useToast } from '@/ui/overlay';
 import { AttachmentList } from '@/console/work/attachments';
 import { ReassignDialog } from '@/console/work/inspection-forms';
@@ -26,8 +26,12 @@ const CONFLICT_REASONS: Record<string, string> = {
 
 export default function InspectionDetailPage() {
   const { id } = useParams<{ id: string }>();
+  const router = useRouter();
+  const isTemplatesAlias = id === 'templates';
   const path = `/inspections/${id}`;
-  const q = useApi<InspectionDetailResponse>(path);
+  const q = useApi<InspectionDetailResponse>(isTemplatesAlias ? null : path);
+  // "/console/inspections/templates" is a natural guess for the template library; forward it.
+  useEffect(() => { if (isTemplatesAlias) router.replace('/console/inspections?view=templates'); }, [isTemplatesAlias, router]);
   const qc = useQueryClient();
   const toast = useToast();
   const [conflict, setConflict] = useState<string | null>(null);
@@ -151,8 +155,8 @@ export default function InspectionDetailPage() {
       {conflict && <ConflictBanner message={conflict} busy={q.isFetching} onReload={() => void reload()} />}
 
       {i.status === 'rejected' && i.reviewNote && (
-        <div role="note" className="mb-4 flex gap-3 rounded-[var(--radius-xl)] border border-[rgb(242_100_20/0.4)] bg-[rgb(242_100_20/0.08)] p-4">
-          <Undo2 size={18} className="mt-0.5 flex-none text-high" aria-hidden />
+        <div role="note" className="mb-4 flex gap-3 rounded-[var(--radius-xl)] border border-[rgb(255_159_28/0.4)] bg-[rgb(255_159_28/0.08)] p-4">
+          <Undo2 size={18} className="mt-0.5 flex-none text-high-text" aria-hidden />
           <div><div className="font-medium">Returned for correction</div><p className="mt-1 whitespace-pre-line text-sm text-text-2">{i.reviewNote}</p></div>
         </div>
       )}
@@ -164,7 +168,7 @@ export default function InspectionDetailPage() {
           <Card title={<h2 className="t-card">Steps <span className="num text-muted">· {i.progress.answered}/{i.progress.total}</span></h2>}
             action={canExecute ? <span className="text-xs text-muted">Recording from the console</span> : !permissions.execute && editable ? <span className="text-xs text-muted">Read-only — only the assignee records responses</span> : undefined}>
             {showMissing && missing.length > 0 && (
-              <div role="alert" className="mb-4 flex gap-2 rounded-2xl border border-[rgb(255_90_78/0.35)] bg-[rgb(255_90_78/0.06)] px-4 py-3 text-sm">
+              <div role="alert" className="mb-4 flex gap-2 rounded-2xl border border-[rgb(255_40_0/0.35)] bg-[rgb(255_40_0/0.06)] px-4 py-3 text-sm">
                 <AlertTriangle size={16} className="mt-0.5 flex-none text-critical" aria-hidden />
                 <span>{missing.length} required step{missing.length > 1 ? 's are' : ' is'} still open: {missing.map((s) => s.title).join(', ')}.</span>
               </div>
@@ -175,7 +179,7 @@ export default function InspectionDetailPage() {
                 const isMissing = showMissing && s.required && !r;
                 const open = canExecute && (expanded[s.id] ?? !r);
                 return (
-                  <li key={s.id} id={`step-${s.id}`} className={clsx('rounded-[var(--radius-lg)] border bg-bg-2 p-4', isMissing ? 'border-[rgb(255_90_78/0.6)]' : r?.outcome === 'abnormal' ? 'border-[rgb(242_100_20/0.4)]' : 'border-line')}>
+                  <li key={s.id} id={`step-${s.id}`} className={clsx('rounded-[var(--radius-lg)] border bg-bg-2 p-4', isMissing ? 'border-[rgb(255_40_0/0.6)]' : r?.outcome === 'abnormal' ? 'border-[rgb(255_159_28/0.4)]' : 'border-line')}>
                     <div className="flex items-start gap-3">
                       <span className={clsx('num grid h-8 w-8 flex-none place-items-center rounded-full text-sm', r ? (r.outcome === 'abnormal' ? 'bg-high text-ink' : 'bg-ok text-ink') : 'bg-surface-3 text-text-2')}>{idx + 1}</span>
                       <div className="min-w-0 flex-1">
@@ -184,7 +188,7 @@ export default function InspectionDetailPage() {
                           <span className="inline-flex items-center gap-1 text-xs text-muted">{STEP_KIND_META[s.kind].icon}{STEP_KIND_META[s.kind].label}</span>
                           {s.required ? <span className="text-xs text-lime">Required</span> : <span className="text-xs text-muted">Optional</span>}
                         </div>
-                        {s.caution && <p className="mt-2 flex gap-1.5 text-sm text-[#f7c96a]"><AlertTriangle size={14} className="mt-0.5 flex-none" aria-hidden />{s.caution}</p>}
+                        {s.caution && <p className="mt-2 flex gap-1.5 text-sm text-medium-text"><AlertTriangle size={14} className="mt-0.5 flex-none" aria-hidden />{s.caution}</p>}
                         {s.instruction && <p className="mt-1.5 whitespace-pre-line text-sm text-text-2">{s.instruction}</p>}
                         {r ? (
                           <div className="mt-3 grid gap-2">
@@ -192,7 +196,7 @@ export default function InspectionDetailPage() {
                             {r.note && <p className="rounded-xl bg-surface px-3 py-2 text-sm text-text-2">“{r.note}”</p>}
                             <ResponseMeta r={r} />
                           </div>
-                        ) : <p className={clsx('mt-3 text-sm', isMissing ? 'text-[#ff8a80]' : 'text-muted')}>{isMissing ? 'Required — not recorded yet' : 'Not recorded'}</p>}
+                        ) : <p className={clsx('mt-3 text-sm', isMissing ? 'text-critical-text' : 'text-muted')}>{isMissing ? 'Required — not recorded yet' : 'Not recorded'}</p>}
                         {canExecute && r && (
                           <button type="button" className="mt-3 inline-flex items-center gap-1 text-sm text-text-2 hover:text-text" aria-expanded={open} onClick={() => setExpanded((x) => ({ ...x, [s.id]: !open }))}>
                             {open ? <ChevronUp size={15} aria-hidden /> : <ChevronDown size={15} aria-hidden />}{open ? 'Close' : 'Change response'}
@@ -222,13 +226,13 @@ export default function InspectionDetailPage() {
             <div className="mt-4"><Progress value={i.progress.percent} tone={i.progress.complete ? 'ok' : 'lime'} label="Steps answered" /></div>
             <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-[13px] opacity-75 num">
               <span>{i.progress.requiredAnswered}/{i.progress.required} required</span>
-              <span style={i.progress.abnormal ? { color: '#b8460a' } : undefined}>{i.progress.abnormal} abnormal</span>
+              <span className={i.progress.abnormal ? 'kpi-accent-high' : undefined}>{i.progress.abnormal} abnormal</span>
             </div>
           </div>
 
           <Card title="Details">
             <KeyValues columns={1} items={[
-              ['Asset', i.asset ? <Link className="text-[#9ebcff] hover:underline" href={`/console/assets/${i.asset.id}`}>{i.asset.tag} · {i.asset.name}</Link> : 'Site-wide'],
+              ['Asset', i.asset ? <Link className="text-accent hover:underline" href={`/console/assets/${i.asset.id}`}>{i.asset.tag} · {i.asset.name}</Link> : 'Site-wide'],
               ['Asset type', i.asset ? ASSET_TYPE_LABELS[i.asset.type] : '—'],
               ['Assignee', i.assignee?.name ?? 'Unassigned'],
               ['Due', i.dueAt ? <span className="num">{fmtDateTime(i.dueAt)} <span className="text-muted">· {editable ? until(i.dueAt) : 'closed'}</span></span> : 'No due date'],
@@ -309,15 +313,15 @@ function SubmitDialog({ open, onOpenChange, inspection: i, onSubmit, onIncomplet
       </>}>
       <div className="grid gap-4">
         {missing.length > 0 ? (
-          <div role="alert" className="rounded-2xl border border-[rgb(255_90_78/0.35)] bg-[rgb(255_90_78/0.06)] p-4">
+          <div role="alert" className="rounded-2xl border border-[rgb(255_40_0/0.35)] bg-[rgb(255_40_0/0.06)] p-4">
             <div className="font-medium">Incomplete — {missing.length} required step{missing.length > 1 ? 's' : ''} still open</div>
             <ul className="mt-2 grid gap-1 text-sm text-text-2">
               {missing.map((s) => <li key={s.id}>• <a className="underline-offset-2 hover:underline" href={`#step-${s.id}`} onClick={() => { onIncomplete(); onOpenChange(false); }}>{s.title}</a></li>)}
             </ul>
           </div>
-        ) : <p className="flex items-center gap-2 text-sm"><CheckCircle2 size={16} className="text-ok" aria-hidden />All <span className="num">{i.progress.required}</span> required steps recorded.</p>}
+        ) : <p className="flex items-center gap-2 text-sm"><CheckCircle2 size={16} className="text-ok-text" aria-hidden />All <span className="num">{i.progress.required}</span> required steps recorded.</p>}
         {abnormal.length > 0 && (
-          <div className="grid gap-3 rounded-2xl border border-[rgb(242_100_20/0.35)] bg-[rgb(242_100_20/0.06)] p-4">
+          <div className="grid gap-3 rounded-2xl border border-[rgb(255_159_28/0.35)] bg-[rgb(255_159_28/0.06)] p-4">
             <div className="text-sm"><b className="font-medium">{abnormal.length} abnormal finding{abnormal.length > 1 ? 's' : ''}:</b> {abnormal.map((s) => s.title).join(', ')}</div>
             <Switch checked={followUp} onChange={setFollowUp} label="Open a follow-up maintenance request" />
           </div>
@@ -329,7 +333,7 @@ function SubmitDialog({ open, onOpenChange, inspection: i, onSubmit, onIncomplet
 }
 
 function BackLink() {
-  return <Link href="/console/inspections" className="mb-4 inline-flex items-center gap-1.5 text-sm text-text-2 hover:text-text"><ArrowLeft size={15} aria-hidden />All inspections</Link>;
+  return <UiBackLink href="/console/inspections">All inspections</UiBackLink>;
 }
 
 function DetailSkeleton() {

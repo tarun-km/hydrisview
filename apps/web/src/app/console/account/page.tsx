@@ -94,7 +94,7 @@ function MfaCard() {
   useEffect(() => {
     if (!setup) { setQr(null); return; }
     let live = true;
-    toDataURL(setup.otpauthUrl, { margin: 1, width: 220, errorCorrectionLevel: 'M', color: { dark: '#111211', light: '#E9E9E7' } })
+    toDataURL(setup.otpauthUrl, { margin: 1, width: 220, errorCorrectionLevel: 'M', color: { dark: '#081116', light: '#E9E9E7' } })
       .then((u) => { if (live) setQr(u); })
       .catch(() => { if (live) setQr(null); });
     return () => { live = false; };

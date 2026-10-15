@@ -46,7 +46,7 @@ export function GlassesArt({ state, className, title }: { state: DeviceState; cl
         </linearGradient>
         <linearGradient id={`${uid}l`} x1="0" y1="0" x2="1" y2="1">
           <stop offset="0%" stopColor={glow} stopOpacity={dim ? 0.05 : 0.22} />
-          <stop offset="60%" stopColor="#0a0a0a" stopOpacity={0.55} />
+          <stop offset="60%" stopColor="#081116" stopOpacity={0.55} />
           <stop offset="100%" stopColor={glow} stopOpacity={dim ? 0.02 : 0.1} />
         </linearGradient>
         <radialGradient id={`${uid}s`} cx="0.5" cy="0.5" r="0.5">
@@ -82,7 +82,7 @@ export function GlassesArt({ state, className, title }: { state: DeviceState; cl
         <rect x="228" y="71" width="16" height="2.5" rx="1.25" fill={glow} fillOpacity="0.6" />
       </g>
       {/* camera + status light */}
-      <circle cx="40" cy="44" r="4" fill="#0a0a0a" stroke="#5c5e58" strokeWidth="1.2" />
+      <circle cx="40" cy="44" r="4" fill="#081116" stroke="#5c5e58" strokeWidth="1.2" />
       <circle cx="40" cy="44" r="1.4" fill="#7fa6ff" opacity="0.8" />
       <circle cx="282" cy="44" r="3.6" fill={glow} className={live ? 'pulse-dot' : undefined} />
       {state === 'revoked' && <path d="M60 120 L260 26" stroke="var(--color-critical)" strokeWidth="2" strokeDasharray="6 6" opacity="0.5" />}

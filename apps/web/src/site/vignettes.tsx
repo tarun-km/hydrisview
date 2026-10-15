@@ -7,13 +7,13 @@ import { PlantSchematic } from './art';
 
 type HudTone = 'ok' | 'medium' | 'high' | 'critical' | 'stale' | 'lime';
 const TONE: Record<HudTone, string> = {
-  ok: 'var(--color-ok)', medium: 'var(--color-medium)', high: 'var(--color-high)', critical: 'var(--color-critical)', stale: 'var(--color-muted)', lime: 'var(--color-lime)',
+  ok: 'var(--color-ok)', medium: 'var(--color-medium)', high: 'var(--color-high)', critical: 'var(--color-critical)', stale: 'var(--color-muted)', lime: 'var(--hx-tint)',
 };
 
 /** Square black glasses display (600×600 design canvas, scaled). */
 export function GlassesScreen({ children, label, className, header, status = 'Live', statusTone = 'ok' }: { children: ReactNode; label: string; className?: string; header?: string; status?: string; statusTone?: HudTone }) {
   return (
-    <div role="img" aria-label={label} className={clsx('@container relative aspect-square w-full overflow-hidden rounded-[9%] bg-black ring-1 ring-line-2', className)}>
+    <div role="img" aria-label={label} className={clsx('force-dark @container relative aspect-square w-full overflow-hidden rounded-[9%] bg-black ring-1 ring-line-2', className)}>
       <div aria-hidden className="absolute inset-0 flex flex-col p-[6.5cqw] text-[4.6cqw] leading-[1.25] text-text">
         {header && (
           <div className="flex items-center justify-between text-[3.8cqw] text-text-2">
@@ -106,7 +106,7 @@ export function HudSop({ code, title, steps, current }: { code: string; title: s
       <div className="mt-[2cqw] text-[6cqw] leading-[1.15] tracking-[-0.02em]">{title}</div>
       <ol className="mt-auto grid gap-[1.6cqw]">
         {steps.map((s, i) => (
-          <li key={s} className={clsx('flex gap-[2.4cqw] text-[4cqw]', i < current && 'text-muted line-through decoration-white/30', i === current && 'text-lime')}>
+          <li key={s} className={clsx('flex gap-[2.4cqw] text-[4cqw]', i < current && 'text-muted line-through decoration-white/30', i === current && 'text-[#6f93ff]')}>
             <span className="num w-[5cqw] flex-none">{String(i + 1).padStart(2, '0')}</span>
             <span>{s}</span>
           </li>
@@ -160,7 +160,7 @@ export function ConsoleMock() {
               <span key={t} className={clsx('rounded-full px-[1.4cqw] py-[0.6cqw]', i === 0 ? 'bg-white text-ink' : 'text-text-2')}>{t}</span>
             ))}
           </div>
-          <span className="rounded-full border border-dashed border-lime/50 px-[1.2cqw] py-[0.4cqw] text-lime">Synthetic</span>
+          <span className="rounded-full border border-dashed border-[#6f93ff]/50 px-[1.2cqw] py-[0.4cqw] text-[#6f93ff]">Synthetic</span>
         </div>
         <div className="mt-[2cqw] text-[3.2cqw] tracking-[-0.04em]">Riverbend · ETP-01</div>
         <div className="mt-[1.6cqw] grid grid-cols-4 gap-[1.2cqw]">

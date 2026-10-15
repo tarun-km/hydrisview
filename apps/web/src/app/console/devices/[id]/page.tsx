@@ -55,7 +55,7 @@ export default function DeviceDetailPage() {
                 <Hero data={data} manage={manage} onEdit={() => setEdit(true)} onConfirm={setConfirm} />
 
                 {d.status === 'revoked' && (
-                  <div role="status" className="flex items-start gap-3 rounded-[var(--radius-xl)] border border-[rgb(255_90_78/0.3)] bg-[rgb(255_90_78/0.06)] p-5">
+                  <div role="status" className="flex items-start gap-3 rounded-[var(--radius-xl)] border border-[rgb(255_40_0/0.3)] bg-[rgb(255_40_0/0.06)] p-5">
                     <ShieldOff className="mt-0.5 flex-none text-critical" size={18} aria-hidden />
                     <div className="text-sm">
                       <div className="font-medium">Revoked {fmtDateTime(d.revokedAt)}</div>
@@ -272,7 +272,7 @@ function ReassignDialog({ device, onClose }: { device: DeviceRow; onClose: () =>
                 </ul>
               ) : <EmptyState title="No matching active members" />}
               {chosen && !hasSite(chosen) && (
-                <p className="flex items-start gap-2 text-sm text-[#f7c96a]"><AlertTriangle size={16} className="mt-0.5 flex-none" aria-hidden />{chosen.name} has no access to {device.siteName ?? 'this site'}, so the glasses will show no work. Grant site access or move the glasses first.</p>
+                <p className="flex items-start gap-2 text-sm text-medium-text"><AlertTriangle size={16} className="mt-0.5 flex-none" aria-hidden />{chosen.name} has no access to {device.siteName ?? 'this site'}, so the glasses will show no work. Grant site access or move the glasses first.</p>
               )}
               <Input label="Reason (optional)" value={reason} onChange={(e) => setReason(e.target.value)} maxLength={200} placeholder="e.g. Shift handover" />
             </div>
