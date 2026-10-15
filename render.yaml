@@ -1,0 +1,33 @@
+# Render Blueprint for the Hydris API (long-running service: SSE realtime, background jobs, simulator).
+# The web app deploys separately on Vercel. Database: any managed Postgres 15+ (Neon, Render Postgres, Supabase).
+services:
+  - type: web
+    name: hydris-api
+    runtime: docker
+    dockerfilePath: apps/api/Dockerfile
+    dockerContext: .
+    plan: starter
+    healthCheckPath: /api/health
+    disk:
+      name: hydris-files
+      mountPath: /data/files
+      sizeGB: 5
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: HOST
+        value: 0.0.0.0
+      - key: API_PORT
+        value: "4000"
+      - key: STORAGE_DIR
+        value: /data/files
+      - key: DATABASE_URL
+        sync: false          # postgres://user:pass@host/db?sslmode=require
+      - key: JWT_SECRET
+        generateValue: true
+      - key: DATA_KEY
+        sync: false          # 64 hex chars
+      - key: PUBLIC_APP_URL
+        sync: false          # https://<your-vercel-domain>
+      - key: SIMULATOR_ENABLED
+        value: "false"
