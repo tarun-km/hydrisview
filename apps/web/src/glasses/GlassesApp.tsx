@@ -79,9 +79,37 @@ export function GlassesApp({ demoScenario, simulator, profilePreview }: { demoSc
     }
   }, [ctx]);
 
-  const push = useCallback((s: Screen) => { setStack((st) => [...st, s]); setCursor(0); }, []);
-  const pop = useCallback(() => { setStack((st) => (st.length > 1 ? st.slice(0, -1) : st)); setCursor(0); }, []);
-  const home = useCallback(() => { setStack([{ name: 'home' }]); setCursor(0); }, []);
+  // Screen stack is mirrored into browser history so the browser/OS back button walks back
+  // through glasses screens instead of leaving the app. history.state.hud = stack depth.
+  const stackRef = useRef(stack);
+  stackRef.current = stack;
+  const push = useCallback((s: Screen) => {
+    setStack((st) => [...st, s]);
+    setCursor(0);
+    window.history.pushState({ hud: stackRef.current.length + 1 }, '');
+  }, []);
+  const pop = useCallback(() => {
+    if (stackRef.current.length > 1) window.history.back();
+  }, []);
+  const home = useCallback(() => {
+    const extra = stackRef.current.length - 1;
+    if (extra > 0) window.history.go(-extra);
+    else { setStack([{ name: 'home' }]); setCursor(0); }
+  }, []);
+  useEffect(() => {
+    // Guard entry: back on the home screen stays inside the glasses app.
+    window.history.replaceState({ hud: 0 }, '');
+    window.history.pushState({ hud: 1 }, '');
+    const onPop = (e: PopStateEvent) => {
+      const depth = typeof e.state?.hud === 'number' ? e.state.hud : 0;
+      if (depth < 1) { window.history.pushState({ hud: 1 }, ''); setStack([{ name: 'home' }]); setCursor(0); return; }
+      setInterrupt(null);
+      setStack((st) => (st.length > depth ? st.slice(0, depth) : st));
+      setCursor(0);
+    };
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, []);
   const flash = useCallback((text: string, tone: 'lime' | 'critical' | 'high' = 'lime') => {
     setBanner({ text, tone });
     setTimeout(() => setBanner((b) => (b?.text === text ? null : b)), 4000);
@@ -264,6 +292,11 @@ export function GlassesApp({ demoScenario, simulator, profilePreview }: { demoSc
             <div style={{ zoom: cfg.layout.textScale, width: `${100 / cfg.layout.textScale}%`, height: `${100 / cfg.layout.textScale}%` }}>{body}</div>
           </div>
           {phase === 'app' && <HintBar hand={cfg.layout.handedness} />}
+          {phase === 'app' && stack.length > 1 && (
+            <button type="button" onClick={pop} aria-label="Back" className="absolute bottom-[8px] left-8 z-20 flex h-[38px] items-center gap-2 rounded-full bg-white/10 px-4 text-[16px] text-white/80 hover:bg-white/20">
+              ← Back
+            </button>
+          )}
           {banner && <div role="status" className={`absolute inset-x-8 top-[70px] z-20 rounded-[22px] border-2 px-5 py-3 text-[19px] ${banner.tone === 'critical' ? 'border-[#ff5a4e] bg-[#2a0d0b]' : banner.tone === 'high' ? 'border-[#f26414] bg-[#2a1608]' : 'border-lime bg-[#1b2207]'}`}>{banner.text}</div>}
           {interrupt && <AlertInterrupt a={interrupt} />}
           {!online && phase === 'app' && <div className="absolute inset-x-0 bottom-[54px] z-10 bg-[#2a1608] py-1.5 text-center text-[17px] text-[#ff9a5c]">{staleAt ? `Offline · showing data cached ${timeAgo(staleAt)}` : 'Offline · steps are saved on the glasses and sync automatically'}</div>}
