@@ -1,6 +1,6 @@
 import { can, type Permission, type Role } from '@hydris/domain';
 import { and, eq, inArray, sql, type SQL, type Column } from 'drizzle-orm';
-import { forbidden, notFound } from './errors.js';
+import { forbidden, notFound } from './errors';
 
 /** Permissions a paired glasses device may exercise on behalf of its assigned operator. */
 export const DEVICE_PERMISSIONS: ReadonlySet<Permission> = new Set([

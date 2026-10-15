@@ -18,9 +18,10 @@ export interface Harness {
   demo: DemoSeedResult;
 }
 
-export async function harness(): Promise<Harness> {
+export async function harness(overrides: Parameters<typeof loadConfig>[0] = {}): Promise<Harness> {
   const config = loadConfig({
     NODE_ENV: 'test', DATABASE_URL: 'memory://', JWT_SECRET: 'x'.repeat(48), DATA_KEY: 'a'.repeat(64), STORAGE_DIR: './data/test-files', SIMULATOR_ENABLED: 'true',
+    ...overrides,
   });
   const database = await createDatabase(config.DATABASE_URL);
   await database.migrate();

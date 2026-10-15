@@ -1,9 +1,9 @@
 import type { FastifyInstance } from 'fastify';
-import type { Ctx } from '../context.js';
-import { resolvePrincipal } from '../context.js';
-import type { DomainEvent } from '../core/events.js';
-import { has, siteAllowed, type Principal } from '../core/principal.js';
-import { unauthorized } from '../core/errors.js';
+import type { Ctx } from '../context';
+import { resolvePrincipal } from '../context';
+import { latestEventId, readEventsSince, type DomainEvent } from '../core/events';
+import { has, siteAllowed, type Principal } from '../core/principal';
+import { unauthorized } from '../core/errors';
 
 /** Per-connection authorization of a domain event. */
 export function canReceive(p: Principal, e: DomainEvent): boolean {
@@ -13,6 +13,65 @@ export function canReceive(p: Principal, e: DomainEvent): boolean {
   if (e.siteId && !siteAllowed(p, e.siteId)) return false;
   if (e.permission && !has(p, e.permission)) return false;
   return true;
+}
+
+export const formatSse = (e: DomainEvent) => `id: ${e.id}\nevent: ${e.type}\ndata: ${JSON.stringify({ ...(e.payload as object), _at: e.at })}\n\n`;
+export const readySse = (p: Principal, retryMs = 3000) => `retry: ${retryMs}\nevent: ready\ndata: ${JSON.stringify({ kind: p.kind, serverTime: new Date().toISOString() })}\n\n`;
+
+export interface DbStreamOptions {
+  ctx: Ctx;
+  principal: Principal;
+  /** Last-Event-ID from the client (0 = fresh connection: start at the current head). */
+  lastId: number;
+  write: (chunk: string) => void;
+  isClosed: () => boolean;
+  /** Re-resolve the session; null ends the stream with `session.ended`. */
+  revalidate: () => Promise<Principal | null>;
+  /** End the response after this long so serverless functions finish before their limit. */
+  maxMs?: number;
+  pollMs?: number;
+}
+
+const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * REALTIME_MODE=db stream loop: polls realtime_events for id > cursor, applies the same
+ * canReceive authorization, sends heartbeats, and ends cleanly before `maxMs` with a short
+ * `retry:` so clients reconnect with Last-Event-ID and resume without gaps.
+ */
+export async function runDbEventStream(o: DbStreamOptions): Promise<void> {
+  const pollMs = o.pollMs ?? 1500;
+  const maxMs = o.maxMs ?? 0;
+  const started = Date.now();
+  let p: Principal | null = o.principal;
+  let cursor = o.lastId > 0 ? o.lastId : await latestEventId(o.ctx.db);
+  o.write(readySse(p, 1000));
+  let lastBeat = Date.now();
+  let lastCheck = Date.now();
+  while (!o.isClosed()) {
+    const events = await readEventsSince(o.ctx.db, cursor, p.orgId);
+    for (const e of events) {
+      cursor = e.id;
+      if (canReceive(p, e)) o.write(formatSse(e));
+    }
+    if (Date.now() - lastBeat >= 15_000) {
+      o.write(`: hb ${Date.now()}\n\n`);
+      lastBeat = Date.now();
+    }
+    if (Date.now() - lastCheck >= 30_000) {
+      lastCheck = Date.now();
+      p = await o.revalidate().catch(() => null);
+      if (!p) {
+        o.write(`event: session.ended\ndata: {}\n\n`);
+        return;
+      }
+    }
+    if (maxMs && Date.now() - started + pollMs >= maxMs) {
+      o.write(`: reconnect\n\n`);
+      return;
+    }
+    await delay(pollMs);
+  }
 }
 
 /**
@@ -34,10 +93,19 @@ export async function realtimeRoutes(app: FastifyInstance, ctx: Ctx) {
       connection: 'keep-alive',
       'x-accel-buffering': 'no',
     });
+    if (ctx.bus.mode === 'db') {
+      let closed = false;
+      req.raw.on('close', () => (closed = true));
+      // Long-running server: no time limit; presence comes from devices.last_seen_at.
+      await runDbEventStream({ ctx, principal: p, lastId, write: (c) => res.write(c), isClosed: () => closed, revalidate: () => resolvePrincipal(ctx, req) })
+        .catch((e) => req.log.error(e));
+      res.end();
+      return;
+    }
     const send = (e: DomainEvent) => {
-      if (p && canReceive(p, e)) res.write(`id: ${e.id}\nevent: ${e.type}\ndata: ${JSON.stringify({ ...(e.payload as object), _at: e.at })}\n\n`);
+      if (p && canReceive(p, e)) res.write(formatSse(e));
     };
-    res.write(`retry: 3000\nevent: ready\ndata: ${JSON.stringify({ kind: p.kind, serverTime: new Date().toISOString() })}\n\n`);
+    res.write(readySse(p));
     for (const e of ctx.bus.since(lastId)) send(e);
 
     const deviceId = p.kind === 'device' ? p.deviceId! : null;

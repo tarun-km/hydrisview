@@ -3,15 +3,15 @@ import { and, desc, eq, gt, isNull, sql } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { permissionsFor } from '@hydris/domain';
-import { TTL } from '../config.js';
-import type { Ctx } from '../context.js';
-import { authenticate, principal, resolvePrincipal } from '../context.js';
-import { authSessions, authTokens, invitations, membershipSites, memberships, organizations, users } from '../db/schema.js';
-import { withSystem } from '../db/tenant.js';
-import type { Tx } from '../db/client.js';
-import { badRequest, HttpError, unauthorized } from '../core/errors.js';
-import { decrypt, dummyVerify, encrypt, hashPassword, newTotpSecret, passwordProblems, randomToken, sha256, verifyPassword, verifyTotp } from '../core/crypto.js';
-import { audit, sendMail } from '../core/services.js';
+import { TTL } from '../config';
+import type { Ctx } from '../context';
+import { authenticate, principal, resolvePrincipal } from '../context';
+import { authSessions, authTokens, invitations, membershipSites, memberships, organizations, users } from '../db/schema';
+import { withSystem } from '../db/tenant';
+import type { Tx } from '../db/client';
+import { badRequest, HttpError, unauthorized } from '../core/errors';
+import { decrypt, dummyVerify, encrypt, hashPassword, newTotpSecret, passwordProblems, randomToken, sha256, verifyPassword, verifyTotp } from '../core/crypto';
+import { audit, sendMail } from '../core/services';
 
 const COOKIE = 'hg_refresh';
 /** Grace window for concurrent refreshes (multiple tabs). Replays after it are treated as token theft. */

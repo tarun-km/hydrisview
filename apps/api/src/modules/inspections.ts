@@ -5,14 +5,14 @@ import {
   ASSET_TYPES, INSPECTION_EDITABLE, INSPECTION_STATUSES, INSPECTION_TRANSITIONS, STEP_KINDS, canTransitionInspection, inspectionProgress, stepOutcome,
   type InspectionAction, type InspectionStep, type StepValue,
 } from '@hydris/domain';
-import type { Ctx } from '../context.js';
-import { authenticate, tenant } from '../context.js';
-import { assets, attachments, inspectionResponses, inspectionRoutes, inspectionTemplates, inspections, maintenanceTasks, memberships, sites, users } from '../db/schema.js';
-import type { Tx } from '../db/client.js';
-import { badRequest, conflict, forbidden, notFound } from '../core/errors.js';
-import { has, requirePerm, requireSite, siteScope, type Principal } from '../core/principal.js';
-import { audit, notify } from '../core/services.js';
-import { changes as diffFields, scopedRow } from './plant.js';
+import type { Ctx } from '../context';
+import { authenticate, tenant } from '../context';
+import { assets, attachments, inspectionResponses, inspectionRoutes, inspectionTemplates, inspections, maintenanceTasks, memberships, sites, users } from '../db/schema';
+import type { Tx } from '../db/client';
+import { badRequest, conflict, forbidden, notFound } from '../core/errors';
+import { has, requirePerm, requireSite, siteScope, type Principal } from '../core/principal';
+import { audit, notify } from '../core/services';
+import { changes as diffFields, scopedRow } from './plant';
 
 const stepSchema = z.object({
   id: z.string().min(1).max(40), kind: z.enum(STEP_KINDS), title: z.string().trim().min(2).max(200), instruction: z.string().max(1000).optional(),

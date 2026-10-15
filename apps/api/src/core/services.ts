@@ -1,10 +1,10 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import type { Conn } from '../db/client.js';
-import { auditEvents, mailOutbox, notifications } from '../db/schema.js';
-import type { Principal } from './principal.js';
-import type { EventBus } from './events.js';
+import type { Conn } from '../db/client';
+import { auditEvents, mailOutbox, notifications } from '../db/schema';
+import type { Principal } from './principal';
+import type { EventBus } from './events';
 
 export interface AuditInput {
   orgId: string | null;
@@ -52,8 +52,23 @@ export async function notify(
   for (const r of rows) bus.publish({ type: 'notification.created', orgId: n.orgId, userIds: [r.userId], payload: r });
 }
 
-/** Local filesystem object storage. Keys are random; files are served only through authorized routes. */
-export class Storage {
+/**
+ * Object storage adapter for attachments. Keys are random and never exposed as URLs:
+ * files are always served through the authorized `/api/attachments/:id` route.
+ */
+export interface Storage {
+  readonly kind: 'disk' | 'vercel-blob';
+  put(orgId: string, data: Buffer, contentType?: string): Promise<string>;
+  get(key: string): Promise<Buffer>;
+}
+
+const validKey = (key: string) => {
+  if (key.includes('..') || key.startsWith('/')) throw new Error('invalid key');
+};
+
+/** Local filesystem storage (development, single-host deployments). */
+export class DiskStorage implements Storage {
+  readonly kind = 'disk' as const;
   constructor(private dir: string) {}
   async put(orgId: string, data: Buffer): Promise<string> {
     const key = `${orgId}/${randomUUID()}`;
@@ -63,7 +78,34 @@ export class Storage {
     return key;
   }
   async get(key: string): Promise<Buffer> {
-    if (key.includes('..')) throw new Error('invalid key');
+    validKey(key);
     return readFile(join(resolve(this.dir), key));
   }
+}
+
+/**
+ * Vercel Blob storage using a PRIVATE store: blobs are written with `access: 'private'`
+ * and read server-side with the read-write token, so no public URL ever exists.
+ */
+export class VercelBlobStorage implements Storage {
+  readonly kind = 'vercel-blob' as const;
+  constructor(private token: string) {}
+  async put(orgId: string, data: Buffer, contentType?: string): Promise<string> {
+    const { put } = await import('@vercel/blob');
+    const key = `attachments/${orgId}/${randomUUID()}`;
+    await put(key, data, { access: 'private', token: this.token, addRandomSuffix: false, contentType: contentType ?? 'application/octet-stream' });
+    return key;
+  }
+  async get(key: string): Promise<Buffer> {
+    validKey(key);
+    const { get } = await import('@vercel/blob');
+    const r = await get(key, { access: 'private', token: this.token, useCache: false });
+    if (!r || r.statusCode !== 200) throw new Error('blob not found');
+    return Buffer.from(await new Response(r.stream).arrayBuffer());
+  }
+}
+
+/** Vercel Blob when BLOB_READ_WRITE_TOKEN is configured, local disk otherwise. */
+export function createStorage(cfg: { STORAGE_DIR: string; BLOB_READ_WRITE_TOKEN?: string | undefined }): Storage {
+  return cfg.BLOB_READ_WRITE_TOKEN ? new VercelBlobStorage(cfg.BLOB_READ_WRITE_TOKEN) : new DiskStorage(cfg.STORAGE_DIR);
 }

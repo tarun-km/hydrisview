@@ -2,17 +2,17 @@ import type { FastifyInstance } from 'fastify';
 import { and, asc, eq, inArray, or, sql, type SQL } from 'drizzle-orm';
 import { z } from 'zod';
 import { MEASURAND_DEFS, freshness, normalizeMeasurement, type TelemetrySource } from '@hydris/domain';
-import type { Ctx } from '../context.js';
-import { authenticate, tenant } from '../context.js';
-import { auditEvents, gateways, organizations, sensors, telemetryCorrections, telemetryReadings, users } from '../db/schema.js';
-import { rows, type Tx } from '../db/client.js';
-import { withSystem, withTenant } from '../db/tenant.js';
-import { badRequest, conflict, notFound, unauthorized } from '../core/errors.js';
-import { requirePerm } from '../core/principal.js';
-import { sha256 } from '../core/crypto.js';
-import { audit } from '../core/services.js';
-import { evaluateSensor } from './alarms.js';
-import { scopedRow } from './plant.js';
+import type { Ctx } from '../context';
+import { authenticate, tenant } from '../context';
+import { auditEvents, gateways, organizations, sensors, telemetryCorrections, telemetryReadings, users } from '../db/schema';
+import { rows, type Tx } from '../db/client';
+import { withSystem, withTenant } from '../db/tenant';
+import { badRequest, conflict, notFound, unauthorized } from '../core/errors';
+import { requirePerm } from '../core/principal';
+import { sha256 } from '../core/crypto';
+import { audit } from '../core/services';
+import { evaluateSensor } from './alarms';
+import { scopedRow } from './plant';
 
 export interface IngestItem {
   sensorId: string;

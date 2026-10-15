@@ -1,12 +1,12 @@
 import { and, eq, sql } from 'drizzle-orm';
 import { MEASURAND_DEFS, SIM_PLANT, scenarioValue, type InspectionStep, type Role } from '@hydris/domain';
-import type { Db, Tx } from '../db/client.js';
+import type { Db, Tx } from '../db/client';
 import {
   alarmRules, assets, documents, facilities, inspectionRoutes, inspectionTemplates, inspections, maintenanceTasks, memberships, organizations, processAreas, sensors,
   simulationRuns, sites, telemetryReadings, users,
-} from '../db/schema.js';
-import { withSystem, withTenant } from '../db/tenant.js';
-import { hashPassword } from '../core/crypto.js';
+} from '../db/schema';
+import { withSystem, withTenant } from '../db/tenant';
+import { hashPassword } from '../core/crypto';
 
 export const DEMO_DOMAIN = 'demo.hydris.local';
 export const DEMO_USERS: { key: string; name: string; role: Role; title: string }[] = [

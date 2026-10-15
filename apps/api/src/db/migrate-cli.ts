@@ -1,5 +1,5 @@
-import { loadConfig } from '../config.js';
-import { createDatabase } from './client.js';
+import { loadConfig } from '../config';
+import { createDatabase } from './client';
 
 const config = loadConfig();
 const database = await createDatabase(config.DATABASE_URL);

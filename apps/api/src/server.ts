@@ -1,7 +1,7 @@
-import { buildApp } from './app.js';
-import { loadConfig } from './config.js';
-import { createDatabase } from './db/client.js';
-import { startJobs } from './jobs.js';
+import { buildApp } from './app';
+import { loadConfig } from './config';
+import { createDatabase } from './db/client';
+import { startJobs } from './jobs';
 
 const config = loadConfig();
 const database = await createDatabase(config.DATABASE_URL);

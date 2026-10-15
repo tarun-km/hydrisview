@@ -5,19 +5,19 @@ import { z } from 'zod';
 import {
   INSPECTION_EDITABLE, MEASURAND_DEFS, OPEN_ALARM_STATES, actionAllowed, applyMeasurementProfile, freshness, screenEnabled, type Role, PAIRING_POLL_INTERVAL_S, PAIRING_TTL_S, deriveDeviceState, formatPairingCode, isValidPairingCode, normalizePairingCode,
 } from '@hydris/domain';
-import { TTL } from '../config.js';
-import type { Ctx } from '../context.js';
-import { authenticate, tenant } from '../context.js';
+import { TTL } from '../config';
+import type { Ctx } from '../context';
+import { authenticate, tenant } from '../context';
 import {
   alarmEvents, assets, auditEvents, processAreas, deviceAssignments, deviceSessions, devices, inspections, maintenanceTasks, membershipSites, sensors, memberships, organizations, pairingChallenges, sites, users,
-} from '../db/schema.js';
-import type { Tx } from '../db/client.js';
-import { withSystem, withTenant } from '../db/tenant.js';
-import { badRequest, conflict, forbidden, HttpError, notFound, unauthorized } from '../core/errors.js';
-import { has, requirePerm, requireSite, siteScope, type Principal } from '../core/principal.js';
-import { pairingCode, randomToken, safeEqual, sha256 } from '../core/crypto.js';
-import { audit } from '../core/services.js';
-import { effectiveProfile } from './ui-profiles.js';
+} from '../db/schema';
+import type { Tx } from '../db/client';
+import { withSystem, withTenant } from '../db/tenant';
+import { badRequest, conflict, forbidden, HttpError, notFound, unauthorized } from '../core/errors';
+import { has, requirePerm, requireSite, siteScope, type Principal } from '../core/principal';
+import { pairingCode, randomToken, safeEqual, sha256 } from '../core/crypto';
+import { audit } from '../core/services';
+import { effectiveProfile } from './ui-profiles';
 
 const deviceInfoSchema = z.object({
   kind: z.enum(['hardware', 'simulator']), model: z.string().max(80).optional(), appVersion: z.string().max(40).optional(), firmwareVersion: z.string().max(40).optional(),
@@ -93,7 +93,7 @@ export async function deviceRoutes(app: FastifyInstance, ctx: Ctx, opts: { relax
       const orgId = claimed.orgId!;
       return withTenantInside(tx, orgId, async () => {
         // Re-pairing the same install within the same org reuses the device record (handover/recovery).
-        let [device] = await tx.select().from(devices).where(and(eq(devices.hardwareId, claimed.hardwareId), eq(devices.orgId, orgId)));
+        let device: typeof devices.$inferSelect | undefined = (await tx.select().from(devices).where(and(eq(devices.hardwareId, claimed.hardwareId), eq(devices.orgId, orgId))))[0];
         const info = claimed.deviceInfo;
         if (device && device.status === 'revoked') device = undefined;
         if (device) {

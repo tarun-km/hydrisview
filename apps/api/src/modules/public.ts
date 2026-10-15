@@ -1,11 +1,11 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import type { Ctx } from '../context.js';
-import { inquiries } from '../db/schema.js';
-import { withSystem } from '../db/tenant.js';
-import { sha256 } from '../core/crypto.js';
-import { badRequest } from '../core/errors.js';
-import { sendMail } from '../core/services.js';
+import type { Ctx } from '../context';
+import { inquiries } from '../db/schema';
+import { withSystem } from '../db/tenant';
+import { sha256 } from '../core/crypto';
+import { badRequest } from '../core/errors';
+import { sendMail } from '../core/services';
 
 export const CONSENT_VERSION = '2026-10';
 

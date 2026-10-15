@@ -2,18 +2,18 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { and, desc, eq, gte, ilike, isNull, lte, or, sql, inArray } from 'drizzle-orm';
 import { z } from 'zod';
 import { assignableRoles, ROLES, type Role } from '@hydris/domain';
-import type { Ctx } from '../context.js';
-import { authenticate, resolvePrincipal, tenant } from '../context.js';
+import type { Ctx } from '../context';
+import { authenticate, resolvePrincipal, tenant } from '../context';
 import {
   auditEvents, authSessions, deviceAssignments, devices, inspections, invitations, maintenanceTasks, membershipSites, memberships,
   notifications, organizations, sites, users,
-} from '../db/schema.js';
-import { withSystem } from '../db/tenant.js';
-import { badRequest, conflict, forbidden, notFound, unauthorized } from '../core/errors.js';
-import { requirePerm } from '../core/principal.js';
-import { randomToken, sha256 } from '../core/crypto.js';
-import { audit, sendMail } from '../core/services.js';
-import { TTL } from '../config.js';
+} from '../db/schema';
+import { withSystem } from '../db/tenant';
+import { badRequest, conflict, forbidden, notFound, unauthorized } from '../core/errors';
+import { requirePerm } from '../core/principal';
+import { randomToken, sha256 } from '../core/crypto';
+import { audit, sendMail } from '../core/services';
+import { TTL } from '../config';
 
 const emailSchema = z.string().trim().toLowerCase().pipe(z.email());
 

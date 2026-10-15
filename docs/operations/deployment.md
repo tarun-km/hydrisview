@@ -1,15 +1,19 @@
 # Deploying Hydris Field Glasses
 
+Two supported topologies:
+- **Everything on Vercel** (website, console, glasses and API in one project; Neon + Vercel Blob + Vercel Cron): see **[vercel.md](vercel.md)**. Leave `API_URL` unset.
+- **Vercel (web) + long-running API container**: described below. Setting `API_URL` on the Vercel project proxies `/api/*` to the container and disables the built-in API.
+
 ## Architecture
 | Part | Where | Why |
 |---|---|---|
 | Web (website, console, glasses viewport, simulator) | **Vercel** (Next.js 16) | Static + SSR pages; `/api/*` is rewritten to the API so cookies stay first-party |
-| API (`apps/api`) | **Long-running container** (Render blueprint `render.yaml`, or Fly/Railway/ECS) | Holds SSE realtime connections, runs background jobs (stale-data alarms, pairing expiry) and the demo simulator — not compatible with serverless functions |
+| API (`apps/api`) | **Long-running container** (Render blueprint `render.yaml`, or Fly/Railway/ECS) | Holds SSE realtime connections, runs background jobs (stale-data alarms, pairing expiry) and the demo simulator on timers (for the serverless alternative see vercel.md) |
 | Database | **Managed Postgres 15+** (Neon, Render Postgres, Supabase) | Migrations run automatically on API start; RLS isolates tenants |
 | File storage (inspection photos, attachments) | Persistent disk on the API host (`STORAGE_DIR`) | Swap `Storage` in `apps/api/src/core/services.ts` for S3/R2 to scale beyond one instance |
 | Email | Not configured — messages are written to `mail_outbox` | Wire SMTP/Resend/SES in `sendMail` before inviting external users |
 
-Single API instance only for now: the realtime event bus is in-process (add Redis pub/sub before scaling out).
+Single API instance with the default `REALTIME_MODE=memory` (in-process event bus). Set `REALTIME_MODE=db` to run several instances (events go through the `realtime_events` table).
 
 ## Accounts / credentials you must provide
 1. Vercel project linked to this GitHub repo (already exists).

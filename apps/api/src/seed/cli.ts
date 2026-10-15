@@ -1,6 +1,6 @@
-import { loadConfig } from '../config.js';
-import { createDatabase } from '../db/client.js';
-import { demoEmail, DEMO_USERS, seedDemo, seedPlatformAdmin } from './demo.js';
+import { loadConfig } from '../config';
+import { createDatabase } from '../db/client';
+import { demoEmail, DEMO_USERS, seedDemo, seedPlatformAdmin } from './demo';
 
 const config = loadConfig();
 const database = await createDatabase(config.DATABASE_URL);

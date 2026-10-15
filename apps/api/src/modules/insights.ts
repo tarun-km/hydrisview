@@ -2,15 +2,15 @@ import type { FastifyInstance } from 'fastify';
 import { and, desc, eq, gte, ilike, inArray, isNull, lte, or, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { MEASURAND_DEFS, OPEN_ALARM_STATES, freshness } from '@hydris/domain';
-import type { Ctx } from '../context.js';
-import { authenticate, tenant } from '../context.js';
-import { rows } from '../db/client.js';
+import type { Ctx } from '../context';
+import { authenticate, tenant } from '../context';
+import { rows } from '../db/client';
 import {
   alarmEvents, assets, auditEvents, deviceAssignments, devices, documents, inspections, maintenanceTasks, memberships, sensors, sites, users,
-} from '../db/schema.js';
-import { requirePerm, siteScope } from '../core/principal.js';
-import { audit } from '../core/services.js';
-import { badRequest } from '../core/errors.js';
+} from '../db/schema';
+import { requirePerm, siteScope } from '../core/principal';
+import { audit } from '../core/services';
+import { badRequest } from '../core/errors';
 
 const rangeQuery = z.object({ from: z.coerce.date().optional(), to: z.coerce.date().optional(), siteId: z.uuid().optional() });
 

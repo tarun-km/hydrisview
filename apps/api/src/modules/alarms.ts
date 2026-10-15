@@ -5,15 +5,15 @@ import {
   ALARM_CONDITIONS, ALARM_SEVERITIES, ALARM_STATES, ALARM_TRANSITIONS, ALARM_ACTIONS, OPEN_ALARM_STATES, CONDITION_LABELS,
   canTransitionAlarm, describeBreach, evaluateThreshold, shouldRaise, staleAfterSeconds, type AlarmAction,
 } from '@hydris/domain';
-import type { Ctx } from '../context.js';
-import { authenticate, tenant } from '../context.js';
-import { alarmEventHistory, alarmEvents, alarmRules, assets, documents, maintenanceTasks, memberships, sensors, users } from '../db/schema.js';
-import { rows, type Tx } from '../db/client.js';
-import { withSystem } from '../db/tenant.js';
-import { badRequest, conflict, notFound } from '../core/errors.js';
-import { has, requirePerm, requireSite, siteScope, type Principal } from '../core/principal.js';
-import { audit, notify } from '../core/services.js';
-import { changes as diffFields, scopedRow } from './plant.js';
+import type { Ctx } from '../context';
+import { authenticate, tenant } from '../context';
+import { alarmEventHistory, alarmEvents, alarmRules, assets, documents, maintenanceTasks, memberships, sensors, users } from '../db/schema';
+import { rows, type Tx } from '../db/client';
+import { withSystem } from '../db/tenant';
+import { badRequest, conflict, notFound } from '../core/errors';
+import { has, requirePerm, requireSite, siteScope, type Principal } from '../core/principal';
+import { audit, notify } from '../core/services';
+import { changes as diffFields, scopedRow } from './plant';
 
 type SensorRow = typeof sensors.$inferSelect;
 

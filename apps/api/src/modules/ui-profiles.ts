@@ -5,14 +5,14 @@ import {
   ASSET_TYPES, DEFAULT_UI_PROFILE_CONFIG, MEASURANDS, ROLES, UI_ACTIONS, UI_SCREENS, UI_WIDGETS, actionAllowed, diffUiProfileConfigs, normalizeUiProfileConfig,
   resolveUiAssignment, screenEnabled, type Role, type UiAction, type UiProfileConfig, type UiScreen,
 } from '@hydris/domain';
-import type { Ctx } from '../context.js';
-import { authenticate, tenant } from '../context.js';
-import { deviceAssignments, devices, memberships, uiProfileAssignments, uiProfileVersions, uiProfiles, users } from '../db/schema.js';
-import type { Tx } from '../db/client.js';
-import { withTenant } from '../db/tenant.js';
-import { badRequest, conflict, forbidden, HttpError, notFound } from '../core/errors.js';
-import type { Principal } from '../core/principal.js';
-import { audit } from '../core/services.js';
+import type { Ctx } from '../context';
+import { authenticate, tenant } from '../context';
+import { deviceAssignments, devices, memberships, uiProfileAssignments, uiProfileVersions, uiProfiles, users } from '../db/schema';
+import type { Tx } from '../db/client';
+import { withTenant } from '../db/tenant';
+import { badRequest, conflict, forbidden, HttpError, notFound } from '../core/errors';
+import type { Principal } from '../core/principal';
+import { audit } from '../core/services';
 
 /** Strict zod schema for a UI profile config (API boundary). Normalized afterwards. */
 export const uiProfileConfigSchema = z.object({

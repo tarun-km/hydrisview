@@ -1,13 +1,13 @@
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { and, eq, isNull } from 'drizzle-orm';
-import type { Config } from './config.js';
-import type { Db, Tx } from './db/client.js';
-import { authSessions, deviceAssignments, devices, membershipSites, memberships, organizations, users } from './db/schema.js';
-import { withSystem, withTenant } from './db/tenant.js';
-import { unauthorized } from './core/errors.js';
-import type { Principal } from './core/principal.js';
-import type { EventBus } from './core/events.js';
-import type { Storage } from './core/services.js';
+import type { Config } from './config';
+import type { Db, Tx } from './db/client';
+import { authSessions, deviceAssignments, devices, membershipSites, memberships, organizations, users } from './db/schema';
+import { withSystem, withTenant } from './db/tenant';
+import { unauthorized } from './core/errors';
+import type { Principal } from './core/principal';
+import type { EventBus } from './core/events';
+import type { Storage } from './core/services';
 import type { Role } from '@hydris/domain';
 
 export interface Ctx {
@@ -56,6 +56,18 @@ export async function resolvePrincipal(ctx: Ctx, req: FastifyRequest): Promise<P
   } catch {
     return null;
   }
+  return resolveTokenPrincipal(ctx, tok, { ip: req.ip, onPlatformUser: (id) => (req.platformUserId = id) });
+}
+
+/**
+ * Resolve an already-verified token into a Principal (shared by Fastify routes and
+ * the serverless SSE route handler, which verifies the bearer token itself).
+ */
+export async function resolveTokenPrincipal(
+  ctx: Ctx,
+  tok: UserJwt | DeviceJwt | MfaJwt,
+  opts: { ip?: string; onPlatformUser?: (userId: string | null) => void } = {},
+): Promise<Principal | null> {
   if (tok.typ === 'user') {
     return withSystem(ctx.db, async (tx) => {
       const [u] = await tx.select({ status: users.status, isPlatformAdmin: users.isPlatformAdmin }).from(users).where(eq(users.id, tok.sub));
@@ -64,7 +76,7 @@ export async function resolvePrincipal(ctx: Ctx, req: FastifyRequest): Promise<P
       // which immediately invalidates outstanding access tokens too.
       const [live] = await tx.select({ id: authSessions.id }).from(authSessions).where(and(eq(authSessions.familyId, tok.sid), isNull(authSessions.revokedAt))).limit(1);
       if (!live) return null;
-      req.platformUserId = u.isPlatformAdmin ? tok.sub : null;
+      opts.onPlatformUser?.(u.isPlatformAdmin ? tok.sub : null);
       if (!tok.org) return null;
       const m = await loadMembership(tx, tok.sub, tok.org);
       if (!m) return null;
@@ -79,7 +91,7 @@ export async function resolvePrincipal(ctx: Ctx, req: FastifyRequest): Promise<P
       if (!a) return null;
       const m = await loadMembership(tx, a.userId, d.orgId);
       if (!m) return null;
-      await tx.update(devices).set({ lastSeenAt: new Date(), lastIp: req.ip }).where(eq(devices.id, d.id));
+      await tx.update(devices).set({ lastSeenAt: new Date(), ...(opts.ip ? { lastIp: opts.ip } : {}) }).where(eq(devices.id, d.id));
       return { kind: 'device', userId: a.userId, orgId: d.orgId, role: m.role, allSites: m.allSites, siteIds: m.siteIds, isDemoOrg: m.isDemo, isPlatformAdmin: false, deviceId: d.id };
     });
   }

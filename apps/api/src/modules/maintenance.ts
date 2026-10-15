@@ -5,14 +5,14 @@ import { z } from 'zod';
 import {
   MAINTENANCE_KINDS, MAINTENANCE_PRIORITIES, MAINTENANCE_STATUSES, MAINTENANCE_TRANSITIONS, canTransitionMaintenance, type MaintenanceAction,
 } from '@hydris/domain';
-import type { Ctx } from '../context.js';
-import { authenticate, tenant } from '../context.js';
-import { alarmEvents, assets, attachments, maintenanceActivity, maintenanceTasks, memberships, sites, users } from '../db/schema.js';
-import type { Tx } from '../db/client.js';
-import { badRequest, conflict, forbidden, notFound } from '../core/errors.js';
-import { has, requirePerm, requireSite, siteScope, type Principal } from '../core/principal.js';
-import { audit, notify } from '../core/services.js';
-import { changes as diffFields, scopedRow } from './plant.js';
+import type { Ctx } from '../context';
+import { authenticate, tenant } from '../context';
+import { alarmEvents, assets, attachments, maintenanceActivity, maintenanceTasks, memberships, sites, users } from '../db/schema';
+import type { Tx } from '../db/client';
+import { badRequest, conflict, forbidden, notFound } from '../core/errors';
+import { has, requirePerm, requireSite, siteScope, type Principal } from '../core/principal';
+import { audit, notify } from '../core/services';
+import { changes as diffFields, scopedRow } from './plant';
 
 const OPEN = ['open', 'assigned', 'in_progress', 'on_hold'] as const;
 

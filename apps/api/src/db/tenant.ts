@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm';
-import type { Db, Tx } from './client.js';
+import type { Db, Tx } from './client';
 
 /**
  * Database-boundary tenant isolation.

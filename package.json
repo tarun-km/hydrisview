@@ -20,7 +20,8 @@
     "test:e2e": "playwright test",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "lint": "npm run lint --workspaces --if-present",
-    "build": "npm run build -w @hydris/web"
+    "build": "npm run build -w @hydris/web",
+    "vercel-build": "npm run db:migrate && npm run build"
   },
   "devDependencies": {
     "@playwright/test": "1.64.0",

@@ -5,16 +5,16 @@ import {
   ASSET_STATUSES, ASSET_TYPES, CRITICALITIES, DOCUMENT_KINDS, FACILITY_KINDS, MEASURANDS, MEASURAND_DEFS, OPEN_ALARM_STATES,
   PROCESS_AREA_KINDS, freshness, type Permission,
 } from '@hydris/domain';
-import type { Ctx } from '../context.js';
-import { authenticate, tenant } from '../context.js';
+import type { Ctx } from '../context';
+import { authenticate, tenant } from '../context';
 import {
   alarmEvents, alarmRules, assets, attachments, auditEvents, documents, facilities, gateways, inspectionTemplates, inspections, maintenanceTasks, processAreas, sensors, sites, users,
-} from '../db/schema.js';
-import { badRequest, conflict, notFound } from '../core/errors.js';
-import { has, requirePerm, requireSite, siteScope } from '../core/principal.js';
-import { randomToken, sha256 } from '../core/crypto.js';
-import { audit } from '../core/services.js';
-import type { Tx } from '../db/client.js';
+} from '../db/schema';
+import { badRequest, conflict, notFound } from '../core/errors';
+import { has, requirePerm, requireSite, siteScope } from '../core/principal';
+import { randomToken, sha256 } from '../core/crypto';
+import { audit } from '../core/services';
+import type { Tx } from '../db/client';
 
 const idParam = z.object({ id: z.uuid() });
 const code = z.string().trim().min(1).max(24).regex(/^[A-Za-z0-9._-]+$/, 'Use letters, digits, dot, dash or underscore');
@@ -433,7 +433,7 @@ export async function plantRoutes(app: FastifyInstance, ctx: Ctx) {
       const ownerTable = { inspection: inspections, maintenance: maintenanceTasks, asset: assets, alarm: alarmEvents }[fields.ownerType];
       const owner = await scopedRow(tx, ownerTable as typeof assets, fields.ownerId, p, 'Record');
       requirePerm(p, fields.ownerType === 'asset' ? 'asset.manage' : fields.ownerType === 'inspection' ? 'inspection.execute' : fields.ownerType === 'alarm' ? 'alarm.acknowledge' : 'maintenance.request');
-      const key = await ctx.storage.put(p.orgId, buf);
+      const key = await ctx.storage.put(p.orgId, buf, file.mimetype);
       const [a] = await tx.insert(attachments).values({
         orgId: p.orgId, ownerType: fields.ownerType, ownerId: owner.id, filename: file.filename.replace(/[^\w.\- ]/g, '_').slice(0, 120), mime: file.mimetype,
         sizeBytes: buf.length, sha256: sha256(buf.toString('binary')), storageKey: key, uploadedBy: p.userId, deviceId: p.deviceId,

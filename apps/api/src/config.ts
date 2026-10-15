@@ -24,9 +24,18 @@ const schema = z.object({
   SEED_ADMIN_PASSWORD: z.string().optional(),
   SEED_DEMO_PASSWORD: z.string().optional(),
   SIMULATOR_ENABLED: z.enum(['true', 'false']).default('true'),
+  /** 'memory' = in-process event bus (single long-running API). 'db' = realtime_events table (serverless / multi-instance). */
+  REALTIME_MODE: z.enum(['memory', 'db']).default('memory'),
+  /** When set, attachments go to Vercel Blob (private store) instead of STORAGE_DIR. */
+  BLOB_READ_WRITE_TOKEN: z.string().optional(),
+  /** Shared secret Vercel Cron sends as `Authorization: Bearer <CRON_SECRET>`. */
+  CRON_SECRET: z.string().optional(),
+  /** "1" forces serverless behaviour (no setInterval engines); auto-detected on Vercel. */
+  SERVERLESS: z.string().optional(),
+  VERCEL: z.string().optional(),
 });
 
-export type Config = z.infer<typeof schema> & { isProd: boolean };
+export type Config = z.infer<typeof schema> & { isProd: boolean; serverless: boolean };
 
 export function loadConfig(overrides: Partial<Record<keyof z.infer<typeof schema>, string>> = {}): Config {
   const parsed = schema.safeParse({ ...process.env, ...overrides });
@@ -34,7 +43,7 @@ export function loadConfig(overrides: Partial<Record<keyof z.infer<typeof schema
     const msg = parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('\n');
     throw new Error(`Invalid configuration:\n${msg}`);
   }
-  return { ...parsed.data, isProd: parsed.data.NODE_ENV === 'production' };
+  return { ...parsed.data, isProd: parsed.data.NODE_ENV === 'production', serverless: parsed.data.SERVERLESS === '1' || parsed.data.SERVERLESS === 'true' || !!parsed.data.VERCEL };
 }
 
 export const TTL = {

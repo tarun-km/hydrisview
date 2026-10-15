@@ -911,3 +911,24 @@ export const uiProfileAssignments = pgTable(
     uniqueIndex('ui_assign_device_uq').on(t.orgId, t.deviceId).where(sql`${t.scope} = 'device'`),
   ],
 );
+
+/**
+ * Durable realtime event log (REALTIME_MODE=db). Serverless instances cannot share an
+ * in-process bus, so published domain events are appended here and SSE streams poll
+ * `id > lastEventId`. Accessed in system context only; rows are pruned after one day.
+ */
+export const realtimeEvents = pgTable(
+  'realtime_events',
+  {
+    id: bigint('id', { mode: 'number' }).primaryKey().generatedAlwaysAsIdentity(),
+    orgId: uuid('org_id').notNull().references(() => organizations.id, { onDelete: 'cascade' }),
+    type: text('type').notNull(),
+    siteId: uuid('site_id'),
+    permission: text('permission'),
+    userIds: jsonb('user_ids').$type<string[] | null>(),
+    deviceIds: jsonb('device_ids').$type<string[] | null>(),
+    payload: jsonb('payload').$type<unknown>(),
+    createdAt: createdAt(),
+  },
+  (t) => [index('realtime_events_created_idx').on(t.createdAt)],
+);

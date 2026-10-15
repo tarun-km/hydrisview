@@ -2,16 +2,16 @@ import type { FastifyInstance } from 'fastify';
 import { and, asc, eq, inArray, isNull } from 'drizzle-orm';
 import { z } from 'zod';
 import { SCENARIOS, SCENARIO_KEYS, SIM_STEP_SECONDS, scenarioFrame, type ScenarioEvent, type ScenarioKey } from '@hydris/domain';
-import type { Ctx } from '../context.js';
-import { authenticate, tenant } from '../context.js';
-import { assets, deviceAssignments, devices, inspectionTemplates, maintenanceTasks, memberships, organizations, sensors, simulationRuns, sites, users } from '../db/schema.js';
-import type { Tx } from '../db/client.js';
-import { withTenant } from '../db/tenant.js';
-import { conflict, forbidden, notFound } from '../core/errors.js';
-import { requirePerm } from '../core/principal.js';
-import { audit } from '../core/services.js';
-import { ingest } from './telemetry.js';
-import { createInspection } from './inspections.js';
+import type { Ctx } from '../context';
+import { authenticate, tenant } from '../context';
+import { assets, deviceAssignments, devices, inspectionTemplates, maintenanceTasks, memberships, organizations, sensors, simulationRuns, sites, users } from '../db/schema';
+import type { Tx } from '../db/client';
+import { withSystem, withTenant } from '../db/tenant';
+import { conflict, forbidden, notFound } from '../core/errors';
+import { requirePerm } from '../core/principal';
+import { audit } from '../core/services';
+import { ingest } from './telemetry';
+import { createInspection } from './inspections';
 
 /**
  * Demo-tenant simulator. Runs deterministic scenarios through the normal ingestion
@@ -25,7 +25,12 @@ export class SimulationEngine {
     return this.timers.has(runId);
   }
 
-  start(runId: string, orgId: string, siteId: string, scenario: ScenarioKey, startStep = 0) {
+  /**
+   * Start ticking a run. Returns the first tick. In serverless mode no timer is kept
+   * (instances freeze between requests): only the first step is applied here and the
+   * cron job (`runScheduledJobs`) advances running runs one step per invocation.
+   */
+  start(runId: string, orgId: string, siteId: string, scenario: ScenarioKey, startStep = 0): Promise<void> {
     this.stop(runId);
     let step = startStep;
     const tick = async () => {
@@ -37,8 +42,24 @@ export class SimulationEngine {
         console.error('[simulation] tick failed', e);
       }
     };
-    void tick();
-    this.timers.set(runId, setInterval(tick, SIM_STEP_SECONDS * 1000));
+    const first = tick();
+    if (!this.ctx.config.serverless) this.timers.set(runId, setInterval(tick, SIM_STEP_SECONDS * 1000));
+    return first;
+  }
+
+  /** Serverless: advance every running demo simulation by exactly one step. */
+  async advanceAll(): Promise<number> {
+    const runs = await withSystem(this.ctx.db, (tx) => tx.select().from(simulationRuns).where(eq(simulationRuns.status, 'running')));
+    let n = 0;
+    for (const r of runs) {
+      try {
+        await withTenant(this.ctx.db, r.orgId, (tx) => this.applyStep(tx, r.id, r.orgId, r.siteId, r.scenarioKey as ScenarioKey, r.step + 1));
+        n++;
+      } catch (e) {
+        console.error('[simulation] step failed', r.id, e);
+      }
+    }
+    return n;
   }
 
   stop(runId: string) {
@@ -127,7 +148,7 @@ export async function simulationRoutes(app: FastifyInstance, ctx: Ctx) {
       available: !!org?.isDemo && ctx.config.SIMULATOR_ENABLED === 'true', canControl: p.kind === 'user' && org?.isDemo && p.role !== 'viewer' && (p.role === 'org_admin' || p.role === 'factory_manager'),
       scenarios: SCENARIO_KEYS.map((k) => ({ key: k, title: SCENARIOS[k].title, summary: SCENARIOS[k].summary, expected: SCENARIOS[k].expected, steps: SCENARIOS[k].steps })),
       stepSeconds: SIM_STEP_SECONDS,
-      running: runs.map((r) => ({ ...r, live: engine.isRunning(r.id) })),
+      running: runs.map((r) => ({ ...r, live: ctx.config.serverless || engine.isRunning(r.id) })),
     };
   }));
 
@@ -148,7 +169,8 @@ export async function simulationRoutes(app: FastifyInstance, ctx: Ctx) {
       await audit(tx, p, { orgId: p.orgId, action: 'simulation.started', entityType: 'simulation', entityId: r!.id, summary: SCENARIOS[body.scenario].title });
       return r!;
     });
-    engine.start(run.id, run.orgId, run.siteId, body.scenario);
+    const first = engine.start(run.id, run.orgId, run.siteId, body.scenario);
+    if (ctx.config.serverless) await first; // the instance may freeze right after responding
     return reply.code(201).send({ run });
   });
 

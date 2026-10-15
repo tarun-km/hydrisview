@@ -5,25 +5,25 @@ import jwt from '@fastify/jwt';
 import multipart from '@fastify/multipart';
 import rateLimit from '@fastify/rate-limit';
 import { ZodError } from 'zod';
-import type { Config } from './config.js';
-import type { Db } from './db/client.js';
-import { HttpError } from './core/errors.js';
-import { EventBus } from './core/events.js';
-import { Storage } from './core/services.js';
-import type { Ctx } from './context.js';
-import { authRoutes } from './modules/auth.js';
-import { orgRoutes } from './modules/org.js';
-import { plantRoutes } from './modules/plant.js';
-import { telemetryRoutes } from './modules/telemetry.js';
-import { alarmRoutes } from './modules/alarms.js';
-import { inspectionModule } from './modules/inspections.js';
-import { maintenanceRoutes } from './modules/maintenance.js';
-import { deviceRoutes } from './modules/devices.js';
-import { realtimeRoutes } from './modules/realtime.js';
-import { insightRoutes } from './modules/insights.js';
-import { publicRoutes } from './modules/public.js';
-import { simulationRoutes } from './modules/simulation.js';
-import { installProfileEnforcement, uiProfileRoutes } from './modules/ui-profiles.js';
+import type { Config } from './config';
+import type { Db } from './db/client';
+import { HttpError } from './core/errors';
+import { EventBus } from './core/events';
+import { createStorage } from './core/services';
+import type { Ctx } from './context';
+import { authRoutes } from './modules/auth';
+import { orgRoutes } from './modules/org';
+import { plantRoutes } from './modules/plant';
+import { telemetryRoutes } from './modules/telemetry';
+import { alarmRoutes } from './modules/alarms';
+import { inspectionModule } from './modules/inspections';
+import { maintenanceRoutes } from './modules/maintenance';
+import { deviceRoutes } from './modules/devices';
+import { realtimeRoutes } from './modules/realtime';
+import { insightRoutes } from './modules/insights';
+import { publicRoutes } from './modules/public';
+import { simulationRoutes } from './modules/simulation';
+import { installProfileEnforcement, uiProfileRoutes } from './modules/ui-profiles';
 
 export interface BuildOptions {
   db: Db;
@@ -35,7 +35,9 @@ export interface BuildOptions {
 
 export async function buildApp(opts: BuildOptions): Promise<{ app: FastifyInstance; ctx: Ctx }> {
   const app = Fastify({ logger: opts.logger ? { level: 'info' } : false, bodyLimit: 1024 * 1024, trustProxy: true });
-  const ctx: Ctx = { db: opts.db, config: opts.config, bus: new EventBus(), storage: new Storage(opts.config.STORAGE_DIR), liveDevices: new Map() };
+  const ctx: Ctx = { db: opts.db, config: opts.config, bus: new EventBus(opts.config.REALTIME_MODE, opts.db), storage: createStorage(opts.config), liveDevices: new Map() };
+  // db realtime mode: persist events published by the handler once it has finished (its transaction is closed).
+  if (ctx.bus.mode === 'db') app.addHook('onSend', async () => ctx.bus.flush());
 
   app.decorateRequest('principal', null);
   app.decorateRequest('platformUserId', null);
