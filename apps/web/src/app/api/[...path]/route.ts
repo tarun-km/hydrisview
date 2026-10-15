@@ -15,16 +15,6 @@ const DROP_RESPONSE = new Set(['connection', 'keep-alive', 'transfer-encoding', 
 
 async function handle(req: Request): Promise<Response> {
   let api;
-  if (new URL(req.url).pathname === '/api/__diag') {
-    const fs = await import('node:fs');
-    const errs: string[] = [];
-    process.on('uncaughtException', (e) => errs.push(String(e)));
-    process.on('unhandledRejection', (e) => errs.push(String(e)));
-    const probe = (d: string) => { try { return fs.readdirSync(d).slice(0, 30); } catch (e) { return String(e); } };
-    let start = 'ok';
-    try { const m = await import('@hydris/api/serverless'); await Promise.race([m.getServerlessApi(), new Promise((r) => setTimeout(r, 20000))]); } catch (e) { start = e instanceof Error ? `${e.message} ${e.stack?.slice(0, 600)}` : String(e); }
-    return Response.json({ cwd: process.cwd(), env: { DEMO_MODE: process.env.DEMO_MODE, VERCEL: process.env.VERCEL, hasDb: !!process.env.DATABASE_URL, NODE_ENV: process.env.NODE_ENV }, start, errs, pglite: probe(process.cwd() + '/node_modules/@electric-sql/pglite/dist'), drizzle: probe(process.cwd() + '/apps/api/drizzle') });
-  }
   try {
     // Loaded lazily so module-load failures (native/wasm deps, config) are reported, not an empty 500.
     const { getServerlessApi } = await import('@hydris/api/serverless');

@@ -62,8 +62,9 @@ let demoWarned = false;
 /** Fill demo-mode defaults so the demo runs with zero configuration. */
 function demoDefaults(env: Env): Env {
   const out: Env = { ...env, DEMO_MODE: 'true' };
-  // Only a real Postgres URL is honoured in demo mode; anything else runs in memory (per instance).
-  if (!/^postgres(ql)?:\/\//.test(env.DATABASE_URL ?? '')) out.DATABASE_URL = 'memory://';
+  // Demo mode runs in memory (per instance) even if a DATABASE_URL is attached: seeding a remote
+  // database on every cold start exceeds serverless time limits. DEMO_PERSIST=true opts back in.
+  if (env.DEMO_PERSIST !== 'true' || !/^postgres(ql)?:\/\//.test(env.DATABASE_URL ?? '')) out.DATABASE_URL = 'memory://';
   const warn: string[] = [];
   if (!env.JWT_SECRET || env.JWT_SECRET.length < 32) { out.JWT_SECRET = DEMO_SECRETS.JWT_SECRET; warn.push('JWT_SECRET'); }
   if (!env.DATA_KEY || !/^[0-9a-f]{64}$/i.test(env.DATA_KEY)) { out.DATA_KEY = DEMO_SECRETS.DATA_KEY; warn.push('DATA_KEY'); }
