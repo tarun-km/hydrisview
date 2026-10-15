@@ -6,7 +6,7 @@ const email = (k: string) => `${k}@demo.hydris.local`;
 async function signIn(page: Page, who: string, next = '/console') {
   await page.goto(`/login?next=${encodeURIComponent(next)}`);
   await page.getByLabel('Work email').fill(email(who));
-  await page.getByLabel('Password').fill(PW);
+  await page.getByLabel('Password', { exact: true }).fill(PW);
   await page.getByRole('button', { name: 'Sign in' }).click();
   await page.waitForURL((u) => !u.pathname.startsWith('/login'));
 }
@@ -43,7 +43,7 @@ test('glasses pairing by code, guided inspection on glasses, revocation', async 
   const members = (await (await request.get('/api/members', { headers: auth })).json()).members as { userId: string; email: string }[];
   const created = await request.post('/api/inspections', { headers: auth, data: {
     templateId: templates.find((t) => t.key === 'tank_check')!.id, assetId: assets[0]!.id, title: `E2E walk-down ${Date.now()}`,
-    assignedTo: members.find((m) => m.email === email('operator2'))!.userId, dueAt: new Date(Date.now() - 60_000).toISOString(),
+    assignedTo: members.find((m) => m.email === email('operator2'))!.userId, dueAt: new Date(Date.now() - 30 * 86400_000).toISOString(),
   } });
   expect(created.status()).toBe(201);
   const title = (await created.json()).inspection.title as string;
