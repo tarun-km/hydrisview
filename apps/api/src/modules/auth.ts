@@ -3,8 +3,8 @@ import { and, desc, eq, gt, isNull, sql } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { permissionsFor } from '@hydris/domain';
-import { TTL } from '../config';
-import type { Ctx } from '../context';
+import { TTL, accessTokenTtl } from '../config';
+import type { Ctx, DemoSessionJwt } from '../context';
 import { authenticate, principal, resolvePrincipal } from '../context';
 import { authSessions, authTokens, invitations, membershipSites, memberships, organizations, users } from '../db/schema';
 import { withSystem } from '../db/tenant';
@@ -14,6 +14,8 @@ import { decrypt, dummyVerify, encrypt, hashPassword, newTotpSecret, passwordPro
 import { audit, sendMail } from '../core/services';
 
 const COOKIE = 'hg_refresh';
+/** Demo mode only: signed session fallback for instances that never saw the refresh-token row. */
+const DEMO_COOKIE = 'hg_demo';
 /** Grace window for concurrent refreshes (multiple tabs). Replays after it are treated as token theft. */
 const REUSE_INTERVAL_MS = 30_000;
 const emailSchema = z.string().trim().toLowerCase().pipe(z.email());
@@ -28,7 +30,11 @@ export async function authRoutes(app: FastifyInstance, ctx: Ctx, opts: { relaxed
       userAgent: req.headers['user-agent']?.slice(0, 200), ip: req.ip,
     });
     reply.setCookie(COOKIE, raw, { httpOnly: true, sameSite: 'strict', secure: ctx.config.isProd, path: '/api/auth', maxAge: TTL.refreshMs / 1000 });
-    const accessToken = app.jwt.sign({ typ: 'user', sub: userId, org: orgId, sid: familyId }, { expiresIn: TTL.accessToken });
+    if (ctx.config.demoMode) {
+      const demo: DemoSessionJwt = { typ: 'demo_session', sub: userId, org: orgId, sid: familyId };
+      reply.setCookie(DEMO_COOKIE, app.jwt.sign(demo, { expiresIn: Math.floor(TTL.refreshMs / 1000) }), { httpOnly: true, sameSite: 'strict', secure: ctx.config.isProd, path: '/api/auth', maxAge: TTL.refreshMs / 1000 });
+    }
+    const accessToken = app.jwt.sign({ typ: 'user', sub: userId, org: orgId, sid: familyId }, { expiresIn: accessTokenTtl(ctx.config) });
     return { accessToken, ...(await sessionView(tx, userId, orgId)) };
   }
 
@@ -115,11 +121,30 @@ export async function authRoutes(app: FastifyInstance, ctx: Ctx, opts: { relaxed
 
   // ---------- refresh / logout ----------
   app.post('/auth/refresh', strict(60), async (req, reply) => {
-    const raw = req.cookies[COOKIE];
-    if (!raw) throw unauthorized('no_session', 'No active session');
+    const raw = req.cookies[COOKIE] ?? '';
+    const demoRaw = ctx.config.demoMode ? req.cookies[DEMO_COOKIE] : undefined;
+    if (!raw && !demoRaw) throw unauthorized('no_session', 'No active session');
     const fail = (code: string) => {
       reply.clearCookie(COOKIE, { path: '/api/auth' });
+      if (ctx.config.demoMode) reply.clearCookie(DEMO_COOKIE, { path: '/api/auth' });
       return unauthorized(code, 'Session ended. Please sign in again.');
+    };
+    // Demo mode: the refresh-token row may live on another instance. Re-create the session
+    // family here from the signed demo cookie (same family id, so a local logout still applies).
+    const demoFallback = async (tx: Tx) => {
+      let d: DemoSessionJwt;
+      try {
+        d = app.jwt.verify<DemoSessionJwt>(demoRaw ?? '');
+      } catch {
+        throw fail('no_session');
+      }
+      if (d.typ !== 'demo_session') throw fail('no_session');
+      const [known] = await tx.select({ id: authSessions.id }).from(authSessions).where(and(eq(authSessions.familyId, d.sid), isNull(authSessions.revokedAt), isNull(authSessions.rotatedAt))).limit(1);
+      const [revoked] = known ? [] : await tx.select({ id: authSessions.id }).from(authSessions).where(and(eq(authSessions.familyId, d.sid), sql`${authSessions.revokedAt} is not null`)).limit(1);
+      if (revoked) throw fail('session_revoked');
+      const [u] = await tx.select({ status: users.status }).from(users).where(eq(users.id, d.sub));
+      if (!u || u.status !== 'active') throw fail('no_session');
+      return startSession(tx, req, reply, d.sub, await pickOrg(tx, d.sub, d.org), d.sid);
     };
     // Reuse detection commits in its own transaction so the revocation survives the rejection.
     const reused = await withSystem(ctx.db, async (tx) => {
@@ -136,6 +161,7 @@ export async function authRoutes(app: FastifyInstance, ctx: Ctx, opts: { relaxed
     if (reused) throw fail('session_revoked');
     return withSystem(ctx.db, async (tx) => {
       const [s] = await tx.select().from(authSessions).where(eq(authSessions.tokenHash, sha256(raw)));
+      if (!s && demoRaw) return demoFallback(tx);
       if (!s || s.revokedAt) throw fail('no_session');
       if (s.rotatedAt && Date.now() - s.rotatedAt.getTime() >= REUSE_INTERVAL_MS) throw fail('no_session');
       if (s.expiresAt < new Date()) throw fail('session_expired');
@@ -159,6 +185,7 @@ export async function authRoutes(app: FastifyInstance, ctx: Ctx, opts: { relaxed
       });
     }
     reply.clearCookie(COOKIE, { path: '/api/auth' });
+    if (ctx.config.demoMode) reply.clearCookie(DEMO_COOKIE, { path: '/api/auth' });
     return { ok: true };
   });
 

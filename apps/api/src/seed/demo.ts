@@ -7,6 +7,7 @@ import {
 } from '../db/schema';
 import { withSystem, withTenant } from '../db/tenant';
 import { hashPassword } from '../core/crypto';
+import { demoId } from './ids';
 
 export const DEMO_DOMAIN = 'demo.hydris.local';
 export const DEMO_USERS: { key: string; name: string; role: Role; title: string }[] = [
@@ -20,16 +21,16 @@ export const DEMO_USERS: { key: string; name: string; role: Role; title: string 
 ];
 export const demoEmail = (key: string) => `${key}@${DEMO_DOMAIN}`;
 
-export async function seedPlatformAdmin(db: Db, email: string, password: string) {
+export async function seedPlatformAdmin(db: Db, email: string, password: string, opts: { id?: string; name?: string } = {}) {
   return withSystem(db, async (tx) => {
     const [existing] = await tx.select().from(users).where(sql`lower(${users.email}) = ${email.toLowerCase()}`);
     if (existing) return { created: false, id: existing.id };
-    const [u] = await tx.insert(users).values({ email, name: 'Platform Administrator', passwordHash: await hashPassword(password), isPlatformAdmin: true, emailVerifiedAt: new Date() }).returning();
+    const [u] = await tx.insert(users).values({ ...(opts.id ? { id: opts.id } : {}), email, name: opts.name ?? 'Platform Administrator', passwordHash: await hashPassword(password), isPlatformAdmin: true, emailVerifiedAt: new Date() }).returning();
     return { created: true, id: u!.id };
   });
 }
 
-const steps = {
+export const steps = {
   pump: [
     { id: 'guard', kind: 'check', title: 'Coupling guard fitted and secure', required: true, caution: 'Never remove guards from running equipment.' },
     { id: 'leak', kind: 'choice', title: 'Mechanical seal condition', required: true, options: ['No leakage', 'Weeping', 'Active leak'], abnormalOptions: ['Active leak'] },
@@ -63,7 +64,7 @@ const steps = {
   ],
 } satisfies Record<string, InspectionStep[]>;
 
-const SOPS = [
+export const SOPS = [
   { key: 'vib', title: 'SOP-PMP-07 Pump vibration response', kind: 'troubleshooting' as const, assetType: 'pump' as const, body: `Purpose: respond to high vibration on centrifugal transfer pumps.\n\n1. Confirm the reading on the online vibration transmitter and its timestamp. If the data is stale, verify with a handheld meter at the drive-end bearing.\n2. Listen for cavitation (gravel-like noise). Check suction valve is fully open and suction strainer differential is normal.\n3. Check discharge pressure against the duty point. Operation far left or right of the curve increases vibration.\n4. Inspect coupling guard area for visible misalignment or loose base bolts. Do not remove guards while running.\n5. If vibration exceeds the high-high limit (7.1 mm/s RMS), inform the shift supervisor. The supervisor decides on changeover to the standby pump under the site permit-to-work procedure.\n6. Record findings in the inspection and raise a maintenance request for bearing or alignment checks.` },
   { key: 'level', title: 'SOP-EQ-02 Equalization tank high level', kind: 'sop' as const, assetType: 'tank' as const, body: `Purpose: prevent overflow of the equalization tank.\n\n1. Verify level on the sight gauge and compare with LT-101.\n2. Confirm transfer pump P-101 is running and discharge pressure is normal.\n3. Check whether influent flow has increased (upstream production change, rain ingress).\n4. Inform the supervisor if level exceeds 85 %. Overflow diversion and influent restriction are supervisor decisions.\n5. Inspect overflow channel is clear.` },
   { key: 'ph', title: 'SOP-DIS-04 Abnormal discharge pH', kind: 'sop' as const, assetType: 'analyzer' as const, body: `Purpose: respond to discharge pH outside 6.5 - 8.5.\n\n1. Check the analyzer status and last calibration. Compare with a handheld pH meter on a grab sample.\n2. Check upstream pH at the equalization tank (AIT-101) to locate the source.\n3. Inform the supervisor immediately; discharge diversion is a supervisor decision under the consent conditions.\n4. Take and label a grab sample for the laboratory.` },
@@ -86,26 +87,26 @@ export async function seedDemo(db: Db, password: string, opts: { historyHours?: 
 
   const userIds: Record<string, string> = {};
   const orgId = await withSystem(db, async (tx) => {
-    const [org] = await tx.insert(organizations).values({ name: 'Riverbend Process Industries (Demo)', slug: 'riverbend-demo', isDemo: true, region: 'Tamil Nadu, IN', timezone: 'Asia/Kolkata' }).returning();
+    const [org] = await tx.insert(organizations).values({ id: demoId('org', 'riverbend'), name: 'Riverbend Process Industries (Demo)', slug: 'riverbend-demo', isDemo: true, region: 'Tamil Nadu, IN', timezone: 'Asia/Kolkata' }).returning();
     for (const u of DEMO_USERS) {
-      const [row] = await tx.insert(users).values({ email: demoEmail(u.key), name: u.name, passwordHash: hash, emailVerifiedAt: new Date(), defaultOrgId: org!.id }).returning();
+      const [row] = await tx.insert(users).values({ id: demoId('user', u.key), email: demoEmail(u.key), name: u.name, passwordHash: hash, emailVerifiedAt: new Date(), defaultOrgId: org!.id }).returning();
       userIds[u.key] = row!.id;
-      await tx.insert(memberships).values({ orgId: org!.id, userId: row!.id, role: u.role, title: u.title });
+      await tx.insert(memberships).values({ id: demoId('membership', u.key), orgId: org!.id, userId: row!.id, role: u.role, title: u.title });
     }
     return org!.id;
   });
 
   const siteId = await withTenant(db, orgId, async (tx) => {
     const W = 120, H = 80;
-    const [site] = await tx.insert(sites).values({ orgId, name: SIM_PLANT.site.name, code: SIM_PLANT.site.code, city: 'Chennai', country: 'India', lat: 13.0827, lng: 80.2707, timezone: 'Asia/Kolkata', layoutWidthM: W, layoutHeightM: H }).returning();
-    const [fac] = await tx.insert(facilities).values({ orgId, siteId: site!.id, ...SIM_PLANT.facility, capacityM3PerDay: 3000, description: 'Physico-chemical and activated-sludge effluent treatment for the textile processing units.' }).returning();
+    const [site] = await tx.insert(sites).values({ id: demoId('site', SIM_PLANT.site.code), orgId, name: SIM_PLANT.site.name, code: SIM_PLANT.site.code, city: 'Chennai', country: 'India', lat: 13.0827, lng: 80.2707, timezone: 'Asia/Kolkata', layoutWidthM: W, layoutHeightM: H }).returning();
+    const [fac] = await tx.insert(facilities).values({ id: demoId('facility', SIM_PLANT.facility.code), orgId, siteId: site!.id, ...SIM_PLANT.facility, capacityM3PerDay: 3000, description: 'Physico-chemical and activated-sludge effluent treatment for the textile processing units.' }).returning();
     const polygons: Record<string, [number, number][]> = {
       EQ: [[6, 10], [44, 10], [44, 40], [6, 40]], AER: [[50, 6], [82, 6], [82, 40], [50, 40]], DOS: [[30, 46], [62, 46], [62, 62], [30, 62]],
       CLR: [[68, 44], [100, 44], [100, 62], [68, 62]], DIS: [[86, 64], [116, 64], [116, 78], [86, 78]],
     };
     const areaIds: Record<string, string> = {};
     for (const [i, a] of SIM_PLANT.areas.entries()) {
-      const [row] = await tx.insert(processAreas).values({ orgId, siteId: site!.id, facilityId: fac!.id, ...a, sortOrder: i, polygon: polygons[a.code] }).returning();
+      const [row] = await tx.insert(processAreas).values({ id: demoId('area', SIM_PLANT.site.code, a.code), orgId, siteId: site!.id, facilityId: fac!.id, ...a, sortOrder: i, polygon: polygons[a.code] }).returning();
       areaIds[a.code] = row!.id;
     }
     const specs: Record<string, Record<string, string | number>> = {
@@ -118,7 +119,7 @@ export async function seedDemo(db: Db, password: string, opts: { historyHours?: 
     const assetIds: Record<string, string> = {};
     for (const a of SIM_PLANT.assets) {
       const [row] = await tx.insert(assets).values({
-        orgId, siteId: site!.id, facilityId: fac!.id, processAreaId: areaIds[a.area], tag: a.tag, name: a.name, type: a.type, criticality: a.criticality,
+        id: demoId('asset', a.tag), orgId, siteId: site!.id, facilityId: fac!.id, processAreaId: areaIds[a.area], tag: a.tag, name: a.name, type: a.type, criticality: a.criticality,
         manufacturer: mfg[a.tag]?.[0], model: mfg[a.tag]?.[1], specs: specs[a.tag] ?? {}, positionX: (a.x / 100) * W, positionY: (a.y / 100) * H, installedOn: '2021-03-15',
       }).returning();
       assetIds[a.tag] = row!.id;
@@ -126,18 +127,18 @@ export async function seedDemo(db: Db, password: string, opts: { historyHours?: 
     const sensorIds: Record<string, string> = {};
     for (const s of SIM_PLANT.sensors) {
       const [row] = await tx.insert(sensors).values({
-        orgId, siteId: site!.id, assetId: assetIds[s.assetTag], processAreaId: areaIds[SIM_PLANT.assets.find((a) => a.tag === s.assetTag)!.area],
+        id: demoId('sensor', s.tag), orgId, siteId: site!.id, assetId: assetIds[s.assetTag], processAreaId: areaIds[SIM_PLANT.assets.find((a) => a.tag === s.assetTag)!.area],
         tag: s.tag, name: `${MEASURAND_DEFS[s.measurand].label} ${s.assetTag}`, measurand: s.measurand, unit: MEASURAND_DEFS[s.measurand].unit, method: 'continuous', expectedIntervalS: 5, sourceRef: `ETP01.${s.tag}`,
       }).returning();
       sensorIds[s.tag] = row!.id;
     }
     // Laboratory parameters: defined with their real provenance; no values are invented.
     for (const m of ['cod', 'bod', 'tss'] as const) {
-      await tx.insert(sensors).values({ orgId, siteId: site!.id, assetId: assetIds['AN-501'], processAreaId: areaIds.DIS, tag: `LAB-${m.toUpperCase()}`, name: `${MEASURAND_DEFS[m].label} (lab)`, measurand: m, unit: MEASURAND_DEFS[m].unit, method: 'lab', expectedIntervalS: 86400 });
+      await tx.insert(sensors).values({ id: demoId('sensor', `LAB-${m.toUpperCase()}`), orgId, siteId: site!.id, assetId: assetIds['AN-501'], processAreaId: areaIds.DIS, tag: `LAB-${m.toUpperCase()}`, name: `${MEASURAND_DEFS[m].label} (lab)`, measurand: m, unit: MEASURAND_DEFS[m].unit, method: 'lab', expectedIntervalS: 86400 });
     }
     const docIds: Record<string, string> = {};
     for (const d of SOPS) {
-      const [row] = await tx.insert(documents).values({ orgId, title: d.title, kind: d.kind, assetType: d.assetType, body: d.body, status: 'approved', approvedBy: userIds.manager, approvedAt: new Date(), createdBy: userIds.manager, tags: [d.key] }).returning();
+      const [row] = await tx.insert(documents).values({ id: demoId('document', d.key), orgId, title: d.title, kind: d.kind, assetType: d.assetType, body: d.body, status: 'approved', approvedBy: userIds.manager, approvedAt: new Date(), createdBy: userIds.manager, tags: [d.key] }).returning();
       docIds[d.key] = row!.id;
     }
     const proc: Record<string, { doc: string; action: string }> = {
@@ -150,13 +151,13 @@ export async function seedDemo(db: Db, password: string, opts: { historyHours?: 
     };
     for (const t of SIM_PLANT.thresholds) {
       await tx.insert(alarmRules).values({
-        orgId, siteId: site!.id, sensorId: sensorIds[t.sensorTag]!, name: `${t.sensorTag} ${t.condition.replace('_', '-')}`, condition: t.condition, threshold: t.threshold,
+        id: demoId('rule', t.sensorTag, t.condition), orgId, siteId: site!.id, sensorId: sensorIds[t.sensorTag]!, name: `${t.sensorTag} ${t.condition.replace('_', '-')}`, condition: t.condition, threshold: t.threshold,
         deadband: t.sensorTag.startsWith('AIT') ? 0.1 : t.sensorTag === 'LT-101' ? 2 : 0.3, onDelayS: 0, severity: t.severity,
         recommendedAction: proc[t.sensorTag]?.action, procedureDocumentId: proc[t.sensorTag] ? docIds[proc[t.sensorTag]!.doc] : null, createdBy: userIds.manager,
       });
     }
     for (const tag of ['CT-102', 'AIT-501']) {
-      await tx.insert(alarmRules).values({ orgId, siteId: site!.id, sensorId: sensorIds[tag]!, name: `${tag} no data`, condition: 'stale', severity: 'medium', recommendedAction: 'Check instrument power and gateway connectivity.', createdBy: userIds.manager });
+      await tx.insert(alarmRules).values({ id: demoId('rule', tag, 'stale'), orgId, siteId: site!.id, sensorId: sensorIds[tag]!, name: `${tag} no data`, condition: 'stale', severity: 'medium', recommendedAction: 'Check instrument power and gateway connectivity.', createdBy: userIds.manager });
     }
     const tplIds: Record<string, string> = {};
     const tpls: { key: string; name: string; assetType: 'pump' | 'blower' | 'dosing_pump' | 'tank' | 'analyzer'; steps: InspectionStep[]; minutes: number; safety: string[] }[] = [
@@ -167,19 +168,19 @@ export async function seedDemo(db: Db, password: string, opts: { historyHours?: 
       { key: 'analyzer_verification', name: 'Analyzer verification', assetType: 'analyzer', steps: steps.analyzer, minutes: 15, safety: ['Buffer solutions are mild irritants.'] },
     ];
     for (const t of tpls) {
-      const [row] = await tx.insert(inspectionTemplates).values({ orgId, key: t.key, name: t.name, assetType: t.assetType, steps: t.steps, safetyNotices: t.safety, estimatedMinutes: t.minutes, createdBy: userIds.manager }).returning();
+      const [row] = await tx.insert(inspectionTemplates).values({ id: demoId('template', t.key), orgId, key: t.key, name: t.name, assetType: t.assetType, steps: t.steps, safetyNotices: t.safety, estimatedMinutes: t.minutes, createdBy: userIds.manager }).returning();
       tplIds[t.key] = row!.id;
     }
-    const [route] = await tx.insert(inspectionRoutes).values({ orgId, siteId: site!.id, name: 'Morning round · ETP-01', description: 'Daily walk-down from equalization to final discharge.', assetIds: SIM_PLANT.assets.map((a) => assetIds[a.tag]!), createdBy: userIds.supervisor }).returning();
+    const [route] = await tx.insert(inspectionRoutes).values({ id: demoId('route', 'morning-etp'), orgId, siteId: site!.id, name: 'Morning round · ETP-01', description: 'Daily walk-down from equalization to final discharge.', assetIds: SIM_PLANT.assets.map((a) => assetIds[a.tag]!), createdBy: userIds.supervisor }).returning();
     const now = Date.now();
     await tx.insert(inspections).values([
-      { orgId, siteId: site!.id, assetId: assetIds['P-101'], templateId: tplIds.pump_routine, templateVersion: 1, title: 'Pump routine inspection · P-101', steps: steps.pump, safetyNotices: tpls[0]!.safety, assignedTo: userIds.operator, assignedBy: userIds.supervisor, dueAt: new Date(now + 3 * 3600_000), routeId: route!.id },
-      { orgId, siteId: site!.id, assetId: assetIds['T-101'], templateId: tplIds.tank_check, templateVersion: 1, title: 'Tank walk-down · T-101', steps: steps.tank, safetyNotices: tpls[3]!.safety, assignedTo: userIds.operator, assignedBy: userIds.supervisor, dueAt: new Date(now + 5 * 3600_000), routeId: route!.id },
-      { orgId, siteId: site!.id, assetId: assetIds['AN-501'], templateId: tplIds.analyzer_verification, templateVersion: 1, title: 'Analyzer verification · AN-501', steps: steps.analyzer, safetyNotices: tpls[4]!.safety, assignedTo: userIds.operator2, assignedBy: userIds.supervisor, dueAt: new Date(now - 2 * 3600_000), priority: 'high' },
+      { id: demoId('inspection', 'seed-p101'), orgId, siteId: site!.id, assetId: assetIds['P-101'], templateId: tplIds.pump_routine, templateVersion: 1, title: 'Pump routine inspection · P-101', steps: steps.pump, safetyNotices: tpls[0]!.safety, assignedTo: userIds.operator, assignedBy: userIds.supervisor, dueAt: new Date(now + 3 * 3600_000), routeId: route!.id },
+      { id: demoId('inspection', 'seed-t101'), orgId, siteId: site!.id, assetId: assetIds['T-101'], templateId: tplIds.tank_check, templateVersion: 1, title: 'Tank walk-down · T-101', steps: steps.tank, safetyNotices: tpls[3]!.safety, assignedTo: userIds.operator, assignedBy: userIds.supervisor, dueAt: new Date(now + 5 * 3600_000), routeId: route!.id },
+      { id: demoId('inspection', 'seed-an501'), orgId, siteId: site!.id, assetId: assetIds['AN-501'], templateId: tplIds.analyzer_verification, templateVersion: 1, title: 'Analyzer verification · AN-501', steps: steps.analyzer, safetyNotices: tpls[4]!.safety, assignedTo: userIds.operator2, assignedBy: userIds.supervisor, dueAt: new Date(now - 2 * 3600_000), priority: 'high' },
     ]);
     await tx.insert(maintenanceTasks).values([
-      { orgId, siteId: site!.id, assetId: assetIds['BL-102'], title: 'Replace BL-102 inlet filter element', kind: 'preventive', priority: 'medium', status: 'assigned', assignedTo: userIds.engineer, requestedBy: userIds.supervisor, dueAt: new Date(now + 2 * 86400_000), checklist: [{ id: 'a', label: 'Isolate blower (SAFE-01)', done: false }, { id: 'b', label: 'Replace filter element', done: false }, { id: 'c', label: 'Record differential after restart', done: false }] },
-      { orgId, siteId: site!.id, assetId: assetIds['CL-401'], title: 'Scraper drive gearbox oil top-up', kind: 'preventive', priority: 'low', status: 'open', requestedBy: userIds.supervisor },
+      { id: demoId('task', 'seed-bl102-filter'), orgId, siteId: site!.id, assetId: assetIds['BL-102'], title: 'Replace BL-102 inlet filter element', kind: 'preventive', priority: 'medium', status: 'assigned', assignedTo: userIds.engineer, requestedBy: userIds.supervisor, dueAt: new Date(now + 2 * 86400_000), checklist: [{ id: 'a', label: 'Isolate blower (SAFE-01)', done: false }, { id: 'b', label: 'Replace filter element', done: false }, { id: 'c', label: 'Record differential after restart', done: false }] },
+      { id: demoId('task', 'seed-cl401-oil'), orgId, siteId: site!.id, assetId: assetIds['CL-401'], title: 'Scraper drive gearbox oil top-up', kind: 'preventive', priority: 'low', status: 'open', requestedBy: userIds.supervisor },
     ]);
 
     // Labelled synthetic history so trends are visible in the demo tenant.
@@ -201,7 +202,7 @@ export async function seedDemo(db: Db, password: string, opts: { historyHours?: 
       }
     }
     // Start the continuous synthetic baseline so the demo tenant shows live (labelled) data.
-    await tx.insert(simulationRuns).values({ orgId, siteId: site!.id, scenarioKey: 'normal_operations', startedBy: userIds.manager });
+    await tx.insert(simulationRuns).values({ id: demoId('simulation', 'baseline'), orgId, siteId: site!.id, scenarioKey: 'normal_operations', startedBy: userIds.manager });
     return site!.id;
   });
 

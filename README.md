@@ -9,6 +9,13 @@ packages/domain Roles/permissions, measurands & units, alarm/inspection/maintena
 tests/e2e       Playwright journeys (pairing → inspection on glasses → console → revocation)
 ```
 
+## Demo mode (zero configuration)
+Deploy the repository to Vercel with **no environment variables** (or run anywhere with `DEMO_MODE=true`) and you get a complete, clearly-labelled synthetic tenant: two plants (ETP + STP), 7 days of telemetry, 14 days of alarm history in every lifecycle state, inspections and maintenance in every state, lab results, SOPs for Hydris AI, UI profiles, devices, notifications and a live simulation. Sign in as **tarun@hydris.ai / demo@123** (the role accounts `admin|manager|supervisor|operator|operator2|engineer|viewer@demo.hydris.local` use `demo@123` too). Data is in memory and resets on every cold start. Details and limits: [docs/operations/vercel.md](docs/operations/vercel.md#demo-mode-no-setup).
+
+```bash
+npm run build && cd apps/web && DEMO_MODE=true npx next start -p 3000   # local demo, nothing else to configure
+```
+
 ## Run locally
 ```bash
 npm install
@@ -29,7 +36,7 @@ npm run build               # production web build
 ## Deploy
 **Option A — Docker (single host):** set `POSTGRES_PASSWORD` plus the `.env` secrets, then `docker compose up -d --build`. The API applies migrations on start. Seed once with `docker compose exec api npx tsx src/seed/cli.ts` (add `--demo` for a demo tenant).
 
-**Option B — Everything on Vercel (recommended for hosted demos/pilots):** one Vercel project serves the website, console, glasses and the API (Next.js route handlers run the Fastify API in-process), with Neon Postgres, a private Vercel Blob store, `REALTIME_MODE=db` (SSE over a `realtime_events` table) and Vercel Cron for background jobs. Step-by-step guide: [docs/operations/vercel.md](docs/operations/vercel.md).
+**Option B — Everything on Vercel (recommended for hosted demos/pilots):** with no environment variables at all it runs in **demo mode** (see above). For real data: one Vercel project serves the website, console, glasses and the API (Next.js route handlers run the Fastify API in-process), with Neon Postgres, a private Vercel Blob store, `REALTIME_MODE=db` (SSE over a `realtime_events` table) and Vercel Cron for background jobs. Step-by-step guide: [docs/operations/vercel.md](docs/operations/vercel.md).
 
 **Option C — Vercel (web) + container host (API):** deploy `apps/web` to Vercel with env `API_URL=https://<your-api-host>` (a `beforeFiles` rewrite proxies `/api` to it, keeping auth cookies first-party and bypassing the built-in API). Deploy `apps/api/Dockerfile` to a long-running container host (Railway, Fly.io, Render, ECS) with a managed Postgres `DATABASE_URL`, `PUBLIC_APP_URL=https://<web domain>`, `NODE_ENV=production`, `JWT_SECRET`, `DATA_KEY`, and a persistent volume for `STORAGE_DIR`. See [docs/operations/deployment.md](docs/operations/deployment.md).
 

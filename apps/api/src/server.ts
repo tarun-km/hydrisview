@@ -2,10 +2,12 @@ import { buildApp } from './app';
 import { loadConfig } from './config';
 import { createDatabase } from './db/client';
 import { startJobs } from './jobs';
+import { bootDemo } from './demo';
 
 const config = loadConfig();
 const database = await createDatabase(config.DATABASE_URL);
 await database.migrate();
+if (config.demoMode) await bootDemo(database);
 const { app, ctx } = await buildApp({ db: database.db, config, logger: true });
 const stopJobs = startJobs(ctx);
 

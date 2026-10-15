@@ -9,6 +9,7 @@ import type { Principal } from './core/principal';
 import type { EventBus } from './core/events';
 import type { Storage } from './core/services';
 import type { Role } from '@hydris/domain';
+import { ensureDemoDevice } from './core/demo-auth';
 
 export interface Ctx {
   db: Db;
@@ -17,16 +18,21 @@ export interface Ctx {
   storage: Storage;
   /** Device ids with an open realtime stream (connectivity state). */
   liveDevices: Map<string, number>;
+  /** Called on API activity (requests, realtime polls). Demo mode uses it to advance live data lazily. */
+  onActivity?: () => void;
 }
 
 export type UserJwt = { typ: 'user'; sub: string; org: string | null; sid: string };
-export type DeviceJwt = { typ: 'device'; sub: string; org: string; sv: number };
+/** `uid`/`site` are only set in demo mode (lets any instance rebuild the device record). */
+export type DeviceJwt = { typ: 'device'; sub: string; org: string; sv: number; uid?: string | undefined; site?: string | null | undefined };
 export type MfaJwt = { typ: 'mfa'; sub: string };
+/** Demo mode only: signed fallback for the refresh cookie when the session row lives on another instance. */
+export type DemoSessionJwt = { typ: 'demo_session'; sub: string; org: string | null; sid: string };
 
 declare module '@fastify/jwt' {
   interface FastifyJWT {
-    payload: UserJwt | DeviceJwt | MfaJwt;
-    user: UserJwt | DeviceJwt | MfaJwt;
+    payload: UserJwt | DeviceJwt | MfaJwt | DemoSessionJwt;
+    user: UserJwt | DeviceJwt | MfaJwt | DemoSessionJwt;
   }
 }
 
@@ -50,7 +56,7 @@ async function loadMembership(tx: Tx, userId: string, orgId: string) {
 
 /** Resolve the bearer token into a Principal, re-checking revocation state on every request. */
 export async function resolvePrincipal(ctx: Ctx, req: FastifyRequest): Promise<Principal | null> {
-  let tok: UserJwt | DeviceJwt | MfaJwt;
+  let tok: UserJwt | DeviceJwt | MfaJwt | DemoSessionJwt;
   try {
     tok = await req.jwtVerify();
   } catch {
@@ -65,7 +71,7 @@ export async function resolvePrincipal(ctx: Ctx, req: FastifyRequest): Promise<P
  */
 export async function resolveTokenPrincipal(
   ctx: Ctx,
-  tok: UserJwt | DeviceJwt | MfaJwt,
+  tok: UserJwt | DeviceJwt | MfaJwt | DemoSessionJwt,
   opts: { ip?: string; onPlatformUser?: (userId: string | null) => void } = {},
 ): Promise<Principal | null> {
   if (tok.typ === 'user') {
@@ -75,7 +81,13 @@ export async function resolveTokenPrincipal(
       // sid is the refresh-token family; logout/reuse-detection revoke the whole family,
       // which immediately invalidates outstanding access tokens too.
       const [live] = await tx.select({ id: authSessions.id }).from(authSessions).where(and(eq(authSessions.familyId, tok.sid), isNull(authSessions.revokedAt))).limit(1);
-      if (!live) return null;
+      if (!live) {
+        // Demo mode: sessions live per instance. Accept a valid token whose family is unknown
+        // here; a family that exists here but was revoked (logout, reuse) is still rejected.
+        if (!ctx.config.demoMode) return null;
+        const [known] = await tx.select({ id: authSessions.id }).from(authSessions).where(eq(authSessions.familyId, tok.sid)).limit(1);
+        if (known) return null;
+      }
       opts.onPlatformUser?.(u.isPlatformAdmin ? tok.sub : null);
       if (!tok.org) return null;
       const m = await loadMembership(tx, tok.sub, tok.org);
@@ -85,6 +97,7 @@ export async function resolveTokenPrincipal(
   }
   if (tok.typ === 'device') {
     return withSystem(ctx.db, async (tx) => {
+      if (ctx.config.demoMode) await ensureDemoDevice(tx, tok);
       const [d] = await tx.select().from(devices).where(eq(devices.id, tok.sub));
       if (!d || d.status !== 'active' || d.sessionVersion !== tok.sv || d.orgId !== tok.org) return null;
       const [a] = await tx.select({ userId: deviceAssignments.userId }).from(deviceAssignments).where(and(eq(deviceAssignments.deviceId, d.id), isNull(deviceAssignments.unassignedAt)));

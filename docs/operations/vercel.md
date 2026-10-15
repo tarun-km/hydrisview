@@ -3,6 +3,42 @@
 One Vercel project serves the website, the operator console, the glasses viewport **and** the API.
 No separate server is needed. This guide assumes no prior Vercel experience.
 
+## Demo mode (no setup)
+
+**What it is.** If the project has **no `DATABASE_URL`** (or `DEMO_MODE=true` is set) the app starts in demo mode: every
+function instance creates an in-memory database, runs the migrations and seeds the same deterministic, synthetic demo
+tenant ("Riverbend Process Industries (Demo)", flagged `is_demo` and labelled as demo/synthetic throughout the UI):
+
+- two sites — *Riverbend Industrial Park* (ETP-01) and *Riverbend Township STP* (STP-02) — with areas, map layout, assets and 27 online instruments;
+- 7 days of telemetry at 10-minute resolution (diurnal load patterns, noise, excursions) and 14 days of lab COD/BOD/TSS results;
+- 20+ alarms over 14 days in every state (active → acknowledged → investigating → resolved → closed) with history, notes and assignees;
+- inspections in every state (scheduled, in progress, paused, submitted, approved, rejected, cancelled) incl. abnormal findings and glasses submissions;
+- maintenance tasks in every state with checklists and activity, inspection routes, SOPs/manuals/safety documents for Hydris AI (`/assist`),
+  published UI profiles with role/org assignments, pre-paired devices (connected, disconnected, suspended, revoked), notifications and an audit trail;
+- a running "normal operations" simulation. Without cron, live data advances lazily: any API request or open realtime stream
+  advances the simulation at most every 5 s (the daily Vercel cron still works too).
+
+**Sign in:** `tarun@hydris.ai` / `demo@123` (org admin of the demo org and platform admin). Role accounts, same password
+`demo@123`: `admin@`, `manager@`, `supervisor@`, `operator@`, `operator2@`, `engineer@`, `viewer@demo.hydris.local`.
+Glasses: open `/simulator` (or `/glasses`), then approve the code on `/pair` while signed in. The public website demo
+(`/glasses?demo=1`) is client-only and unaffected.
+
+**Things to know.**
+- Data lives in memory and **resets on every cold start**; changes you make exist only on the instance that served them.
+- Instances share nothing, so demo mode relaxes per-instance state: access tokens last 12 h and are accepted even if the
+  session row lives on another instance; `/auth/refresh` falls back to a signed `hg_demo` cookie; device tokens carry the
+  assigned operator/site and device refresh tokens are self-contained, so a device paired on one instance is rebuilt
+  lazily on another. Pairing itself (code → approve → poll) needs the same instance for its ~10 minutes, which is the normal
+  case on a low-traffic demo; if a code is "not found", generate a new one.
+- Realtime events are per instance (the stream reads that instance's in-memory event log).
+- Demo mode uses built-in, **public** `JWT_SECRET`/`DATA_KEY` values unless you set your own (a warning is logged). It is
+  for demonstrations with synthetic data only — never for real plants.
+
+**Switching to production mode.** Follow Steps 2–7 below: add Neon (`DATABASE_URL`), Blob, `JWT_SECRET`, `DATA_KEY`,
+`CRON_SECRET`, `REALTIME_MODE=db`, `PUBLIC_APP_URL`, then redeploy. As soon as `DATABASE_URL` is set, demo mode turns off
+(force either way with `DEMO_MODE=true|false`). With `DEMO_MODE=true` *and* a Postgres `DATABASE_URL`, the demo tenant is
+seeded into that database instead (persistent demo).
+
 ## How it works
 
 | Piece | On Vercel | Where in the code |

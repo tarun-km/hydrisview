@@ -15,6 +15,7 @@ import { loadConfig, type Config } from './config';
 import { createDatabase, defaultMigrationsFolder, type Database } from './db/client';
 import { resolveTokenPrincipal, type Ctx, type DeviceJwt, type MfaJwt, type UserJwt } from './context';
 import type { Principal } from './core/principal';
+import { bootDemo } from './demo';
 
 export { runScheduledJobs, type JobReport } from './jobs';
 export { runDbEventStream, canReceive, formatSse, readySse } from './modules/realtime';
@@ -48,7 +49,9 @@ async function create(): Promise<ServerlessApi> {
   const config = loadConfig();
   const database = await createDatabase(config.DATABASE_URL, { migrationsFolder: findMigrationsFolder(), poolMax: config.serverless ? 3 : 10 });
   // MIGRATE_ON_START=false when migrations are run in the build step instead (npm run vercel-build).
-  if (process.env.MIGRATE_ON_START !== 'false') await database.migrate();
+  if (process.env.MIGRATE_ON_START !== 'false' || config.demoMode) await database.migrate();
+  // Demo mode: seed the deterministic synthetic tenant into this instance's database.
+  if (config.demoMode) await bootDemo(database);
   const { app, ctx } = await buildApp({ db: database.db, config, logger: process.env.API_LOG === 'true' });
   await app.ready();
   return { app, ctx, database, config };

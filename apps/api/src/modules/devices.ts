@@ -5,7 +5,8 @@ import { z } from 'zod';
 import {
   INSPECTION_EDITABLE, MEASURAND_DEFS, OPEN_ALARM_STATES, actionAllowed, applyMeasurementProfile, freshness, screenEnabled, type Role, PAIRING_POLL_INTERVAL_S, PAIRING_TTL_S, deriveDeviceState, formatPairingCode, isValidPairingCode, normalizePairingCode,
 } from '@hydris/domain';
-import { TTL } from '../config';
+import { TTL, accessTokenTtl } from '../config';
+import { decodeDemoDeviceRefresh, demoDeviceClaims, encodeDemoDeviceRefresh, ensureDemoDevice, isDemoDeviceRefresh } from '../core/demo-auth';
 import type { Ctx } from '../context';
 import { authenticate, tenant } from '../context';
 import {
@@ -34,6 +35,15 @@ export async function deviceRoutes(app: FastifyInstance, ctx: Ctx, opts: { relax
   const limit = (max: number) => ({ config: { rateLimit: { max: opts.relaxedLimits ? 10_000 : max, timeWindow: '1 minute' } } });
 
   async function issueDeviceTokens(tx: Tx, device: typeof devices.$inferSelect, familyId: string = randomUUID()) {
+    if (ctx.config.demoMode) {
+      // Demo mode: self-contained tokens so any instance can serve (and rebuild) this device.
+      const claims = await demoDeviceClaims(tx, device);
+      const accessToken = app.jwt.sign({ typ: 'device', sub: device.id, org: device.orgId, sv: device.sessionVersion, ...claims }, { expiresIn: accessTokenTtl(ctx.config) });
+      const refreshToken = claims.uid
+        ? encodeDemoDeviceRefresh(ctx.config.JWT_SECRET, { org: device.orgId, sub: device.id, uid: claims.uid, site: device.siteId, sv: device.sessionVersion })
+        : `hgd_${randomToken(40)}`;
+      return { accessToken, refreshToken };
+    }
     const refresh = `hgd_${randomToken(40)}`;
     await tx.insert(deviceSessions).values({ orgId: device.orgId, deviceId: device.id, familyId, tokenHash: sha256(refresh), sessionVersion: device.sessionVersion, expiresAt: new Date(Date.now() + TTL.deviceRefreshMs) });
     const accessToken = app.jwt.sign({ typ: 'device', sub: device.id, org: device.orgId, sv: device.sessionVersion }, { expiresIn: TTL.accessToken });
@@ -215,6 +225,21 @@ export async function deviceRoutes(app: FastifyInstance, ctx: Ctx, opts: { relax
   // =================== Device session (glasses) ===================
   app.post('/device/refresh', limit(30), async (req) => {
     const { refreshToken } = z.object({ refreshToken: z.string().startsWith('hgd_').max(120) }).parse(req.body);
+    if (ctx.config.demoMode && isDemoDeviceRefresh(refreshToken)) {
+      const c = decodeDemoDeviceRefresh(ctx.config.JWT_SECRET, refreshToken);
+      if (!c) throw unauthorized('device_session_invalid', 'This device must be paired again');
+      return withSystem(ctx.db, async (tx) => {
+        await ensureDemoDevice(tx, c);
+        const [d] = await tx.select().from(devices).where(eq(devices.id, c.sub));
+        if (!d || d.status === 'revoked') throw unauthorized('device_revoked', 'This device has been revoked by an administrator');
+        if (d.status === 'suspended') throw new HttpError(403, 'device_suspended', 'This device is suspended. Contact your administrator.');
+        if (d.sessionVersion > c.sv) throw unauthorized('device_session_invalid', 'This device must be paired again');
+        const [a] = await tx.select().from(deviceAssignments).where(and(eq(deviceAssignments.deviceId, d.id), isNull(deviceAssignments.unassignedAt)));
+        if (!a) throw new HttpError(403, 'device_unassigned', 'No operator is assigned to this device');
+        await tx.update(devices).set({ lastSeenAt: new Date(), lastIp: req.ip }).where(eq(devices.id, d.id));
+        return issueDeviceTokens(tx, d);
+      });
+    }
     const verdict = await withSystem(ctx.db, async (tx) => {
       const [s] = await tx.select().from(deviceSessions).where(eq(deviceSessions.tokenHash, sha256(refreshToken)));
       if (!s) return 'invalid';

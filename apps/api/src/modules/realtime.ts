@@ -49,6 +49,7 @@ export async function runDbEventStream(o: DbStreamOptions): Promise<void> {
   let lastBeat = Date.now();
   let lastCheck = Date.now();
   while (!o.isClosed()) {
+    o.ctx.onActivity?.();
     const events = await readEventsSince(o.ctx.db, cursor, p.orgId);
     for (const e of events) {
       cursor = e.id;

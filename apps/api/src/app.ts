@@ -24,6 +24,7 @@ import { insightRoutes } from './modules/insights';
 import { publicRoutes } from './modules/public';
 import { simulationRoutes } from './modules/simulation';
 import { installProfileEnforcement, uiProfileRoutes } from './modules/ui-profiles';
+import { DemoTicker } from './demo';
 
 export interface BuildOptions {
   db: Db;
@@ -38,6 +39,13 @@ export async function buildApp(opts: BuildOptions): Promise<{ app: FastifyInstan
   const ctx: Ctx = { db: opts.db, config: opts.config, bus: new EventBus(opts.config.REALTIME_MODE, opts.db), storage: createStorage(opts.config), liveDevices: new Map() };
   // db realtime mode: persist events published by the handler once it has finished (its transaction is closed).
   if (ctx.bus.mode === 'db') app.addHook('onSend', async () => ctx.bus.flush());
+  // Demo mode: no cron or timers needed; live data advances lazily on API activity.
+  if (opts.config.demoMode && opts.config.SIMULATOR_ENABLED === 'true') {
+    const ticker = new DemoTicker(ctx);
+    ctx.onActivity = () => ticker.poke();
+    (ctx as Ctx & { demoTicker?: DemoTicker }).demoTicker = ticker;
+    app.addHook('onRequest', async () => ctx.onActivity?.());
+  }
 
   app.decorateRequest('principal', null);
   app.decorateRequest('platformUserId', null);
