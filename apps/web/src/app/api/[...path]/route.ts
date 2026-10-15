@@ -3,7 +3,6 @@
  * Each request is forwarded in-process with `app.inject` (no network hop). Only used when
  * API_URL is unset in production; otherwise next.config.ts proxies /api to the external API.
  */
-import { getServerlessApi } from '@hydris/api/serverless';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -17,10 +16,13 @@ const DROP_RESPONSE = new Set(['connection', 'keep-alive', 'transfer-encoding', 
 async function handle(req: Request): Promise<Response> {
   let api;
   try {
+    // Loaded lazily so module-load failures (native/wasm deps, config) are reported, not an empty 500.
+    const { getServerlessApi } = await import('@hydris/api/serverless');
     api = await getServerlessApi();
   } catch (e) {
     console.error('[api] failed to start', e);
-    return Response.json({ error: { code: 'service_unavailable', message: 'API is starting or misconfigured' } }, { status: 503 });
+    const detail = e instanceof Error ? e.message.split(String.fromCharCode(10)).slice(0, 3).join(' | ').slice(0, 400) : 'unknown';
+    return Response.json({ error: { code: 'service_unavailable', message: 'API failed to start', detail } }, { status: 503 });
   }
   const url = new URL(req.url);
   const headers: Record<string, string> = {};
