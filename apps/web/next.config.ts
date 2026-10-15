@@ -19,7 +19,7 @@ const nextConfig: NextConfig = {
   ],
   outputFileTracingRoot: resolve(process.cwd(), '../..'),
   // Ship the SQL migrations with the API functions (migrate-on-cold-start).
-  outputFileTracingIncludes: { '/api/**/*': ['../api/drizzle/**/*'] },
+  outputFileTracingIncludes: { '/api/**/*': ['../api/drizzle/**/*', '../../node_modules/@electric-sql/pglite/dist/**/*'] },
   poweredByHeader: false,
   async rewrites() {
     if (!API_URL) return [];
