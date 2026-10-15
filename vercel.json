@@ -4,5 +4,5 @@
   "installCommand": "npm ci",
   "buildCommand": "npm run build",
   "outputDirectory": "apps/web/.next",
-  "crons": [{ "path": "/api/cron", "schedule": "* * * * *" }]
+  "crons": [{ "path": "/api/cron", "schedule": "0 3 * * *" }]
 }
