@@ -142,6 +142,15 @@ export function describeError(e: unknown): string {
   return errorMessage(e);
 }
 
+/** Field path → message from an API validation error, for inline errors next to inputs. */
+export function fieldErrors(e: unknown): Record<string, string> {
+  const out: Record<string, string> = {};
+  if (e instanceof ApiError && Array.isArray(e.details)) {
+    for (const d of e.details as { path?: string; message?: string }[]) if (d.path && !out[d.path]) out[d.path] = d.message ?? 'Invalid value';
+  }
+  return out;
+}
+
 export function FormError({ error }: { error: unknown }) {
   if (!error) return null;
   return (

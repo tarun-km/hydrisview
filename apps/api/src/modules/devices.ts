@@ -3,13 +3,13 @@ import { and, asc, desc, eq, gt, inArray, isNull, sql } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import {
-  INSPECTION_EDITABLE, OPEN_ALARM_STATES, PAIRING_POLL_INTERVAL_S, PAIRING_TTL_S, deriveDeviceState, formatPairingCode, isValidPairingCode, normalizePairingCode,
+  INSPECTION_EDITABLE, MEASURAND_DEFS, OPEN_ALARM_STATES, actionAllowed, applyMeasurementProfile, freshness, screenEnabled, type Role, PAIRING_POLL_INTERVAL_S, PAIRING_TTL_S, deriveDeviceState, formatPairingCode, isValidPairingCode, normalizePairingCode,
 } from '@hydris/domain';
 import { TTL } from '../config.js';
 import type { Ctx } from '../context.js';
 import { authenticate, tenant } from '../context.js';
 import {
-  alarmEvents, assets, auditEvents, processAreas, deviceAssignments, deviceSessions, devices, inspections, maintenanceTasks, membershipSites, memberships, organizations, pairingChallenges, sites, users,
+  alarmEvents, assets, auditEvents, processAreas, deviceAssignments, deviceSessions, devices, inspections, maintenanceTasks, membershipSites, sensors, memberships, organizations, pairingChallenges, sites, users,
 } from '../db/schema.js';
 import type { Tx } from '../db/client.js';
 import { withSystem, withTenant } from '../db/tenant.js';
@@ -17,6 +17,7 @@ import { badRequest, conflict, forbidden, HttpError, notFound, unauthorized } fr
 import { has, requirePerm, requireSite, siteScope, type Principal } from '../core/principal.js';
 import { pairingCode, randomToken, safeEqual, sha256 } from '../core/crypto.js';
 import { audit } from '../core/services.js';
+import { effectiveProfile } from './ui-profiles.js';
 
 const deviceInfoSchema = z.object({
   kind: z.enum(['hardware', 'simulator']), model: z.string().max(80).optional(), appVersion: z.string().max(40).optional(), firmwareVersion: z.string().max(40).optional(),
@@ -252,31 +253,53 @@ export async function deviceRoutes(app: FastifyInstance, ctx: Ctx, opts: { relax
     const [op] = await tx.select({ id: users.id, name: users.name }).from(users).where(eq(users.id, p.userId));
     const [org] = await tx.select({ name: organizations.name, isDemo: organizations.isDemo }).from(organizations).where(eq(organizations.id, p.orgId));
     const [site] = d!.siteId ? await tx.select({ id: sites.id, name: sites.name, code: sites.code }).from(sites).where(eq(sites.id, d!.siteId)) : [];
+    const profile = await effectiveProfile(tx, { deviceId: p.deviceId, userId: p.userId, role: p.role as Role });
+    const cfg = profile.config;
+    const on = (s: Parameters<typeof screenEnabled>[1]) => screenEnabled(cfg, s);
     const siteCond = d!.siteId ? eq(inspections.siteId, d!.siteId) : siteScope(p, inspections.siteId);
-    const work = await tx.select({ id: inspections.id, title: inspections.title, status: inspections.status, priority: inspections.priority, dueAt: inspections.dueAt, assetTag: assets.tag, assetName: assets.name, steps: inspections.steps, revision: inspections.revision })
+    // Sections disabled by the UI profile are omitted entirely (server-side enforcement, not just hidden).
+    const work = !on('inspections') ? [] : await tx.select({ id: inspections.id, title: inspections.title, status: inspections.status, priority: inspections.priority, dueAt: inspections.dueAt, assetTag: assets.tag, assetName: assets.name, steps: inspections.steps, revision: inspections.revision })
       .from(inspections).leftJoin(assets, eq(assets.id, inspections.assetId))
       .where(and(eq(inspections.assignedTo, p.userId), inArray(inspections.status, [...INSPECTION_EDITABLE]), siteCond)).orderBy(asc(inspections.dueAt)).limit(20);
-    const alarms = await tx.select({ id: alarmEvents.id, title: alarmEvents.title, severity: alarmEvents.severity, state: alarmEvents.state, triggeredAt: alarmEvents.triggeredAt, assetTag: assets.tag, triggerValue: alarmEvents.triggerValue, unit: alarmEvents.unit, recommendedAction: alarmEvents.recommendedAction, synthetic: alarmEvents.synthetic })
+    const alarms = !on('alerts') ? [] : await tx.select({ id: alarmEvents.id, title: alarmEvents.title, severity: alarmEvents.severity, state: alarmEvents.state, triggeredAt: alarmEvents.triggeredAt, assetTag: assets.tag, triggerValue: alarmEvents.triggerValue, unit: alarmEvents.unit, recommendedAction: alarmEvents.recommendedAction, synthetic: alarmEvents.synthetic })
       .from(alarmEvents).leftJoin(assets, eq(assets.id, alarmEvents.assetId))
       .where(and(inArray(alarmEvents.state, [...OPEN_ALARM_STATES]), d!.siteId ? eq(alarmEvents.siteId, d!.siteId) : siteScope(p, alarmEvents.siteId)))
       .orderBy(sql`case ${alarmEvents.severity} when 'critical' then 0 when 'high' then 1 when 'medium' then 2 else 3 end`, desc(alarmEvents.triggeredAt)).limit(20);
-    const tasks = await tx.select({ id: maintenanceTasks.id, title: maintenanceTasks.title, status: maintenanceTasks.status, priority: maintenanceTasks.priority, assetTag: assets.tag, checklist: maintenanceTasks.checklist })
+    const tasks = !on('tasks') ? [] : await tx.select({ id: maintenanceTasks.id, title: maintenanceTasks.title, status: maintenanceTasks.status, priority: maintenanceTasks.priority, assetTag: assets.tag, checklist: maintenanceTasks.checklist })
       .from(maintenanceTasks).leftJoin(assets, eq(assets.id, maintenanceTasks.assetId))
       .where(and(eq(maintenanceTasks.assignedTo, p.userId), inArray(maintenanceTasks.status, ['open', 'assigned', 'in_progress', 'on_hold']))).limit(20);
     // Plant map for the glasses: site layout, process areas and asset positions (metres).
     let map = null;
+    let assetList: { id: string; tag: string; name: string; type: string; status: string; openAlarms: number }[] = [];
+    let measurements: unknown[] = [];
     if (site) {
-      const [lay] = await tx.select({ w: sites.layoutWidthM, h: sites.layoutHeightM }).from(sites).where(eq(sites.id, site.id));
-      const areas = await tx.select({ id: processAreas.id, name: processAreas.name, code: processAreas.code, polygon: processAreas.polygon }).from(processAreas).where(and(eq(processAreas.siteId, site.id), isNull(processAreas.archivedAt)));
-      const pins = await tx.select({ id: assets.id, tag: assets.tag, name: assets.name, status: assets.status, x: assets.positionX, y: assets.positionY,
+      const pins = await tx.select({ id: assets.id, tag: assets.tag, name: assets.name, type: assets.type, status: assets.status, x: assets.positionX, y: assets.positionY,
         openAlarms: sql<number>`(select count(*)::int from alarm_events e where e.asset_id = ${assets.id} and e.state in ('active','acknowledged','investigating'))` })
-        .from(assets).where(and(eq(assets.siteId, site.id), isNull(assets.archivedAt)));
-      map = { widthM: lay!.w, heightM: lay!.h, areas: areas.filter((a) => a.polygon), assets: pins.filter((p) => p.x !== null && p.y !== null) };
+        .from(assets).where(and(eq(assets.siteId, site.id), isNull(assets.archivedAt))).orderBy(asc(assets.tag));
+      if (on('map') && actionAllowed(cfg, 'view_map')) {
+        const [lay] = await tx.select({ w: sites.layoutWidthM, h: sites.layoutHeightM }).from(sites).where(eq(sites.id, site.id));
+        const areas = await tx.select({ id: processAreas.id, name: processAreas.name, code: processAreas.code, polygon: processAreas.polygon }).from(processAreas).where(and(eq(processAreas.siteId, site.id), isNull(processAreas.archivedAt)));
+        map = { widthM: lay!.w, heightM: lay!.h, areas: areas.filter((a) => a.polygon), assets: pins.filter((x) => x.x !== null && x.y !== null).map(({ type: _t, ...x }) => x) };
+      }
+      if (on('assets') || on('measurements')) assetList = pins.map(({ x: _x, y: _y, ...a }) => a);
+      if (on('measurements') || on('home')) {
+        const rows = await tx.select({ id: sensors.id, tag: sensors.tag, name: sensors.name, measurand: sensors.measurand, unit: sensors.unit, lastValue: sensors.lastValue, lastTs: sensors.lastTs, lastSource: sensors.lastSource,
+          expectedIntervalS: sensors.expectedIntervalS, assetId: sensors.assetId, assetTag: assets.tag, assetType: assets.type,
+          openAlarms: sql<number>`(select count(*)::int from alarm_events e where e.sensor_id = ${sensors.id} and e.state in ('active','acknowledged','investigating'))` })
+          .from(sensors).leftJoin(assets, eq(assets.id, sensors.assetId))
+          .where(and(eq(sensors.siteId, site.id), eq(sensors.enabled, true), isNull(sensors.archivedAt))).orderBy(asc(sensors.tag));
+        measurements = applyMeasurementProfile(cfg, rows).map((r) => {
+          const def = MEASURAND_DEFS[r.measurand];
+          const tr = def.typicalRange; const out = r.lastValue !== null && !!tr && (r.lastValue < tr[0] || r.lastValue > tr[1]);
+          return { ...r, label: def.label, decimals: def.decimals, typicalRange: def.typicalRange, freshness: freshness(r.lastTs, r.expectedIntervalS), threshold: r.openAlarms > 0 ? 'alarm' : out ? 'out_of_range' : 'normal' };
+        });
+      }
     }
     return {
-      map,
-      device: { id: d!.id, name: d!.name, kind: d!.kind, status: d!.status, sessionVersion: d!.sessionVersion },
+      map, assets: assetList, measurements,
+      device: { id: d!.id, name: d!.name, kind: d!.kind, status: d!.status, sessionVersion: d!.sessionVersion, appVersion: d!.appVersion, pairedAt: d!.pairedAt },
       operator: op, organization: org, site: site ?? null, role: p.role,
+      profile: { id: profile.profileId, name: profile.name, version: profile.version, source: profile.source, config: cfg },
       inspections: work.map(({ steps, ...w }) => ({ ...w, stepCount: steps.length })), alarms, tasks,
       serverTime: new Date().toISOString(),
     };
@@ -322,6 +345,11 @@ export async function deviceRoutes(app: FastifyInstance, ctx: Ctx, opts: { relax
         battery: null, batteryNote: 'Battery and hardware sensors are not exposed by the current device integration.',
       },
       canManage: has(p, 'device.manage'),
+      effectiveProfile: await (async () => {
+        const role = d.assignee ? ((await tx.select({ role: memberships.role }).from(memberships).where(eq(memberships.userId, d.assignee.id)))[0]?.role as Role | undefined) : undefined;
+        const e = await effectiveProfile(tx, { deviceId: id, userId: d.assignee?.id, role });
+        return { id: e.profileId, name: e.name, version: e.version, source: e.source };
+      })(),
     };
   }));
 

@@ -1,7 +1,7 @@
 'use client';
 
 import {
-  MEASURAND_DEFS, SCENARIOS, SIM_PLANT, SIM_STEP_SECONDS, evaluateThreshold, freshness, scenarioFrame, stepOutcome,
+  DEFAULT_UI_PROFILE_CONFIG, MEASURAND_DEFS, SCENARIOS, applyMeasurementProfile, normalizeUiProfileConfig, type UiProfileConfig, SIM_PLANT, SIM_STEP_SECONDS, evaluateThreshold, freshness, scenarioFrame, stepOutcome,
   type Freshness, type InspectionStep, type ScenarioKey, type StepValue,
 } from '@hydris/domain';
 import { DeviceLink } from './link';
@@ -21,7 +21,18 @@ export interface GContext {
   alarms: GAlarm[];
   tasks: GTask[];
   serverTime: string;
+  assets?: GAssetSummary[];
+  measurements?: GMeasurement[];
+  profile?: GProfile;
 }
+export interface GProfile { id: string | null; name: string; version: number | null; source: 'device' | 'user' | 'role' | 'org' | 'default' | 'preview'; config: UiProfileConfig }
+export interface GAssetSummary { id: string; tag: string; name: string; type: string; status: string; openAlarms: number }
+export interface GMeasurement {
+  id: string; tag: string; name: string; label: string; measurand: string; unit: string; decimals: number; lastValue: number | null; lastTs: string | null; lastSource: string | null;
+  assetId: string | null; assetTag: string | null; assetType: string | null; freshness: Freshness; threshold: 'normal' | 'out_of_range' | 'alarm'; typicalRange: [number, number] | null;
+}
+export interface GDocSummary { id: string; title: string; kind: string; version: number; status?: string; approvedAt?: string | null; updatedAt?: string | null }
+export interface GDoc extends GDocSummary { body: string }
 export interface GInspection {
   id: string; title: string; status: string; revision: number; steps: InspectionStep[]; safetyNotices: string[];
   asset: { id: string; tag: string; name: string; type: string; status: string } | null;
@@ -43,6 +54,21 @@ export interface GlassesData {
   toggleChecklist(taskId: string, itemId: string, done: boolean): Promise<void>;
   notifications(): Promise<{ notifications: GNotification[]; unread: number }>;
   markNotificationsRead(): Promise<void>;
+  documents(): Promise<GDocSummary[]>;
+  document(id: string): Promise<GDoc>;
+}
+
+// ---------------- offline cache (last context + SOPs read) ----------------
+const CK = { ctx: 'hydris.glasses.cache.ctx', docs: 'hydris.glasses.cache.docs', doc: 'hydris.glasses.cache.doc.' };
+function cacheSet(k: string, v: unknown) { try { localStorage.setItem(k, JSON.stringify({ at: new Date().toISOString(), v })); } catch { /* quota / unavailable */ } }
+export function cacheGet<T>(k: string): { at: string; v: T } | null { try { const r = localStorage.getItem(k); return r ? JSON.parse(r) as { at: string; v: T } : null; } catch { return null; } }
+export const cachedContext = () => cacheGet<GContext>(CK.ctx);
+/** Error carrying a cached value so screens can render stale data with a banner. */
+export class StaleError<T> extends Error { constructor(public value: T, public at: string, public cause?: unknown) { super('offline (cached)'); } }
+const isNetwork = (e: unknown) => (e as { status?: number })?.status === 0;
+async function withCache<T>(key: string, fn: () => Promise<T>): Promise<T> {
+  try { const v = await fn(); cacheSet(key, v); return v; }
+  catch (e) { const c = isNetwork(e) ? cacheGet<T>(key) : null; if (c) throw new StaleError(c.v, c.at, e); throw e; }
 }
 export interface GNotification { id: string; title: string; body: string | null; severity: 'info' | 'success' | 'warning' | 'critical'; readAt: string | null; createdAt: string; kind: string }
 
@@ -50,8 +76,16 @@ export interface GNotification { id: string; title: string; body: string | null;
 export class LiveData implements GlassesData {
   mode = 'live' as const;
   constructor(public link: DeviceLink) {}
-  context() {
-    return this.link.call<GContext>('/device/context');
+  async context() {
+    const c = await this.link.call<GContext>('/device/context');
+    cacheSet(CK.ctx, c);
+    return c;
+  }
+  documents() {
+    return withCache(CK.docs, async () => (await this.link.call<{ documents: GDocSummary[] }>('/documents')).documents);
+  }
+  document(id: string) {
+    return withCache(CK.doc + id, async () => (await this.link.call<{ document: GDoc }>(`/documents/${id}`)).document);
   }
   async acknowledge(id: string) {
     await this.link.call(`/alarms/${id}/acknowledge`, { method: 'POST', json: {} });
@@ -116,7 +150,34 @@ export class DemoData implements GlassesData {
     { id: 'diaph', label: 'Inspect diaphragm', done: false },
     { id: 'test', label: 'Verify dosing rate', done: false },
   ];
+  /** Live preview (console): config posted by the profile editor; demo mode only. */
+  previewConfig: UiProfileConfig | null = null;
   constructor(public scenario: ScenarioKey) {}
+  async documents(): Promise<GDocSummary[]> {
+    return Object.entries(DEMO_DOCS).map(([id, d]) => ({ id, title: d.title, kind: 'sop', version: 1, status: 'approved' }));
+  }
+  async document(id: string): Promise<GDoc> {
+    const d = DEMO_DOCS[id];
+    if (!d) throw new Error('Document not found');
+    return { id, title: d.title, kind: 'sop', version: 1, status: 'approved', body: d.passage.replace(/[«»]/g, '') + '\n\nDemo excerpt. In production the full approved procedure is shown here.' };
+  }
+  private measurements(cfg: UiProfileConfig): GMeasurement[] {
+    const f = this.frame();
+    const now = new Date().toISOString();
+    const rows: GMeasurement[] = SIM_PLANT.sensors.map((s) => {
+      const def = MEASURAND_DEFS[s.measurand];
+      const v = f.values[s.tag] ?? null;
+      const a = SIM_PLANT.assets.find((x) => x.tag === s.assetTag);
+      const alarm = this.alarms().some((x) => x.id.startsWith(`${s.tag}-`));
+      const tr = def.typicalRange;
+      return {
+        id: s.tag, tag: s.tag, name: def.label, label: def.label, measurand: s.measurand, unit: def.unit, decimals: def.decimals, lastValue: v, lastTs: v === null ? null : now, lastSource: 'simulator',
+        assetId: s.assetTag, assetTag: s.assetTag, assetType: a?.type ?? null, freshness: v === null ? 'stale' : freshness(now, 5), typicalRange: tr,
+        threshold: alarm ? 'alarm' : v !== null && tr && (v < tr[0] || v > tr[1]) ? 'out_of_range' : 'normal',
+      };
+    });
+    return applyMeasurementProfile(cfg, rows);
+  }
 
   private step() {
     return Math.floor((Date.now() - this.started) / (SIM_STEP_SECONDS * 1000)) % SCENARIOS[this.scenario].steps;
@@ -149,6 +210,9 @@ export class DemoData implements GlassesData {
           .map(([code, polygon]) => ({ id: code, code, name: code, polygon })),
         assets: SIM_PLANT.assets.map((a) => ({ id: a.tag, tag: a.tag, name: a.name, status: 'operational', x: (a.x / 100) * 120, y: (a.y / 100) * 80, openAlarms: this.alarms().filter((x) => x.assetTag === a.tag).length })),
       },
+      assets: SIM_PLANT.assets.map((a) => ({ id: a.tag, tag: a.tag, name: a.name, type: a.type, status: 'operational', openAlarms: this.alarms().filter((x) => x.assetTag === a.tag).length })),
+      measurements: this.measurements(this.previewConfig ?? DEFAULT_UI_PROFILE_CONFIG),
+      profile: this.previewConfig ? { id: null, name: 'Draft preview', version: null, source: 'preview', config: normalizeUiProfileConfig(this.previewConfig) } : { id: null, name: 'Built-in default', version: null, source: 'default', config: DEFAULT_UI_PROFILE_CONFIG },
       device: { id: 'demo', name: 'Demo glasses', kind: 'simulator' }, operator: { id: 'demo-op', name: 'Demo Operator' },
       organization: { name: 'Riverbend demo plant', isDemo: true }, site: { id: 'demo-site', name: SIM_PLANT.site.name, code: SIM_PLANT.site.code }, role: 'field_operator',
       inspections: this.status === 'submitted' ? [] : [{ id: 'demo-insp', title: 'Pump routine inspection · P-101', status: this.status, priority: 'normal', dueAt: new Date(this.started + 3 * 3600_000).toISOString(), assetTag: 'P-101', assetName: 'Transfer pump P-101', stepCount: DEMO_STEPS.length, revision: 1 }],

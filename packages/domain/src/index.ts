@@ -7,3 +7,4 @@ export * from './devices';
 export * from './catalog';
 export * from './random';
 export * from './scenarios';
+export * from './uiprofile';

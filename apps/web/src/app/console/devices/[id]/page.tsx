@@ -22,6 +22,7 @@ interface Detail {
   events: { action: string; at: string; summary: string | null; actorUserId: string | null; actorName: string | null }[];
   diagnostics: { lastSeenAt: string | null; lastIp: string | null; streamOpen: boolean; appVersion: string | null; firmwareVersion: string | null; display: { width: number; height: number } | null; battery: null; batteryNote: string };
   canManage: boolean;
+  effectiveProfile?: { id: string | null; name: string; version: number | null; source: string };
 }
 
 type Confirm = null | 'suspend' | 'reactivate' | 'revoke';
@@ -68,6 +69,17 @@ export default function DeviceDetailPage() {
                   <AssignmentCard data={data} onReassign={() => setReassign(true)} />
                   <Diagnostics data={data} />
                 </div>
+
+                <Card title="Glasses UI profile" action={<Link href={data.effectiveProfile?.id ? `/console/glasses-profiles?profile=${data.effectiveProfile.id}` : '/console/glasses-profiles?tab=assignments'} className="text-sm text-text-2 hover:text-text">Manage profiles</Link>}>
+                  {data.effectiveProfile ? (
+                    <div className="flex flex-wrap items-center gap-3 text-sm">
+                      <span className="text-lg font-medium">{data.effectiveProfile.name}</span>
+                      {data.effectiveProfile.version && <Chip tone="ok">v{data.effectiveProfile.version} live</Chip>}
+                      <Chip tone="cobalt">via {data.effectiveProfile.source}</Chip>
+                      <span className="text-text-2">Controls which screens, measurements and actions these glasses get. Enforced by the server.</span>
+                    </div>
+                  ) : <p className="text-sm text-muted">Profile information unavailable.</p>}
+                </Card>
 
                 <div className="grid gap-4 lg:grid-cols-3">
                   <Card title="Assignment history" action={<span className="t-label num">{data.assignments.length}</span>}>

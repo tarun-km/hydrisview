@@ -1,5 +1,7 @@
 'use client';
 
+import { HistoryCard } from '@/console/history';
+
 import { RangeBar } from '@/ui/charts';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
@@ -189,6 +191,8 @@ function AssetView({ d }: { d: AssetDetail }) {
       </div>
 
       <Attachments d={d} />
+
+      <HistoryCard entityType="asset" entityId={a.id} version={a.updatedAt} />
 
       <AssetFormDialog open={editing} onOpenChange={setEditing} asset={a} />
       <SensorDialog open={addSensor} onOpenChange={setAddSensor} assetId={a.id} assetTag={a.tag} />

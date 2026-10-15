@@ -3,15 +3,15 @@ import { and, asc, desc, eq, ilike, inArray, isNull, or, sql } from 'drizzle-orm
 import { z } from 'zod';
 import {
   ASSET_STATUSES, ASSET_TYPES, CRITICALITIES, DOCUMENT_KINDS, FACILITY_KINDS, MEASURANDS, MEASURAND_DEFS, OPEN_ALARM_STATES,
-  PROCESS_AREA_KINDS, freshness,
+  PROCESS_AREA_KINDS, freshness, type Permission,
 } from '@hydris/domain';
 import type { Ctx } from '../context.js';
 import { authenticate, tenant } from '../context.js';
 import {
-  alarmEvents, alarmRules, assets, attachments, documents, facilities, gateways, inspections, maintenanceTasks, processAreas, sensors, sites,
+  alarmEvents, alarmRules, assets, attachments, auditEvents, documents, facilities, gateways, inspectionTemplates, inspections, maintenanceTasks, processAreas, sensors, sites, users,
 } from '../db/schema.js';
 import { badRequest, conflict, notFound } from '../core/errors.js';
-import { requirePerm, requireSite, siteScope } from '../core/principal.js';
+import { has, requirePerm, requireSite, siteScope } from '../core/principal.js';
 import { randomToken, sha256 } from '../core/crypto.js';
 import { audit } from '../core/services.js';
 import type { Tx } from '../db/client.js';
@@ -223,8 +223,14 @@ export async function plantRoutes(app: FastifyInstance, ctx: Ctx) {
     const onlyStatusOrNotes = Object.keys(body).every((k) => k === 'status' || k === 'notes');
     requirePerm(p, onlyStatusOrNotes ? 'inspection.execute' : 'asset.manage');
     const { archived, ...rest } = body;
-    const [a] = await tx.update(assets).set({ ...rest, archivedAt: archived === undefined ? undefined : archived ? new Date() : null, updatedAt: new Date() }).where(eq(assets.id, cur.id)).returning();
-    await audit(tx, p, { orgId: p.orgId, action: 'asset.updated', entityType: 'asset', entityId: id, summary: a!.tag, metadata: body });
+    if (rest.processAreaId) {
+      const [area] = await tx.select({ id: processAreas.id }).from(processAreas).where(and(eq(processAreas.id, rest.processAreaId), eq(processAreas.facilityId, cur.facilityId)));
+      if (!area) throw badRequest('validation_failed', 'Process area does not belong to this asset\'s facility', [{ path: 'processAreaId', message: 'Choose a process area in the same facility' }]);
+    }
+    const [a] = await tx.update(assets).set({ ...rest, archivedAt: archived === undefined ? undefined : archived ? new Date() : null, updatedAt: new Date() }).where(eq(assets.id, cur.id)).returning()
+      .catch(dupe('tag_taken', 'An asset with that tag already exists'));
+    const action = archived === true && !cur.archivedAt ? 'asset.archived' : archived === false && cur.archivedAt ? 'asset.restored' : 'asset.updated';
+    await audit(tx, p, { orgId: p.orgId, action, entityType: 'asset', entityId: id, summary: a!.tag, metadata: { changes: changes(cur, rest) } });
     ctx.bus.publish({ type: 'asset.updated', orgId: p.orgId, siteId: a!.siteId, permission: 'asset.read', payload: { id, status: a!.status } });
     return { asset: a };
   }));
@@ -250,14 +256,14 @@ export async function plantRoutes(app: FastifyInstance, ctx: Ctx) {
   });
 
   app.get('/sensors', auth, async (req) => tenant(ctx, req, async (tx, p) => {
-    const q = z.object({ siteId: z.uuid().optional(), assetId: z.uuid().optional(), measurand: z.enum(MEASURANDS).optional(), q: z.string().max(80).optional() }).parse(req.query);
+    const q = z.object({ siteId: z.uuid().optional(), assetId: z.uuid().optional(), measurand: z.enum(MEASURANDS).optional(), q: z.string().max(80).optional(), archived: z.enum(['true', 'false', 'only']).default('false') }).parse(req.query);
     const now = new Date();
     const rows = await tx.select({
       sensor: sensors, assetTag: assets.tag, assetName: assets.name,
       openAlarms: sql<number>`(select count(*)::int from alarm_events e where e.sensor_id = ${sensors.id} and e.state in ('active','acknowledged','investigating'))`,
       rules: sql<number>`(select count(*)::int from alarm_rules r where r.sensor_id = ${sensors.id} and r.enabled)`,
     }).from(sensors).leftJoin(assets, eq(assets.id, sensors.assetId))
-      .where(and(siteScope(p, sensors.siteId), isNull(sensors.archivedAt), q.siteId ? eq(sensors.siteId, q.siteId) : undefined, q.assetId ? eq(sensors.assetId, q.assetId) : undefined,
+      .where(and(siteScope(p, sensors.siteId), q.archived === 'true' ? undefined : q.archived === 'only' ? sql`${sensors.archivedAt} is not null` : isNull(sensors.archivedAt), q.siteId ? eq(sensors.siteId, q.siteId) : undefined, q.assetId ? eq(sensors.assetId, q.assetId) : undefined,
         q.measurand ? eq(sensors.measurand, q.measurand) : undefined, q.q ? or(ilike(sensors.tag, `%${q.q}%`), ilike(sensors.name, `%${q.q}%`)) : undefined))
       .orderBy(asc(sensors.tag));
     return { sensors: rows.map((r) => ({ ...r.sensor, assetTag: r.assetTag, assetName: r.assetName, openAlarms: r.openAlarms, rules: r.rules, freshness: freshness(r.sensor.lastTs, r.sensor.expectedIntervalS, now) })) };
@@ -276,14 +282,45 @@ export async function plantRoutes(app: FastifyInstance, ctx: Ctx) {
     return reply.code(201).send({ sensor: s });
   }));
 
+  /** Single sensor including archived ones, with its asset and the site's gateways it may be bound to. */
+  app.get('/sensors/:id', auth, async (req) => tenant(ctx, req, async (tx, p) => {
+    requirePerm(p, 'telemetry.read');
+    const { id } = idParam.parse(req.params);
+    const s = await scopedRow(tx, sensors, id, p, 'Sensor');
+    const [asset] = s.assetId ? await tx.select({ id: assets.id, tag: assets.tag, name: assets.name }).from(assets).where(eq(assets.id, s.assetId)) : [];
+    const gws = await tx.select({ id: gateways.id, name: gateways.name, status: gateways.status, protocol: gateways.protocol }).from(gateways).where(eq(gateways.siteId, s.siteId)).orderBy(asc(gateways.name));
+    const [counts] = await tx.select({
+      rules: sql<number>`(select count(*)::int from alarm_rules r where r.sensor_id = ${id})`,
+      readings: sql<number>`(select count(*)::int from telemetry_readings t where t.sensor_id = ${id})`,
+      corrections: sql<number>`(select count(*)::int from telemetry_corrections c where c.sensor_id = ${id})`,
+    }).from(sql`(select 1) x`);
+    return {
+      sensor: { ...s, freshness: freshness(s.lastTs, s.expectedIntervalS), label: MEASURAND_DEFS[s.measurand].label, decimals: MEASURAND_DEFS[s.measurand].decimals },
+      asset: asset ?? null, gateway: gws.find((g) => g.id === s.gatewayId) ?? null, gateways: gws.filter((g) => g.status === 'active' || g.id === s.gatewayId), counts,
+    };
+  }));
+
   app.patch('/sensors/:id', auth, async (req) => tenant(ctx, req, async (tx, p) => {
     requirePerm(p, 'sensor.manage');
     const { id } = idParam.parse(req.params);
-    await scopedRow(tx, sensors, id, p, 'Sensor');
+    const cur = await scopedRow(tx, sensors, id, p, 'Sensor');
     const body = sensorBody.omit({ assetId: true, measurand: true }).partial().extend({ archived: z.boolean().optional() }).parse(req.body);
     const { archived, ...rest } = body;
-    const [s] = await tx.update(sensors).set({ ...rest, archivedAt: archived === undefined ? undefined : archived ? new Date() : null, updatedAt: new Date() }).where(eq(sensors.id, id)).returning();
-    await audit(tx, p, { orgId: p.orgId, action: 'sensor.updated', entityType: 'sensor', entityId: id, metadata: body });
+    if (rest.gatewayId) {
+      const [g] = await tx.select().from(gateways).where(eq(gateways.id, rest.gatewayId));
+      if (!g || g.siteId !== cur.siteId) throw badRequest('validation_failed', 'Gateway must be on the same site as the sensor', [{ path: 'gatewayId', message: 'Choose a gateway on this site' }]);
+      if (g.status !== 'active' && g.id !== cur.gatewayId) throw badRequest('validation_failed', 'That gateway is revoked', [{ path: 'gatewayId', message: 'Gateway is revoked' }]);
+    }
+    if (rest.sourceRef) {
+      const [clash] = await tx.select({ id: sensors.id }).from(sensors)
+        .where(and(eq(sensors.siteId, cur.siteId), or(eq(sensors.sourceRef, rest.sourceRef), eq(sensors.tag, rest.sourceRef)), sql`${sensors.id} <> ${id}`));
+      if (clash) throw conflict('source_ref_taken', 'Another sensor on this site already uses that gateway reference', [{ path: 'sourceRef', message: 'Already used on this site' }]);
+    }
+    const [s] = await tx.update(sensors).set({ ...rest, archivedAt: archived === undefined ? undefined : archived ? new Date() : null, updatedAt: new Date() }).where(eq(sensors.id, id)).returning()
+      .catch(dupe('tag_taken', 'A sensor with that tag already exists'));
+    const action = archived === true && !cur.archivedAt ? 'sensor.archived' : archived === false && cur.archivedAt ? 'sensor.restored' : 'sensor.updated';
+    await audit(tx, p, { orgId: p.orgId, action, entityType: 'sensor', entityId: id, summary: s!.tag, metadata: { changes: changes(cur, rest) } });
+    ctx.bus.publish({ type: 'sensor.updated', orgId: p.orgId, siteId: s!.siteId, permission: 'telemetry.read', payload: { id } });
     return { sensor: s };
   }));
 
@@ -342,6 +379,7 @@ export async function plantRoutes(app: FastifyInstance, ctx: Ctx) {
     requirePerm(p, 'document.manage');
     const body = docBody.parse(req.body);
     if (body.siteId) requireSite(p, body.siteId, 'Site');
+    if (body.assetId) await scopedRow(tx, assets, body.assetId, p, 'Asset');
     const [d] = await tx.insert(documents).values({ ...body, orgId: p.orgId, createdBy: p.userId }).returning();
     await audit(tx, p, { orgId: p.orgId, action: 'document.created', entityType: 'document', entityId: d!.id, summary: d!.title });
     return reply.code(201).send({ document: d });
@@ -352,7 +390,14 @@ export async function plantRoutes(app: FastifyInstance, ctx: Ctx) {
     const { id } = idParam.parse(req.params);
     const body = docBody.partial().extend({ status: z.enum(['draft', 'approved', 'archived']).optional() }).parse(req.body);
     const [cur] = await tx.select().from(documents).where(eq(documents.id, id));
-    if (!cur) throw notFound('Document');
+    if (!cur || (cur.siteId && !p.allSites && !p.siteIds.includes(cur.siteId))) throw notFound('Document');
+    if (body.siteId) requireSite(p, body.siteId, 'Site');
+    if (body.siteId === null && !p.allSites) throw badRequest('forbidden_scope', 'Only organization-wide managers can make a document organization-wide');
+    if (body.assetId) {
+      const a = await scopedRow(tx, assets, body.assetId, p, 'Asset');
+      const site = body.siteId === undefined ? cur.siteId : body.siteId;
+      if (site && a.siteId !== site) throw badRequest('validation_failed', 'Asset is on a different site', [{ path: 'assetId', message: 'Asset is on a different site' }]);
+    }
     const contentChanged = body.body !== undefined && body.body !== cur.body;
     const [d] = await tx.update(documents).set({
       ...body,
@@ -361,7 +406,13 @@ export async function plantRoutes(app: FastifyInstance, ctx: Ctx) {
       status: contentChanged && cur.status === 'approved' && body.status !== 'approved' ? 'draft' : body.status,
       approvedBy: body.status === 'approved' ? p.userId : undefined, approvedAt: body.status === 'approved' ? new Date() : undefined, updatedAt: new Date(),
     }).where(eq(documents.id, id)).returning();
-    await audit(tx, p, { orgId: p.orgId, action: body.status === 'approved' ? 'document.approved' : 'document.updated', entityType: 'document', entityId: id, summary: d!.title });
+    const { body: _content, ...meta } = body;
+    void _content;
+    await audit(tx, p, {
+      orgId: p.orgId,
+      action: body.status === 'approved' ? 'document.approved' : body.status === 'archived' ? 'document.archived' : body.status === 'draft' && cur.status === 'archived' ? 'document.restored' : 'document.updated',
+      entityType: 'document', entityId: id, summary: `${d!.title} v${d!.version}`, metadata: { changes: changes(cur, meta), contentChanged, version: d!.version },
+    });
     return { document: d };
   }));
 
@@ -403,6 +454,38 @@ export async function plantRoutes(app: FastifyInstance, ctx: Ctx) {
     return reply.header('content-type', a.mime).header('content-disposition', `inline; filename="${a.filename}"`).header('x-content-type-options', 'nosniff').send(data);
   });
 
+  // ---------------- Entity change history (audit trail per record) ----------------
+  type Locate = (tx: Tx, id: string) => Promise<{ found: boolean; siteId: string | null }>;
+  const HISTORY: Record<string, { perm: Permission; locate: Locate }> = {
+    asset: { perm: 'asset.read', locate: async (tx, id) => one(await tx.select({ siteId: assets.siteId }).from(assets).where(eq(assets.id, id))) },
+    sensor: { perm: 'telemetry.read', locate: async (tx, id) => one(await tx.select({ siteId: sensors.siteId }).from(sensors).where(eq(sensors.id, id))) },
+    alarm_rule: { perm: 'alarm.read', locate: async (tx, id) => one(await tx.select({ siteId: alarmRules.siteId }).from(alarmRules).where(eq(alarmRules.id, id))) },
+    maintenance: { perm: 'maintenance.read', locate: async (tx, id) => one(await tx.select({ siteId: maintenanceTasks.siteId }).from(maintenanceTasks).where(eq(maintenanceTasks.id, id))) },
+    document: { perm: 'document.read', locate: async (tx, id) => one(await tx.select({ siteId: documents.siteId }).from(documents).where(eq(documents.id, id))) },
+    inspection_template: { perm: 'inspection.read', locate: async (tx, id) => one((await tx.select({ id: inspectionTemplates.id }).from(inspectionTemplates).where(eq(inspectionTemplates.id, id))).map(() => ({ siteId: null }))) },
+  };
+  app.get('/history/:entityType/:entityId', auth, async (req) => tenant(ctx, req, async (tx, p) => {
+    const { entityType, entityId } = z.object({ entityType: z.enum(Object.keys(HISTORY) as [string, ...string[]]), entityId: z.uuid() }).parse(req.params);
+    const q = z.object({ limit: z.coerce.number().int().min(1).max(500).default(100) }).parse(req.query);
+    const def = HISTORY[entityType]!;
+    requirePerm(p, def.perm);
+    const ent = await def.locate(tx, entityId);
+    // RLS already limits rows to this tenant; site scope is enforced here (404 so existence is not disclosed).
+    if (!ent.found || (ent.siteId && !p.allSites && !p.siteIds.includes(ent.siteId))) throw notFound('Record');
+    if (entityType === 'document' && !has(p, 'document.manage')) {
+      const [d] = await tx.select({ status: documents.status }).from(documents).where(eq(documents.id, entityId));
+      if (d?.status !== 'approved') throw notFound('Record');
+    }
+    const evs = await tx.select({ e: auditEvents, actorName: users.name }).from(auditEvents).leftJoin(users, eq(users.id, auditEvents.actorUserId))
+      .where(and(eq(auditEvents.entityType, entityType), eq(auditEvents.entityId, entityId))).orderBy(desc(auditEvents.at)).limit(q.limit);
+    return {
+      events: evs.map(({ e, actorName }) => ({
+        id: e.id, action: e.action, summary: e.summary, metadata: e.metadata, at: e.at,
+        actor: e.actorUserId ? { id: e.actorUserId, name: actorName } : e.actorDeviceId ? { id: e.actorDeviceId, name: e.actorLabel ?? 'Device' } : { id: null, name: e.actorLabel ?? 'System' },
+      })),
+    };
+  }));
+
   // ---------------- Hierarchy tree (site navigator) ----------------
   app.get('/hierarchy', auth, async (req) => tenant(ctx, req, async (tx, p) => {
     const siteRows = await tx.select({ id: sites.id, name: sites.name, code: sites.code }).from(sites).where(and(siteScope(p, sites.id), isNull(sites.archivedAt)));
@@ -433,10 +516,23 @@ export async function plantRoutes(app: FastifyInstance, ctx: Ctx) {
   }));
 
   void OPEN_ALARM_STATES;
-  void alarmRules;
 }
 
 // ---------------- helpers ----------------
+const one = (r: { siteId: string | null }[]) => (r[0] ? { found: true, siteId: r[0].siteId } : { found: false, siteId: null });
+
+/** Field-level before/after for audit metadata (only fields that actually changed). */
+export function changes(cur: object, next: object): Record<string, { from: unknown; to: unknown }> {
+  const out: Record<string, { from: unknown; to: unknown }> = {};
+  const c = cur as Record<string, unknown>;
+  for (const [k, v] of Object.entries(next)) {
+    if (v === undefined) continue;
+    const before = c[k] instanceof Date ? (c[k] as Date).toISOString() : c[k];
+    const after = v instanceof Date ? v.toISOString() : v;
+    if (JSON.stringify(before ?? null) !== JSON.stringify(after ?? null)) out[k] = { from: before ?? null, to: after ?? null };
+  }
+  return out;
+}
 type ScopedTable = typeof facilities | typeof processAreas | typeof assets | typeof sensors | typeof gateways;
 
 export async function scopedRow<T extends ScopedTable>(tx: Tx, table: T, id: string, p: { allSites: boolean; siteIds: string[] }, what: string): Promise<T['$inferSelect']> {

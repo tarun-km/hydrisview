@@ -13,7 +13,7 @@ import { withSystem } from '../db/tenant.js';
 import { badRequest, conflict, notFound } from '../core/errors.js';
 import { has, requirePerm, requireSite, siteScope, type Principal } from '../core/principal.js';
 import { audit, notify } from '../core/services.js';
-import { scopedRow } from './plant.js';
+import { changes as diffFields, scopedRow } from './plant.js';
 
 type SensorRow = typeof sensors.$inferSelect;
 
@@ -237,6 +237,7 @@ export async function alarmRoutes(app: FastifyInstance, ctx: Ctx) {
     const sensor = await scopedRow(tx, sensors, body.sensorId, p, 'Sensor');
     const [r] = await tx.insert(alarmRules).values({ ...body, orgId: p.orgId, siteId: sensor.siteId, createdBy: p.userId }).returning();
     await audit(tx, p, { orgId: p.orgId, action: 'alarm_rule.created', entityType: 'alarm_rule', entityId: r!.id, summary: `${sensor.tag} ${body.condition} ${body.threshold ?? ''}` });
+    await audit(tx, p, { orgId: p.orgId, action: 'sensor.threshold_added', entityType: 'sensor', entityId: sensor.id, summary: `${r!.name}: ${body.condition} ${body.threshold ?? ''}`, metadata: { ruleId: r!.id } });
     return reply.code(201).send({ rule: r });
   }));
 
@@ -247,8 +248,24 @@ export async function alarmRoutes(app: FastifyInstance, ctx: Ctx) {
     const [cur] = await tx.select().from(alarmRules).where(eq(alarmRules.id, id));
     if (!cur) throw notFound('Rule');
     requireSite(p, cur.siteId, 'Rule');
+    const condition = body.condition ?? cur.condition;
+    const threshold = body.threshold === undefined ? cur.threshold : body.threshold;
+    if (condition !== 'stale' && (threshold === null || threshold === undefined)) {
+      throw badRequest('validation_failed', 'Threshold rules need a threshold value', [{ path: 'threshold', message: 'Enter a threshold' }]);
+    }
+    if (body.procedureDocumentId) {
+      const [d] = await tx.select({ id: documents.id }).from(documents).where(eq(documents.id, body.procedureDocumentId));
+      if (!d) throw badRequest('validation_failed', 'Procedure document not found', [{ path: 'procedureDocumentId', message: 'Document not found' }]);
+    }
     const [r] = await tx.update(alarmRules).set({ ...body, breachSince: null, updatedAt: new Date() }).where(eq(alarmRules.id, id)).returning();
-    await audit(tx, p, { orgId: p.orgId, action: 'alarm_rule.updated', entityType: 'alarm_rule', entityId: id, metadata: { before: { threshold: cur.threshold, severity: cur.severity, enabled: cur.enabled }, after: body } });
+    const diff = diffFields(cur, body);
+    await audit(tx, p, {
+      orgId: p.orgId, action: body.enabled === false && cur.enabled ? 'alarm_rule.disabled' : body.enabled === true && !cur.enabled ? 'alarm_rule.enabled' : 'alarm_rule.updated',
+      entityType: 'alarm_rule', entityId: id, summary: r!.name,
+      metadata: { before: { threshold: cur.threshold, severity: cur.severity, enabled: cur.enabled }, after: body, changes: diff },
+    });
+    // The sensor's own history shows threshold changes too.
+    await audit(tx, p, { orgId: p.orgId, action: 'sensor.threshold_changed', entityType: 'sensor', entityId: cur.sensorId, summary: `${r!.name}: ${Object.keys(diff).join(', ') || 'no change'}`, metadata: { ruleId: id, changes: diff } });
     return { rule: r };
   }));
 

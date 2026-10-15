@@ -12,7 +12,7 @@ import type { Tx } from '../db/client.js';
 import { badRequest, conflict, forbidden, notFound } from '../core/errors.js';
 import { has, requirePerm, requireSite, siteScope, type Principal } from '../core/principal.js';
 import { audit, notify } from '../core/services.js';
-import { scopedRow } from './plant.js';
+import { changes as diffFields, scopedRow } from './plant.js';
 
 const stepSchema = z.object({
   id: z.string().min(1).max(40), kind: z.enum(STEP_KINDS), title: z.string().trim().min(2).max(200), instruction: z.string().max(1000).optional(),
@@ -119,8 +119,40 @@ export async function inspectionModule(app: FastifyInstance, ctx: Ctx) {
     const [cur] = await tx.select().from(inspectionTemplates).where(eq(inspectionTemplates.id, id));
     if (!cur) throw notFound('Template');
     // Existing inspections keep their step snapshot; the template version is bumped for traceability.
-    const [t] = await tx.update(inspectionTemplates).set({ ...body, version: cur.version + 1, updatedAt: new Date() }).where(eq(inspectionTemplates.id, id)).returning();
-    await audit(tx, p, { orgId: p.orgId, action: 'inspection_template.updated', entityType: 'inspection_template', entityId: id, summary: `${t!.name} v${t!.version}` });
+    if (cur.status === 'archived' && body.status !== 'draft' && body.status !== 'published') throw conflict('archived', 'Restore this template before editing it');
+    const contentChanged = JSON.stringify(cur.steps) !== JSON.stringify(body.steps) || JSON.stringify(cur.safetyNotices) !== JSON.stringify(body.safetyNotices);
+    const [t] = await tx.update(inspectionTemplates).set({ ...body, version: contentChanged ? cur.version + 1 : cur.version, updatedAt: new Date() }).where(eq(inspectionTemplates.id, id)).returning();
+    const { steps: _s, safetyNotices: _n, ...meta } = body;
+    void _s; void _n;
+    await audit(tx, p, {
+      orgId: p.orgId, action: 'inspection_template.updated', entityType: 'inspection_template', entityId: id, summary: `${t!.name} v${t!.version}`,
+      metadata: { changes: diffFields(cur, meta), stepsChanged: contentChanged, stepCount: { from: cur.steps.length, to: body.steps.length }, version: t!.version },
+    });
+    return { template: t };
+  }));
+
+  app.get('/inspection-templates/:id', auth, async (req) => tenant(ctx, req, async (tx, p) => {
+    requirePerm(p, 'inspection.read');
+    const { id } = idParam.parse(req.params);
+    const [t] = await tx.select().from(inspectionTemplates).where(eq(inspectionTemplates.id, id));
+    if (!t) throw notFound('Template');
+    const [usage] = await tx.select({
+      total: sql<number>`count(*)::int`, open: sql<number>`count(*) filter (where ${inspections.status} in ('scheduled','in_progress','paused','submitted'))::int`,
+    }).from(inspections).where(eq(inspections.templateId, id));
+    return { template: t, usage: { total: Number(usage?.total ?? 0), open: Number(usage?.open ?? 0) } };
+  }));
+
+  /** Publish, unpublish (draft), archive or restore a template without bumping its content version. */
+  app.post('/inspection-templates/:id/status', auth, async (req) => tenant(ctx, req, async (tx, p) => {
+    requirePerm(p, 'inspection.manage');
+    const { id } = idParam.parse(req.params);
+    const { status } = z.object({ status: z.enum(['draft', 'published', 'archived']) }).parse(req.body);
+    const [cur] = await tx.select().from(inspectionTemplates).where(eq(inspectionTemplates.id, id));
+    if (!cur) throw notFound('Template');
+    if (cur.status === status) throw conflict('no_change', `Template is already ${status}`);
+    const [t] = await tx.update(inspectionTemplates).set({ status, updatedAt: new Date() }).where(eq(inspectionTemplates.id, id)).returning();
+    const action = status === 'published' ? 'inspection_template.published' : status === 'archived' ? 'inspection_template.archived' : cur.status === 'archived' ? 'inspection_template.restored' : 'inspection_template.unpublished';
+    await audit(tx, p, { orgId: p.orgId, action, entityType: 'inspection_template', entityId: id, summary: `${t!.name} v${t!.version}`, metadata: { changes: { status: { from: cur.status, to: status } } } });
     return { template: t };
   }));
 

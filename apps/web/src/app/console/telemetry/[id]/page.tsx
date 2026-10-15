@@ -3,7 +3,14 @@
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import { ClipboardPen, Download, FlaskConical, Info } from 'lucide-react';
+import { Archive, ArchiveRestore, ClipboardPen, Download, FlaskConical, Info, Pencil } from 'lucide-react';
+import { useQueryClient } from '@tanstack/react-query';
+import { patch } from '@/lib/api';
+import { invalidatePaths } from '@/lib/query';
+import { ConfirmDialog } from '@/ui/overlay';
+import { ReadingsCard } from '@/console/alarms-telemetry/ReadingsCard';
+import { SensorEditDialog, type SensorDetail } from '@/console/alarms-telemetry/SensorEditDialog';
+import { HistoryCard } from '@/console/history';
 import { CONDITION_LABELS, MEASURAND_DEFS } from '@hydris/domain';
 import { download, errorMessage } from '@/lib/api';
 import { useApi } from '@/lib/query';
@@ -37,6 +44,10 @@ export default function SensorDetailPage() {
 
   const hist = useApi<HistoryResponse>(`/telemetry/sensors/${id}/history?from=${encodeURIComponent(from)}`, { placeholderData: (prev) => prev });
   const list = useApi<{ sensors: SensorRow[] }>('/sensors');
+  const detailQ = useApi<SensorDetail>(`/sensors/${id}`);
+  const qc = useQueryClient();
+  const [editOpen, setEditOpen] = useState(false);
+  const [archiveOpen, setArchiveOpen] = useState(false);
   const canAlarms = can('alarm.read');
   const rulesQ = useApi<{ rules: AlarmRule[] }>(canAlarms ? `/alarm-rules?sensorId=${id}` : null, { retry: false });
   const openQ = useApi<{ alarms: AlarmListRow[] }>(canAlarms ? '/alarms?state=open&limit=500' : null);
@@ -60,7 +71,12 @@ export default function SensorDetailPage() {
   }
 
   const s = data.sensor;
-  const meta = list.data?.sensors.find((x) => x.id === id);
+  const listed = list.data?.sensors.find((x) => x.id === id);
+  const detail = detailQ.data && detailQ.data.sensor.id === id ? detailQ.data : undefined;
+  const meta = listed ?? (detail?.asset ? { assetId: detail.asset.id, assetTag: detail.asset.tag, assetName: detail.asset.name } : undefined);
+  const archived = !!detail?.sensor.archivedAt;
+  const canManage = can('sensor.manage');
+  const corr = (data as { corrections?: { corrected: number; invalidated: number } }).corrections;
   const def = MEASURAND_DEFS[s.measurand];
   const rules = rulesQ.data?.rules ?? [];
   const thresholds = rules.filter((r) => r.enabled && r.condition !== 'stale' && r.threshold !== null)
@@ -89,6 +105,8 @@ export default function SensorDetailPage() {
           {entrySource && <Button variant="primary" icon={entrySource === 'lab' ? <FlaskConical size={16} aria-hidden /> : <ClipboardPen size={16} aria-hidden />} onClick={() => setEntryOpen(true)}>
             {entrySource === 'lab' ? 'Record lab result' : 'Record reading'}</Button>}
           {can('report.export') && <Button icon={<Download size={16} aria-hidden />} busy={exporting} onClick={() => void exportCsv()}>Export CSV</Button>}
+          {canManage && detail && !archived && <Button icon={<Pencil size={16} aria-hidden />} onClick={() => setEditOpen(true)}>Edit</Button>}
+          {canManage && detail && <Button variant="ghost" icon={archived ? <ArchiveRestore size={16} aria-hidden /> : <Archive size={16} aria-hidden />} onClick={() => setArchiveOpen(true)}>{archived ? 'Restore' : 'Archive'}</Button>}
         </>}>
         <div className="mt-3 flex flex-wrap items-center gap-2 text-sm text-text-2">
           <span>{s.label}</span>
@@ -96,6 +114,8 @@ export default function SensorDetailPage() {
           <MethodChip method={s.method} />
           {s.lastSource === 'simulator' && <SyntheticBadge />}
           {!s.enabled && <Chip tone="outline">Disabled</Chip>}
+          {archived && <StateChip state="archived" />}
+          {detail?.gateway && <Chip tone="outline" title="Bound edge gateway">Gateway · {detail.gateway.name}</Chip>}
         </div>
       </PageHeader>
 
@@ -143,6 +163,7 @@ export default function SensorDetailPage() {
                   <span className="num">{fmtDateTime(data.from)} – {fmtDateTime(data.to)}</span>
                   {thresholds.length > 0 && <span>Dashed lines: enabled alarm limits</span>}
                   {s.typicalRange && <span>Dotted green: typical operating band</span>}
+                  {corr && corr.corrected + corr.invalidated > 0 && <span>Uses corrected values{corr.invalidated ? ` · ${corr.invalidated} invalidated reading${corr.invalidated === 1 ? '' : 's'} excluded` : ''}</span>}
                 </p>
                 {isLabLike && <p className="mt-2 flex items-start gap-2 text-xs text-muted"><Info size={14} strokeWidth={1.8} className="mt-0.5 flex-none" aria-hidden />Each point is an individual {s.method === 'lab' ? 'lab result' : 'manual reading'}; the line between points is not a measurement.</p>}
               </>
@@ -151,6 +172,8 @@ export default function SensorDetailPage() {
             )}
           </div>
         </Card>
+
+        <ReadingsCard sensor={{ id: s.id, tag: s.tag, unit: s.unit, decimals: s.decimals, measurand: s.measurand }} canCorrect={canManage} />
 
         {canAlarms && !rulesForbidden && (
           <div className="grid gap-4 lg:grid-cols-[1.4fr_1fr]">
@@ -178,6 +201,14 @@ export default function SensorDetailPage() {
         )}
       </div>
 
+      <div className="mt-4"><HistoryCard entityType="sensor" entityId={id} version={`${detail?.sensor.updatedAt ?? ''}|${s.lastTs ?? ''}|${rules.map((r) => `${r.threshold}${r.enabled}`).join()}`} /></div>
+      {detail && canManage && <SensorEditDialog open={editOpen} onOpenChange={setEditOpen} detail={detail} />}
+      {detail && canManage && (
+        <ConfirmDialog open={archiveOpen} onOpenChange={setArchiveOpen} title={archived ? `Restore ${s.tag}?` : `Archive ${s.tag}?`} destructive={!archived}
+          confirmLabel={archived ? 'Restore sensor' : 'Archive sensor'}
+          body={archived ? 'The sensor returns to lists and accepts new readings again (if enabled).' : 'The sensor is hidden from lists and new readings are rejected. Its readings, corrections and alarm history are kept.'}
+          onConfirm={async () => { await patch(`/sensors/${id}`, { archived: !archived }); invalidatePaths(qc, ['/sensors', '/telemetry', '/assets', '/hierarchy', '/history', '/overview']); }} />
+      )}
       {entrySource && entryOpen && <ManualEntryDialog open onOpenChange={setEntryOpen} source={entrySource} sensor={{ id: s.id, tag: s.tag, name: s.name, measurand: s.measurand, unit: s.unit }} />}
     </div>
   );

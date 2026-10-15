@@ -2,7 +2,12 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { ClipboardList, Clock, Eye, Glasses, LayoutList, Monitor, Pencil, Plus, Search } from 'lucide-react';
+import { Archive, ArchiveRestore, ClipboardList, Clock, Eye, Glasses, History, LayoutList, Monitor, Pencil, Plus, Search, Send, Undo2 } from 'lucide-react';
+import { useQueryClient } from '@tanstack/react-query';
+import { post } from '@/lib/api';
+import { invalidatePaths } from '@/lib/query';
+import { ConfirmDialog, Dialog } from '@/ui/overlay';
+import { HistoryCard } from '@/console/history';
 import { ASSET_TYPE_LABELS, INSPECTION_EDITABLE, INSPECTION_STATUS_LABELS } from '@hydris/domain';
 import { useApi } from '@/lib/query';
 import { useCan } from '@/lib/session';
@@ -206,6 +211,9 @@ function TemplateLibrary({ manage }: { manage: boolean }) {
   const [preview, setPreview] = useState<Template | null>(null);
   const [issueFrom, setIssueFrom] = useState<string | null>(null);
   const [status, setStatus] = useState<'published' | 'draft' | 'archived' | 'all'>('published');
+  const [statusChange, setStatusChange] = useState<{ t: Template; to: 'draft' | 'published' | 'archived' } | null>(null);
+  const [historyOf, setHistoryOf] = useState<Template | null>(null);
+  const qc = useQueryClient();
 
   const list = (q.data?.templates ?? []).filter((t) => status === 'all' || t.status === status);
 
@@ -240,6 +248,15 @@ function TemplateLibrary({ manage }: { manage: boolean }) {
                   {manage && <Button size="sm" icon={<Pencil size={15} />} onClick={() => { setEditing(t); setBuilderOpen(true); }}>Edit</Button>}
                   {manage && t.status === 'published' && <Button size="sm" variant="primary" className="ml-auto" onClick={() => setIssueFrom(t.id)}>Issue</Button>}
                 </div>
+                {manage && (
+                  <div className="flex flex-wrap gap-2 border-t border-line pt-3">
+                    {t.status === 'draft' && <Button size="sm" variant="ghost" icon={<Send size={14} />} onClick={() => setStatusChange({ t, to: 'published' })}>Publish</Button>}
+                    {t.status === 'published' && <Button size="sm" variant="ghost" icon={<Undo2 size={14} />} onClick={() => setStatusChange({ t, to: 'draft' })}>Unpublish</Button>}
+                    {t.status !== 'archived' && <Button size="sm" variant="ghost" icon={<Archive size={14} />} onClick={() => setStatusChange({ t, to: 'archived' })}>Archive</Button>}
+                    {t.status === 'archived' && <Button size="sm" variant="ghost" icon={<ArchiveRestore size={14} />} onClick={() => setStatusChange({ t, to: 'draft' })}>Restore as draft</Button>}
+                    <Button size="sm" variant="ghost" className="ml-auto" icon={<History size={14} />} onClick={() => setHistoryOf(t)}>History</Button>
+                  </div>
+                )}
               </article>
             ))}
           </div>
@@ -250,6 +267,20 @@ function TemplateLibrary({ manage }: { manage: boolean }) {
         )}
       </QueryView>
       {manage && <TemplateBuilder open={builderOpen} onOpenChange={setBuilderOpen} template={editing} />}
+      {statusChange && (
+        <ConfirmDialog open onOpenChange={(v) => { if (!v) setStatusChange(null); }} destructive={statusChange.to === 'archived'}
+          title={statusChange.to === 'published' ? `Publish ${statusChange.t.name}?` : statusChange.to === 'archived' ? `Archive ${statusChange.t.name}?` : statusChange.t.status === 'archived' ? `Restore ${statusChange.t.name}?` : `Unpublish ${statusChange.t.name}?`}
+          confirmLabel={statusChange.to === 'published' ? 'Publish' : statusChange.to === 'archived' ? 'Archive' : statusChange.t.status === 'archived' ? 'Restore' : 'Unpublish'}
+          body={statusChange.to === 'published' ? 'Supervisors can issue inspections from it and rounds dispatched from the map will use it for matching assets.'
+            : statusChange.to === 'archived' ? 'It can no longer be issued. Inspections already created keep their own copy of the steps and are not affected.'
+              : 'It returns as a draft and cannot be issued until published again. Existing inspections are not affected.'}
+          onConfirm={async () => { await post(`/inspection-templates/${statusChange.t.id}/status`, { status: statusChange.to }); invalidatePaths(qc, ['/inspection-templates', '/history']); }} />
+      )}
+      {historyOf && (
+        <Dialog open onOpenChange={(v) => { if (!v) setHistoryOf(null); }} title={`${historyOf.name} · history`} description={`Version ${historyOf.version}. Changes to steps bump the version; status changes do not.`} side>
+          <HistoryCard entityType="inspection_template" entityId={historyOf.id} version={historyOf.updatedAt} initial={20} />
+        </Dialog>
+      )}
       <TemplatePreviewDialog template={preview} onOpenChange={(v) => { if (!v) setPreview(null); }} />
       {manage && <NewInspectionDialog open={!!issueFrom} onOpenChange={(v) => { if (!v) setIssueFrom(null); }} presetTemplateId={issueFrom ?? undefined} />}
     </section>

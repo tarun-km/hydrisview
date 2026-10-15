@@ -1,26 +1,55 @@
 'use client';
 
 import QRCode from 'qrcode';
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
-  AlertTriangle, Bell, Layers, LocateFixed, Map as MapIcon, BookOpen, Sparkles, Check, ChevronRight, CircleDot, ClipboardCheck, Cog, Glasses, Info, RefreshCw, ShieldAlert, Signal, SignalZero, Wifi, WifiOff, Wrench, X,
+  AlertTriangle, Ban, Bell, Boxes, FileText, Gauge, Library, Minus, TrendingDown, TrendingUp, Layers, LocateFixed, Map as MapIcon, BookOpen, Sparkles, Check, ChevronRight, CircleDot, ClipboardCheck, Cog, Glasses, Info, RefreshCw, ShieldAlert, Signal, SignalZero, Wifi, WifiOff, Wrench, X,
 } from 'lucide-react';
-import { FRESHNESS_LABELS, inspectionProgress, isScenarioKey, type InspectionStep, type StepValue } from '@hydris/domain';
+import {
+  DEFAULT_UI_PROFILE_CONFIG, FRESHNESS_LABELS, actionAllowed, applyMeasurementProfile, inspectionProgress, isScenarioKey, normalizeUiProfileConfig, screenEnabled,
+  type InspectionStep, type StepValue, type UiAction, type UiProfileConfig, type UiScreen,
+} from '@hydris/domain';
 import { openStream } from '@/lib/realtime';
 import { DeviceError, DeviceLink, type PairingChallenge } from './link';
-import { DemoData, LiveData, type GAlarm, type GAsset, type GAssist, type GContext, type GInspection, type GlassesData, type GNotification } from './data';
+import { DemoData, LiveData, StaleError, cachedContext, type GAlarm, type GAsset, type GAssist, type GContext, type GDoc, type GDocSummary, type GInspection, type GlassesData, type GMeasurement, type GNotification } from './data';
 import { emitToHost, useHudInput, type InputKey } from './input';
 import { PlantMap, routeDistance } from './PlantMap';
 import { HudContext, HudItem, HudMetric, HudPill, HudTitle, SEV_HUD, useFitScale, useHud, type HudControl } from './hud';
 
 type Screen =
   | { name: 'home' } | { name: 'alerts' } | { name: 'alert'; id: string } | { name: 'inspections' } | { name: 'inspection'; id: string }
-  | { name: 'tasks' } | { name: 'task'; id: string } | { name: 'asset'; id: string } | { name: 'assist'; q: string; assetId?: string } | { name: 'status' } | { name: 'notifications' } | { name: 'ai' } | { name: 'map' };
+  | { name: 'tasks' } | { name: 'task'; id: string } | { name: 'asset'; id: string } | { name: 'assist'; q: string; assetId?: string } | { name: 'status' } | { name: 'notifications' } | { name: 'ai' } | { name: 'map' }
+  | { name: 'measurements' } | { name: 'assets' } | { name: 'sops' } | { name: 'sop'; id: string };
 type Phase = 'boot' | 'setup' | 'ready' | 'app' | 'revoked' | 'suspended' | 'unassigned';
 
 const APP_VERSION = '0.2.0';
 
-export function GlassesApp({ demoScenario, simulator }: { demoScenario?: string | null; simulator?: boolean }) {
+/** Effective UI profile config for the current glasses session (server-provided, or the console's draft in preview). */
+const ProfileCtx = createContext<UiProfileConfig>(DEFAULT_UI_PROFILE_CONFIG);
+const useCfg = () => useContext(ProfileCtx);
+const allowed = (cfg: UiProfileConfig, a: UiAction) => actionAllowed(cfg, a);
+const canAssist = (cfg: UiProfileConfig) => actionAllowed(cfg, 'ask_ai') || actionAllowed(cfg, 'view_sops');
+
+/** Which profile screens / actions a viewport screen requires (mirrors the server rules). */
+function screenPermitted(cfg: UiProfileConfig, s: Screen): boolean {
+  const on = (x: UiScreen) => screenEnabled(cfg, x);
+  switch (s.name) {
+    case 'home': case 'status': return true;
+    case 'alerts': case 'alert': return on('alerts');
+    case 'inspections': case 'inspection': return on('inspections');
+    case 'tasks': case 'task': return on('tasks');
+    case 'asset': return on('assets') || on('measurements') || on('inspections') || on('map');
+    case 'assist': return canAssist(cfg);
+    case 'notifications': return on('notifications');
+    case 'ai': return on('ai') && allowed(cfg, 'ask_ai');
+    case 'map': return on('map') && allowed(cfg, 'view_map');
+    case 'measurements': return on('measurements');
+    case 'assets': return on('assets');
+    case 'sops': case 'sop': return on('sops') && allowed(cfg, 'view_sops');
+  }
+}
+
+export function GlassesApp({ demoScenario, simulator, profilePreview }: { demoScenario?: string | null; simulator?: boolean; profilePreview?: boolean }) {
   const demo = demoScenario !== undefined && demoScenario !== null;
   const link = useMemo(() => new DeviceLink(), []);
   const data: GlassesData = useMemo(() => (demo ? new DemoData(isScenarioKey(demoScenario) ? demoScenario : 'normal_operations') : new LiveData(link)), [demo, demoScenario, link]);
@@ -36,6 +65,19 @@ export function GlassesApp({ demoScenario, simulator }: { demoScenario?: string 
   const [stream, setStream] = useState<'live' | 'connecting' | 'offline'>('connecting');
   const scale = useFitScale();
   const screen = stack[stack.length - 1]!;
+  const [previewCfg, setPreviewCfg] = useState<UiProfileConfig | null>(null);
+  const [staleAt, setStaleAt] = useState<string | null>(null);
+  const [lastSync, setLastSync] = useState<string | null>(null);
+  const cfg = useMemo(() => normalizeUiProfileConfig(previewCfg ?? ctx?.profile?.config ?? DEFAULT_UI_PROFILE_CONFIG), [previewCfg, ctx?.profile?.config]);
+  // In-memory trend history per sensor (value samples, newest last) for the live measurements screen.
+  const history = useRef(new Map<string, { ts: string; v: number }[]>());
+  useEffect(() => {
+    for (const m of ctx?.measurements ?? []) {
+      if (m.lastValue === null || !m.lastTs) continue;
+      const h = history.current.get(m.id) ?? [];
+      if (h[h.length - 1]?.ts !== m.lastTs) history.current.set(m.id, [...h, { ts: m.lastTs, v: m.lastValue }].slice(-30));
+    }
+  }, [ctx]);
 
   const push = useCallback((s: Screen) => { setStack((st) => [...st, s]); setCursor(0); }, []);
   const pop = useCallback(() => { setStack((st) => (st.length > 1 ? st.slice(0, -1) : st)); setCursor(0); }, []);
@@ -49,8 +91,15 @@ export function GlassesApp({ demoScenario, simulator }: { demoScenario?: string 
     try {
       const c = await data.context();
       setCtx(c);
+      setStaleAt(null);
+      setLastSync(new Date().toISOString());
       return c;
     } catch (e) {
+      if (e instanceof DeviceError && e.status === 0) {
+        // Offline: fall back to the last context cached on the glasses.
+        const cached = cachedContext();
+        if (cached) { setCtx((cur) => cur ?? cached.v); setStaleAt((cur) => cur ?? cached.at); }
+      }
       if (e instanceof DeviceError) {
         if (e.code === 'device_revoked' || e.code === 'device_session_invalid' || e.code === 'not_paired') setPhase(e.code === 'device_revoked' ? 'revoked' : 'setup');
         else if (e.code === 'device_suspended') setPhase('suspended');
@@ -65,7 +114,11 @@ export function GlassesApp({ demoScenario, simulator }: { demoScenario?: string 
     if (demo) { void loadContext(); return; }
     if (!link.hasCredential()) { setPhase('setup'); return; }
     link.refresh().then(() => loadContext()).then(() => setPhase('ready')).catch((e) => {
-      if (!(e instanceof DeviceError) || e.status === 0) { setPhase('ready'); setOnline(false); }
+      if (!(e instanceof DeviceError) || e.status === 0) {
+        const cached = cachedContext();
+        if (cached) { setCtx(cached.v); setStaleAt(cached.at); }
+        setPhase('ready'); setOnline(false);
+      }
       else if (e.code === 'device_revoked') setPhase('revoked');
       else if (e.code === 'device_suspended') setPhase('suspended');
       else if (e.code === 'device_unassigned') setPhase('unassigned');
@@ -94,6 +147,23 @@ export function GlassesApp({ demoScenario, simulator }: { demoScenario?: string 
     window.addEventListener('message', onMsg);
     return () => { window.removeEventListener('online', up); window.removeEventListener('offline', up); window.removeEventListener('message', onMsg); };
   }, [link]);
+
+  // Live preview from the console profile editor (demo mode only): {type:'hydris:profile', config}.
+  useEffect(() => {
+    if (!demo || !profilePreview) return;
+    const onMsg = (e: MessageEvent) => {
+      if (e.origin !== window.location.origin) return;
+      const d = e.data as { type?: string; config?: unknown };
+      if (d?.type !== 'hydris:profile') return;
+      const c = normalizeUiProfileConfig(d.config);
+      if (data instanceof DemoData) data.previewConfig = c;
+      setPreviewCfg(c);
+      void loadContext().catch(() => {});
+    };
+    window.addEventListener('message', onMsg);
+    if (window.parent !== window) window.parent.postMessage({ type: 'hydris:preview-ready' }, window.location.origin);
+    return () => window.removeEventListener('message', onMsg);
+  }, [demo, profilePreview, data, loadContext]);
 
   // On reconnect: replay queued inspection responses and surface conflicts.
   const wasOnline = useRef(true);
@@ -133,6 +203,8 @@ export function GlassesApp({ demoScenario, simulator }: { demoScenario?: string 
             if (err instanceof DeviceError && err.code === 'device_unassigned') setPhase('unassigned');
           });
           home();
+        } else if (e.type === 'device.profile_changed') {
+          void loadContext().then((c) => flash(`Profile updated · ${c.profile?.name ?? 'default'}${c.profile?.version ? ` v${c.profile.version}` : ''}`)).catch(() => {});
         } else if (['alarm.updated', 'inspection.updated', 'maintenance.updated', 'notification.created'].includes(e.type)) reload();
       },
     });
@@ -168,6 +240,7 @@ export function GlassesApp({ demoScenario, simulator }: { demoScenario?: string 
   useEffect(() => { emitToHost('screen', { phase, screen: screen.name }); }, [phase, screen.name]);
 
   const nav = { push, pop, home, flash, reload: loadContext };
+  const status: StatusInfo = { online, queued, stream: demo ? 'live' : stream, staleAt, lastSync, demo, profile: previewCfg ? { name: 'Draft preview', version: null, source: 'preview' } : ctx?.profile ?? null };
   let body: ReactNode;
   if (phase === 'boot') body = <Centered icon={<Glasses size={46} />} title="Starting Hydris" body="Checking device session…" />;
   else if (phase === 'setup') body = <PairingScreen link={link} simulator={!!simulator} online={online} onPaired={async () => { await loadContext(); setPhase('ready'); emitToHost('paired'); }} />;
@@ -176,19 +249,27 @@ export function GlassesApp({ demoScenario, simulator }: { demoScenario?: string 
   else if (phase === 'unassigned') body = <TerminalScreen icon={<Info size={46} />} title="No operator assigned" body="Ask an administrator to assign these glasses to an operator." actionLabel="Check again" onAction={() => { link.refresh().then(() => loadContext()).then(() => setPhase('app')).catch(() => {}); }} />;
   else if (phase === 'ready') body = <ReadyScreen ctx={ctx} online={online} onEnter={() => { setPhase('app'); home(); }} />;
   else if (!ctx) body = <Centered icon={online ? <RefreshCw size={40} className="animate-spin" /> : <WifiOff size={40} />} title={online ? 'Loading context' : 'Offline'} body={online ? 'Fetching your assignments…' : 'Assignments will load when the connection returns.'} />;
-  else body = <ScreenView key={JSON.stringify(screen)} screen={screen} ctx={ctx} data={data} nav={nav} online={online} />;
+  else body = screenPermitted(cfg, screen)
+    ? <ScreenView key={JSON.stringify(screen)} screen={screen} ctx={ctx} data={data} nav={nav} online={online} status={status} history={history.current} />
+    : <NotPermitted key={JSON.stringify(screen)} nav={nav} />;
 
   return (
     <div className="fixed inset-0 grid place-items-center overflow-hidden bg-black text-white" style={{ fontFamily: 'var(--font-outfit), system-ui, sans-serif' }}>
       <div className="relative h-[600px] w-[600px] origin-center" style={{ transform: `scale(${scale})` }} role="application" aria-label="Hydris glasses viewport" aria-roledescription="smart glasses display">
-        <HudContext.Provider value={{ cursor, register }}>
+        <ProfileCtx.Provider value={cfg}>
+        <HudContext.Provider value={{ cursor, register, density: cfg.layout.density }}>
           {phase === 'app' && ctx && <StatusBar ctx={ctx} online={online} queued={queued} stream={demo ? 'live' : stream} demo={demo} />}
-          <div className={phase === 'app' ? 'absolute inset-x-0 bottom-[54px] top-[64px] overflow-hidden px-8' : 'absolute inset-0 px-8 py-8'}>{body}</div>
-          {phase === 'app' && <HintBar />}
+          <div className={phase === 'app' ? 'absolute inset-x-0 bottom-[54px] top-[64px] overflow-hidden px-8' : 'absolute inset-0 px-8 py-8'}>
+            {/* Profile text scale: zoom the content and enlarge the box inversely so it still fills the area. */}
+            <div style={{ zoom: cfg.layout.textScale, width: `${100 / cfg.layout.textScale}%`, height: `${100 / cfg.layout.textScale}%` }}>{body}</div>
+          </div>
+          {phase === 'app' && <HintBar hand={cfg.layout.handedness} />}
           {banner && <div role="status" className={`absolute inset-x-8 top-[70px] z-20 rounded-[22px] border-2 px-5 py-3 text-[19px] ${banner.tone === 'critical' ? 'border-[#ff5a4e] bg-[#2a0d0b]' : banner.tone === 'high' ? 'border-[#f26414] bg-[#2a1608]' : 'border-lime bg-[#1b2207]'}`}>{banner.text}</div>}
           {interrupt && <AlertInterrupt a={interrupt} />}
-          {!online && phase === 'app' && <div className="absolute inset-x-0 bottom-[54px] z-10 bg-[#2a1608] py-1.5 text-center text-[17px] text-[#ff9a5c]">Offline · steps are saved on the glasses and sync automatically</div>}
+          {!online && phase === 'app' && <div className="absolute inset-x-0 bottom-[54px] z-10 bg-[#2a1608] py-1.5 text-center text-[17px] text-[#ff9a5c]">{staleAt ? `Offline · showing data cached ${timeAgo(staleAt)}` : 'Offline · steps are saved on the glasses and sync automatically'}</div>}
+          {previewCfg && phase === 'app' && <div className="absolute left-8 top-[46px] z-10 text-[13px] uppercase tracking-[0.14em] text-lime/80">draft preview</div>}
         </HudContext.Provider>
+        </ProfileCtx.Provider>
       </div>
     </div>
   );
@@ -212,10 +293,13 @@ function StatusBar({ ctx, online, queued, stream, demo }: { ctx: GContext; onlin
   );
 }
 
-function HintBar() {
+function HintBar({ hand }: { hand: 'left' | 'right' }) {
+  // Handedness hint: controls sit on the operator's preferred temple, so hints align to that side.
   return (
-    <div className="absolute inset-x-0 bottom-0 flex h-[54px] items-center justify-center gap-6 text-[16px] text-white/45" aria-hidden>
+    <div className={`absolute inset-x-0 bottom-0 flex h-[54px] items-center gap-6 px-10 text-[16px] text-white/45 ${hand === 'left' ? 'justify-start' : 'justify-end'}`} aria-hidden>
+      {hand === 'left' && <span className="text-white/30">◧ left temple</span>}
       <span>↑ ↓ move</span><span>● select</span><span>← back</span>
+      {hand === 'right' && <span className="text-white/30">right temple ◨</span>}
     </div>
   );
 }
@@ -372,9 +456,36 @@ const Kv = ({ k, v }: { k: string; v: string }) => (
 // ---------------- app screens ----------------
 interface Nav { push: (s: Screen) => void; pop: () => void; home: () => void; flash: (t: string, tone?: 'lime' | 'critical' | 'high') => void; reload: () => Promise<GContext> }
 
-function ScreenView({ screen, ctx, data, nav, online }: { screen: Screen; ctx: GContext; data: GlassesData; nav: Nav; online: boolean }) {
+interface StatusInfo {
+  online: boolean; queued: number; stream: string; staleAt: string | null; lastSync: string | null; demo: boolean;
+  profile: { name: string; version: number | null; source: string } | null;
+}
+type History = Map<string, { ts: string; v: number }[]>;
+
+const screenFor = (s: UiScreen): Screen => (s === 'tasks' ? { name: 'tasks' } : { name: s } as Screen);
+
+function NotPermitted({ nav }: { nav: Nav }) {
+  const cursor = useHud({ actions: [{ key: 'home', onSelect: nav.home }] });
+  return (
+    <div className="grid h-full content-center gap-8">
+      <Centered icon={<Ban size={44} />} title="Not permitted by your profile" body="Your administrator has turned this screen off for these glasses. Ask them if you need it." />
+      <HudItem active={cursor === 0} tone="lime" onClick={nav.home}><span className="mx-auto">Back to home</span></HudItem>
+    </div>
+  );
+}
+
+/** Inline explanation for an action the profile blocks (shown instead of the control). */
+function Blocked({ what }: { what: string }) {
+  return <p className="flex items-center gap-2 rounded-[20px] border-2 border-dashed border-white/15 px-4 py-2.5 text-[18px] text-white/55"><Ban size={20} className="flex-none" />{what} · not permitted by your profile</p>;
+}
+
+function ScreenView({ screen, ctx, data, nav, online, status, history }: { screen: Screen; ctx: GContext; data: GlassesData; nav: Nav; online: boolean; status: StatusInfo; history: History }) {
   switch (screen.name) {
     case 'home': return <Home ctx={ctx} nav={nav} />;
+    case 'measurements': return <Measurements ctx={ctx} nav={nav} history={history} demo={status.demo} />;
+    case 'assets': return <AssetsList ctx={ctx} nav={nav} />;
+    case 'sops': return <SopLibrary data={data} nav={nav} />;
+    case 'sop': return <SopReader id={screen.id} data={data} />;
     case 'alerts': return <AlertsList ctx={ctx} nav={nav} />;
     case 'alert': return <AlertDetail ctx={ctx} id={screen.id} data={data} nav={nav} online={online} />;
     case 'inspections': return <InspectionsList ctx={ctx} nav={nav} />;
@@ -383,7 +494,7 @@ function ScreenView({ screen, ctx, data, nav, online }: { screen: Screen; ctx: G
     case 'task': return <TaskDetail ctx={ctx} id={screen.id} data={data} nav={nav} online={online} />;
     case 'asset': return <AssetContext id={screen.id} data={data} nav={nav} />;
     case 'assist': return <Assist q={screen.q} assetId={screen.assetId} data={data} online={online} />;
-    case 'status': return <Status ctx={ctx} online={online} />;
+    case 'status': return <Status ctx={ctx} status={status} />;
     case 'notifications': return <Notifications data={data} nav={nav} online={online} />;
     case 'ai': return <HydrisAI ctx={ctx} nav={nav} />;
     case 'map': return <MapScreen ctx={ctx} nav={nav} />;
@@ -393,18 +504,51 @@ function ScreenView({ screen, ctx, data, nav, online }: { screen: Screen; ctx: G
 function Home({ ctx, nav }: { ctx: GContext; nav: Nav }) {
   const crit = ctx.alarms.filter((a) => a.severity === 'critical').length;
   const active = ctx.alarms.filter((a) => a.state === 'active').length;
-  const next = ctx.inspections[0];
-  const items = [
-    { key: 'alerts', icon: <AlertTriangle size={26} />, label: 'Alerts', meta: ctx.alarms.length ? `${ctx.alarms.length} open${crit ? ` · ${crit} critical` : ''}` : 'none', tone: crit ? 'critical' as const : active ? 'high' as const : undefined, go: () => nav.push({ name: 'alerts' }) },
-    { key: 'insp', icon: <ClipboardCheck size={26} />, label: 'Inspections', meta: `${ctx.inspections.length} assigned`, go: () => nav.push({ name: 'inspections' }) },
-    { key: 'tasks', icon: <Wrench size={26} />, label: 'Maintenance', meta: `${ctx.tasks.length} tasks`, go: () => nav.push({ name: 'tasks' }) },
-    { key: 'map', icon: <MapIcon size={26} />, label: 'Plant map', meta: 'route to next asset', go: () => nav.push({ name: 'map' }) },
-    { key: 'ai', icon: <Sparkles size={26} />, label: 'Ask Hydris AI', meta: 'procedures & answers', go: () => nav.push({ name: 'ai' }) },
-    { key: 'notif', icon: <Bell size={26} />, label: 'Notifications', meta: 'updates for you', go: () => nav.push({ name: 'notifications' }) },
-    { key: 'status', icon: <Cog size={26} />, label: 'Device & session', meta: ctx.device.name, go: () => nav.push({ name: 'status' }) },
-  ];
+  const cfg = useCfg();
+  const ms = ctx.measurements ?? [];
+  const checks = ctx.tasks.flatMap((t) => t.checklist);
+  type Item = { key: string; icon: ReactNode; label: string; meta: string; tone?: 'critical' | 'high'; go: () => void };
+  const catalog: Partial<Record<UiScreen, Item>> = {
+    alerts: { key: 'alerts', icon: <AlertTriangle size={26} />, label: 'Alerts', meta: ctx.alarms.length ? `${ctx.alarms.length} open${crit ? ` · ${crit} critical` : ''}` : 'none', tone: crit ? 'critical' : active ? 'high' : undefined, go: () => nav.push({ name: 'alerts' }) },
+    inspections: { key: 'insp', icon: <ClipboardCheck size={26} />, label: 'Inspections', meta: `${ctx.inspections.length} assigned`, go: () => nav.push({ name: 'inspections' }) },
+    tasks: { key: 'tasks', icon: <Wrench size={26} />, label: 'Maintenance', meta: `${ctx.tasks.length} tasks`, go: () => nav.push({ name: 'tasks' }) },
+    map: { key: 'map', icon: <MapIcon size={26} />, label: 'Plant map', meta: 'route to next asset', go: () => nav.push({ name: 'map' }) },
+    measurements: { key: 'meas', icon: <Gauge size={26} />, label: 'Live measurements', meta: `${ms.length} sensors`, tone: ms.some((m) => m.threshold === 'alarm') ? 'high' : undefined, go: () => nav.push({ name: 'measurements' }) },
+    assets: { key: 'assets', icon: <Boxes size={26} />, label: 'Assets', meta: `${ctx.assets?.length ?? 0} on site`, go: () => nav.push({ name: 'assets' }) },
+    sops: { key: 'sops', icon: <Library size={26} />, label: 'SOP library', meta: 'approved procedures', go: () => nav.push({ name: 'sops' }) },
+    ai: { key: 'ai', icon: <Sparkles size={26} />, label: 'Ask Hydris AI', meta: 'procedures & answers', go: () => nav.push({ name: 'ai' }) },
+    notifications: { key: 'notif', icon: <Bell size={26} />, label: 'Notifications', meta: 'updates for you', go: () => nav.push({ name: 'notifications' }) },
+    status: { key: 'status', icon: <Cog size={26} />, label: 'Device & session', meta: ctx.device.name, go: () => nav.push({ name: 'status' }) },
+  };
+  // Menu order and visibility come from the UI profile.
+  const items = cfg.screens.filter((s) => s.id !== 'home' && screenPermitted(cfg, screenFor(s.id))).map((s) => catalog[s.id]).filter((x): x is Item => !!x);
+  const widgets = cfg.widgets.filter((w) => w.visible).map((w) => w.id);
+  const next = widgets.includes('next_inspection') && screenEnabled(cfg, 'inspections') ? ctx.inspections[0] : undefined;
   const cursor = useHud({ actions: [...(next ? [{ key: 'next', onSelect: () => nav.push({ name: 'inspection', id: next.id }) }] : []), ...items.map((i) => ({ key: i.key, onSelect: i.go }))] });
   const offset = next ? 1 : 0;
+  const widgetNodes: Record<string, ReactNode> = {
+    next_inspection: next && (
+      <HudItem key="next" active={cursor === 0} tone="lime" onClick={() => nav.push({ name: 'inspection', id: next.id })}>
+        <span className="grid h-[44px] w-[44px] flex-none place-items-center rounded-full bg-lime text-[#141714]"><ClipboardCheck size={24} /></span>
+        <span className="min-w-0 flex-1"><span className="block truncate text-white">Next: {next.title}</span><span className="block text-[17px] text-white/55">{next.stepCount} steps · {next.status.replace('_', ' ')}</span></span>
+        <ChevronRight />
+      </HudItem>
+    ),
+    measurements_glance: screenEnabled(cfg, 'measurements') && ms.length > 0 && (
+      <div key="glance" className="flex gap-5 px-2 text-[18px] text-white/60">
+        {ms.slice(0, 3).map((m) => (
+          <span key={m.id} className="min-w-0 truncate"><span className={m.threshold === 'normal' ? 'num text-white' : 'num text-[#ff9a5c]'}>{m.lastValue === null ? '—' : m.lastValue.toFixed(Math.min(2, m.decimals))}</span> {m.unit} <span className="text-white/45">{m.assetTag ?? m.tag}</span></span>
+        ))}
+      </div>
+    ),
+    task_progress: screenEnabled(cfg, 'tasks') && checks.length > 0 && (
+      <div key="tp" className="flex items-center gap-3 px-2 text-[18px] text-white/60">
+        <span className="flex-none">Checklists</span>
+        <span className="h-[6px] flex-1 overflow-hidden rounded-full bg-white/10"><span className="block h-full rounded-full bg-lime" style={{ width: `${Math.round((checks.filter((c) => c.done).length / checks.length) * 100)}%` }} /></span>
+        <span className="num flex-none">{checks.filter((c) => c.done).length}/{checks.length}</span>
+      </div>
+    ),
+  };
   return (
     <div className="flex h-full flex-col gap-3">
       <div className="flex items-end justify-between">
@@ -412,16 +556,10 @@ function Home({ ctx, nav }: { ctx: GContext; nav: Nav }) {
           <div className="text-[17px] uppercase tracking-[0.14em] text-white/55">{ctx.site?.name ?? ctx.organization.name}</div>
           <div className="text-[34px] tracking-[-0.03em]">{ctx.operator.name.split(' ')[0]}’s shift</div>
         </div>
-        {crit > 0 && <HudPill tone="critical">{crit} critical</HudPill>}
+        {widgets.includes('alarm_summary') && crit > 0 && <HudPill tone="critical">{crit} critical</HudPill>}
       </div>
-      {next && (
-        <HudItem active={cursor === 0} tone="lime" onClick={() => nav.push({ name: 'inspection', id: next.id })}>
-          <span className="grid h-[44px] w-[44px] flex-none place-items-center rounded-full bg-lime text-[#141714]"><ClipboardCheck size={24} /></span>
-          <span className="min-w-0 flex-1"><span className="block truncate text-white">Next: {next.title}</span><span className="block text-[17px] text-white/55">{next.stepCount} steps · {next.status.replace('_', ' ')}</span></span>
-          <ChevronRight />
-        </HudItem>
-      )}
-      <div className="grid gap-2.5">
+      {widgets.filter((w) => w !== 'alarm_summary').map((w) => widgetNodes[w])}
+      <div className="grid min-h-0 gap-2.5 overflow-y-auto pb-1 scrollbar-none">
         {items.map((i, idx) => (
           <HudItem key={i.key} active={cursor === idx + offset} tone={i.tone} onClick={i.go}>
             {i.icon}<span className="flex-1 text-white">{i.label}</span><span className="text-[18px] text-white/55">{i.meta}</span>
@@ -453,18 +591,22 @@ function AlertsList({ ctx, nav }: { ctx: GContext; nav: Nav }) {
 
 function AlertDetail({ ctx, id, data, nav, online }: { ctx: GContext; id: string; data: GlassesData; nav: Nav; online: boolean }) {
   const a = ctx.alarms.find((x) => x.id === id);
+  const cfg = useCfg();
+  const canAck = allowed(cfg, 'acknowledge_alarm');
+  const canProc = canAssist(cfg);
   const [busy, setBusy] = useState(false);
   const ack = async () => {
-    if (!a || !online) return;
+    if (!a || !online || !canAck) return;
     setBusy(true);
     try { await data.acknowledge(a.id); await nav.reload(); nav.flash('Acknowledged. The equipment state is unchanged.'); }
     catch (e) { nav.flash(e instanceof Error ? e.message : 'Failed', 'critical'); }
     finally { setBusy(false); }
   };
   const actions = a ? [
-    ...(a.state === 'active' ? [{ key: 'ack', onSelect: () => void ack(), disabled: !online || busy }] : []),
-    { key: 'proc', onSelect: () => nav.push({ name: 'assist', q: a.title }) },
+    ...(a.state === 'active' && canAck ? [{ key: 'ack', onSelect: () => void ack(), disabled: !online || busy }] : []),
+    ...(canProc ? [{ key: 'proc', onSelect: () => nav.push({ name: 'assist', q: a.title }) }] : []),
   ] : [];
+  const ackShown = !!a && a.state === 'active' && canAck;
   const cursor = useHud({ actions });
   if (!a) return <p className="text-[22px] text-white/60">This alert is no longer open.</p>;
   return (
@@ -477,8 +619,9 @@ function AlertDetail({ ctx, id, data, nav, online }: { ctx: GContext; id: string
       </div>
       {a.recommendedAction && <p className="mt-4 rounded-[20px] border-2 border-white/10 px-4 py-3 text-[19px] text-white/80">Next step (approved procedure): {a.recommendedAction}</p>}
       <div className="mt-auto grid gap-2.5">
-        {a.state === 'active' && <HudItem active={cursor === 0} tone="lime" disabled={!online || busy} onClick={() => void ack()}><Check size={24} /><span className="flex-1">{online ? 'Acknowledge' : 'Acknowledge (needs connection)'}</span><span className="text-[16px] text-white/50">does not change equipment</span></HudItem>}
-        <HudItem active={cursor === (a.state === 'active' ? 1 : 0)} onClick={() => nav.push({ name: 'assist', q: a.title })}><BookOpen size={24} /><span>Open procedure</span></HudItem>
+        {ackShown && <HudItem active={cursor === 0} tone="lime" disabled={!online || busy} onClick={() => void ack()}><Check size={24} /><span className="flex-1">{online ? 'Acknowledge' : 'Acknowledge (needs connection)'}</span><span className="text-[16px] text-white/50">does not change equipment</span></HudItem>}
+        {a.state === 'active' && !canAck && <Blocked what="Acknowledging alarms" />}
+        {canProc ? <HudItem active={cursor === (ackShown ? 1 : 0)} onClick={() => nav.push({ name: 'assist', q: a.title })}><BookOpen size={24} /><span>Open procedure</span></HudItem> : <Blocked what="Procedures" />}
       </div>
     </div>
   );
@@ -536,13 +679,25 @@ function InspectionRunner({ id, data, nav, online }: { id: string; data: Glasses
     nav.pop();
   };
 
+  const cfg = useCfg();
+  const canRecord = allowed(cfg, 'record_inspection');
+  const canSubmit = allowed(cfg, 'submit_inspection');
   const step = insp?.steps[idx];
-  const stepCtl = useStepControl(step, (v) => void record(step!, v));
+  const advance = () => { if (insp && idx < insp.steps.length - 1) setIdx(idx + 1); else setStage('review'); };
+  const editCtl = useStepControl(step, (v) => void record(step!, v));
+  // View-only walk-through when the profile does not permit recording.
+  const stepCtl = canRecord ? editCtl : {
+    actions: [{ key: 'next', onSelect: advance }], onKey: undefined,
+    render: (cursor: number) => (
+      <div className="mb-3 grid gap-2.5"><Blocked what="Recording steps" />
+        <HudItem active={cursor === 0} onClick={advance}><ChevronRight size={24} /><span>Next step (view only)</span></HudItem></div>
+    ),
+  };
   const actions: HudControl['actions'] =
     stage === 'verify' ? [{ key: 'confirm', onSelect: () => setStage(insp?.safetyNotices.length ? 'safety' : 'step') }, ...(insp?.asset ? [{ key: 'asset', onSelect: () => nav.push({ name: 'asset', id: insp.asset!.id }) }] : [])]
       : stage === 'safety' ? [{ key: 'ack', onSelect: () => setStage('step') }]
         : stage === 'step' ? [...stepCtl.actions, { key: 'pause', onSelect: () => void pause() }]
-          : stage === 'review' ? [{ key: 'submit', onSelect: () => void submit(), disabled: busy }, { key: 'back', onSelect: () => { setStage('step'); setIdx(0); } }]
+          : stage === 'review' ? [{ key: 'submit', onSelect: () => void submit(), disabled: busy || !canSubmit }, { key: 'back', onSelect: () => { setStage('step'); setIdx(0); } }]
             : [{ key: 'home', onSelect: nav.home }];
   const cursor = useHud({ actions, onKey: stage === 'step' ? stepCtl.onKey : undefined });
 
@@ -585,7 +740,8 @@ function InspectionRunner({ id, data, nav, online }: { id: string; data: Glasses
         <div className="flex gap-8"><HudMetric value={progress.answered} label="steps recorded" /><HudMetric value={progress.abnormal} label="abnormal findings" tone={progress.abnormal ? '#ff9a5c' : undefined} /></div>
         {progress.abnormal > 0 && <p className="mt-3 text-[19px] text-white/65">Abnormal findings open a follow-up maintenance request automatically.</p>}
         <div className="mt-auto grid gap-2.5">
-          <HudItem active={cursor === 0} tone="lime" disabled={busy || !progress.complete} onClick={() => void submit()}><Check size={24} /><span>{online ? 'Submit inspection' : 'Submit (needs connection)'}</span></HudItem>
+          {!canSubmit && <Blocked what="Submitting inspections" />}
+          <HudItem active={cursor === 0} tone="lime" disabled={busy || !progress.complete || !canSubmit} onClick={() => { if (canSubmit) void submit(); }}><Check size={24} /><span>{!canSubmit ? 'Submit (not permitted)' : online ? 'Submit inspection' : 'Submit (needs connection)'}</span></HudItem>
           <HudItem active={cursor === 1} onClick={() => { setStage('step'); setIdx(0); }}><span>Review steps</span></HudItem>
         </div>
       </>)}
@@ -668,16 +824,25 @@ function TasksList({ ctx, nav }: { ctx: GContext; nav: Nav }) {
 
 function TaskDetail({ ctx, id, data, nav, online }: { ctx: GContext; id: string; data: GlassesData; nav: Nav; online: boolean }) {
   const t = ctx.tasks.find((x) => x.id === id);
+  const canToggle = allowed(useCfg(), 'toggle_checklist');
   const toggle = async (itemId: string, done: boolean) => {
+    if (!canToggle) { nav.flash('Checklist changes are not permitted by your profile', 'high'); return; }
     if (!online) { nav.flash('Checklist updates need a connection', 'high'); return; }
     try { await data.toggleChecklist(id, itemId, done); await nav.reload(); } catch (e) { nav.flash(e instanceof Error ? e.message : 'Failed', 'critical'); }
   };
   const cursor = useHud({ actions: (t?.checklist ?? []).map((c) => ({ key: c.id, onSelect: () => void toggle(c.id, !c.done) })) });
   if (!t) return <p className="text-[22px] text-white/60">Task no longer assigned.</p>;
+  const done = t.checklist.filter((c) => c.done).length;
+  const pct = t.checklist.length ? Math.round((done / t.checklist.length) * 100) : 0;
   return (
     <div className="flex h-full flex-col">
       <HudTitle eyebrow={`${t.assetTag ?? 'maintenance'} · ${t.priority}`}>{t.title}</HudTitle>
-      <p className="mb-3 text-[17px] text-white/50">Records only — Hydris does not operate equipment.</p>
+      <div className="mb-2 flex items-center gap-3 text-[17px] text-white/55">
+        <span className="h-[6px] flex-1 overflow-hidden rounded-full bg-white/10"><span className="block h-full rounded-full bg-lime transition-[width]" style={{ width: `${pct}%` }} /></span>
+        <span className="num">{done}/{t.checklist.length}</span>
+        {t.checklist.length > 0 && done === t.checklist.length && <HudPill tone="ok"><Check size={16} />complete</HudPill>}
+      </div>
+      {canToggle ? <p className="mb-3 text-[17px] text-white/50">Records only — Hydris does not operate equipment.</p> : <div className="mb-3"><Blocked what="Ticking checklist items" /></div>}
       <div className="grid gap-2.5 overflow-y-auto scrollbar-none">
         {t.checklist.map((c, i) => (
           <HudItem key={c.id} active={cursor === i} onClick={() => void toggle(c.id, !c.done)}>
@@ -699,10 +864,13 @@ function AssetContext({ id, data, nav }: { id: string; data: GlassesData; nav: N
     const t = setInterval(load, 5000);
     return () => clearInterval(t);
   }, [data, id]);
-  const cursor = useHud({ actions: a ? [{ key: 'assist', onSelect: () => nav.push({ name: 'assist', q: `${a.type} ${a.name}`, assetId: a.id }) }] : [] });
+  const cfg = useCfg();
+  const canProc = canAssist(cfg);
+  const cursor = useHud({ actions: a && canProc ? [{ key: 'assist', onSelect: () => nav.push({ name: 'assist', q: `${a.type} ${a.name}`, assetId: a.id }) }] : [] });
   if (err) return <Centered icon={<AlertTriangle size={40} />} title="Equipment unavailable" body={err} />;
   if (!a) return <Centered icon={<RefreshCw size={40} className="animate-spin" />} title="Loading" body="Fetching equipment context…" />;
-  const last = a.sensors.map((s) => s.lastTs).filter(Boolean).sort().pop();
+  const sensorsShown = applyMeasurementProfile(cfg, a.sensors, a.type);
+  const last = sensorsShown.map((s) => s.lastTs).filter(Boolean).sort().pop();
   return (
     <div className="flex h-full flex-col">
       <div className="flex items-start justify-between">
@@ -710,13 +878,14 @@ function AssetContext({ id, data, nav }: { id: string; data: GlassesData; nav: N
         <HudPill tone={a.status === 'operational' ? 'ok' : a.status === 'down' ? 'critical' : 'medium'}>{a.status}</HudPill>
       </div>
       <div className="grid grid-cols-2 gap-x-6 gap-y-4">
-        {a.sensors.slice(0, 4).map((s) => (
+        {sensorsShown.length === 0 && <p className="col-span-2 text-[19px] text-white/55">No measurements for this equipment are shown on your profile.</p>}
+        {sensorsShown.slice(0, 4).map((s) => (
           <HudMetric key={s.id} value={s.freshness === 'stale' || s.freshness === 'no_data' || s.lastValue === null ? '—' : s.lastValue.toFixed(s.unit === 'h' ? 0 : 2)} unit={s.unit}
             label={<>{s.name} · <span className={s.freshness === 'live' ? 'text-lime' : 'text-[#ff9a5c]'}>{FRESHNESS_LABELS[s.freshness]}</span>{s.lastSource === 'simulator' ? ' · synthetic' : ''}</>} />
         ))}
       </div>
       <div className="mt-3 text-[17px] text-white/50">{a.openAlarms} open alarm(s) · updated {last ? timeAgo(last) : 'never'}</div>
-      <div className="mt-auto"><HudItem active={cursor === 0} onClick={() => nav.push({ name: 'assist', q: `${a.type} ${a.name}`, assetId: a.id })}><BookOpen size={24} /><span>Procedures for this equipment</span></HudItem></div>
+      <div className="mt-auto">{canProc ? <HudItem active={cursor === 0} onClick={() => nav.push({ name: 'assist', q: `${a.type} ${a.name}`, assetId: a.id })}><BookOpen size={24} /><span>Procedures for this equipment</span></HudItem> : <Blocked what="Procedures" />}</div>
     </div>
   );
 }
@@ -745,16 +914,23 @@ function Assist({ q, assetId, data, online }: { q: string; assetId?: string; dat
   );
 }
 
-function Status({ ctx, online }: { ctx: GContext; online: boolean }) {
+function Status({ ctx, status }: { ctx: GContext; status: StatusInfo }) {
   useHud({ actions: [] });
+  const pr = status.profile;
+  const conn = !status.online ? 'Offline' : status.stream === 'live' ? 'Online · live stream' : 'Online · connecting stream';
   return (
     <div className="flex h-full flex-col">
       <HudTitle eyebrow="Device & session">{ctx.device.name}</HudTitle>
-      <dl className="grid grid-cols-2 gap-x-6 gap-y-4 text-[20px]">
-        <Kv k="Operator" v={ctx.operator.name} /><Kv k="Role" v={ctx.role.replace('_', ' ')} />
-        <Kv k="Organization" v={ctx.organization.name} /><Kv k="Site" v={ctx.site?.name ?? '—'} />
-        <Kv k="Connection" v={online ? 'Online' : 'Offline'} /><Kv k="Device type" v={ctx.device.kind} />
-        <Kv k="App version" v={APP_VERSION} /><Kv k="Server time" v={new Date(ctx.serverTime).toLocaleTimeString()} />
+      <div className="mb-4 flex flex-wrap gap-2">
+        <HudPill tone={status.online ? (status.stream === 'live' ? 'ok' : 'medium') : 'high'}>{status.online ? <Wifi size={17} /> : <WifiOff size={17} />}{conn}</HudPill>
+        <HudPill tone={status.queued ? 'high' : 'line'}>{status.queued} queued</HudPill>
+        {status.staleAt && <HudPill tone="high">cached {timeAgo(status.staleAt)}</HudPill>}
+      </div>
+      <dl className="grid grid-cols-2 gap-x-6 gap-y-3 text-[20px]">
+        <Kv k="Operator" v={ctx.operator.name} /><Kv k="Role" v={ctx.role.replace(/_/g, ' ')} />
+        <Kv k="Site" v={ctx.site?.name ?? '—'} /><Kv k="Session" v={status.demo ? 'Demo · client-side' : 'Active · device-bound'} />
+        <Kv k="UI profile" v={pr ? `${pr.name}${pr.version ? ` · v${pr.version}` : ''}` : 'Built-in default'} /><Kv k="Applied via" v={pr?.source ?? 'default'} />
+        <Kv k="Last sync" v={status.lastSync ? timeAgo(status.lastSync) : 'not yet'} /><Kv k="App version" v={`${APP_VERSION} · ${ctx.device.kind}`} />
       </dl>
       <p className="mt-auto text-[16px] text-white/45">To unpair or hand over these glasses, ask an administrator (Console → Field glasses). Revocation ends this session immediately.</p>
     </div>
@@ -764,10 +940,11 @@ function Status({ ctx, online }: { ctx: GContext; online: boolean }) {
 function Notifications({ data, nav, online }: { data: GlassesData; nav: Nav; online: boolean }) {
   const [r, setR] = useState<{ notifications: GNotification[]; unread: number } | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const canMark = allowed(useCfg(), 'mark_notifications_read');
   useEffect(() => {
     if (!online) return;
-    data.notifications().then((x) => { setR(x); if (x.unread) void data.markNotificationsRead(); }).catch((e) => setErr(e instanceof Error ? e.message : 'Unavailable'));
-  }, [data, online]);
+    data.notifications().then((x) => { setR(x); if (x.unread && canMark) void data.markNotificationsRead().catch(() => {}); }).catch((e) => setErr(e instanceof Error ? e.message : 'Unavailable'));
+  }, [data, online, canMark]);
   const rows = r?.notifications ?? [];
   const cursor = useHud({ actions: rows.map((n) => ({ key: n.id, onSelect: () => { if (n.kind === 'alarm') nav.push({ name: 'alerts' }); else if (n.kind.startsWith('inspection')) nav.push({ name: 'inspections' }); else if (n.kind.startsWith('maintenance')) nav.push({ name: 'tasks' }); } })) });
   if (!online) return <Centered icon={<WifiOff size={40} />} title="Offline" body="Notifications load when the connection returns." />;
@@ -775,7 +952,7 @@ function Notifications({ data, nav, online }: { data: GlassesData; nav: Nav; onl
   if (!r) return <Centered icon={<RefreshCw size={40} className="animate-spin" />} title="Loading" body="Fetching notifications…" />;
   return (
     <div className="flex h-full flex-col">
-      <HudTitle eyebrow={`${r.unread} unread`}>Notifications</HudTitle>
+      <HudTitle eyebrow={`${r.unread} unread${canMark ? '' : ' · read receipts off by profile'}`}>Notifications</HudTitle>
       {rows.length ? (
         <div className="grid gap-2.5 overflow-y-auto pb-2 scrollbar-none">
           {rows.map((n, i) => (
@@ -857,6 +1034,126 @@ function MapScreen({ ctx, nav }: { ctx: GContext; nav: Nav }) {
         {d !== null && <span className="num font-semibold">{d} m · {Math.max(1, Math.round(d / 72))} min</span>}
       </div>
       <p className="sr-only">Left and right switch target, up zooms in, down zooms out or toggles labels, select opens the equipment.</p>
+    </div>
+  );
+}
+
+// ---------------- expansion screens ----------------
+const THRESH_COLOR = { normal: undefined, out_of_range: '#f7c96a', alarm: '#ff8a80' } as const;
+
+/** Live measurements: every sensor the profile permits, with value, freshness, trend and threshold state. */
+function Measurements({ ctx, nav, history, demo }: { ctx: GContext; nav: Nav; history: History; demo: boolean }) {
+  const rows = ctx.measurements ?? [];
+  const [, tick] = useState(0);
+  useEffect(() => {
+    // Keep values fresh while this screen is open (demo context already polls).
+    const t = setInterval(() => { if (!demo) void nav.reload().catch(() => {}); tick((x) => x + 1); }, demo ? 2500 : 10_000);
+    return () => clearInterval(t);
+  }, [demo, nav]);
+  const cursor = useHud({ actions: rows.map((m) => ({ key: m.id, onSelect: () => { if (m.assetId) nav.push({ name: 'asset', id: m.assetId }); } })) });
+  return (
+    <div className="flex h-full flex-col">
+      <HudTitle eyebrow={`${rows.length} sensors · ${rows.filter((m) => m.threshold !== 'normal').length} attention`}>Live measurements</HudTitle>
+      {rows.length ? (
+        <div className="grid gap-2.5 overflow-y-auto pb-2 scrollbar-none">
+          {rows.map((m, i) => <MeasurementRow key={m.id} m={m} active={cursor === i} trend={trendOf(history.get(m.id))} onOpen={() => { if (m.assetId) nav.push({ name: 'asset', id: m.assetId }); }} />)}
+        </div>
+      ) : <p className="text-[22px] text-white/60">No measurements are configured for this site, or none are shown on your profile.</p>}
+    </div>
+  );
+}
+
+function MeasurementRow({ m, active, trend, onOpen }: { m: GMeasurement; active: boolean; trend: -1 | 0 | 1 | null; onOpen: () => void }) {
+  const stale = m.freshness === 'stale' || m.freshness === 'no_data' || m.lastValue === null;
+  const TrendIcon = trend === 1 ? TrendingUp : trend === -1 ? TrendingDown : Minus;
+  return (
+    <HudItem active={active} tone={m.threshold === 'alarm' ? 'critical' : m.threshold === 'out_of_range' ? 'high' : undefined} onClick={onOpen}>
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-white">{m.label} · {m.assetTag ?? m.tag}</span>
+        <span className="block text-[17px] text-white/55">
+          <span className={m.freshness === 'live' ? 'text-lime' : 'text-[#ff9a5c]'}>{FRESHNESS_LABELS[m.freshness]}</span>
+          {m.lastTs ? ` · ${timeAgo(m.lastTs)}` : ''}{m.threshold === 'alarm' ? ' · in alarm' : m.threshold === 'out_of_range' ? ' · outside typical range' : ''}{m.lastSource === 'simulator' ? ' · synthetic' : ''}
+        </span>
+      </span>
+      {trend !== null && !stale && <TrendIcon size={22} className="flex-none text-white/60" aria-label={trend === 1 ? 'rising' : trend === -1 ? 'falling' : 'steady'} />}
+      <span className="num flex-none text-right text-[30px] font-light" style={{ color: stale ? 'rgb(255 255 255 / 0.4)' : THRESH_COLOR[m.threshold] }}>
+        {stale ? '—' : m.lastValue!.toFixed(Math.min(2, m.decimals))}<span className="ml-1 text-[17px] text-white/55">{m.unit}</span>
+      </span>
+    </HudItem>
+  );
+}
+
+function trendOf(h: { v: number }[] | undefined): -1 | 0 | 1 | null {
+  if (!h || h.length < 2) return null;
+  const a = h[Math.max(0, h.length - 4)]!.v, b = h[h.length - 1]!.v;
+  const d = b - a, eps = Math.max(Math.abs(a) * 0.01, 1e-6);
+  return d > eps ? 1 : d < -eps ? -1 : 0;
+}
+
+function AssetsList({ ctx, nav }: { ctx: GContext; nav: Nav }) {
+  return <ListScreen title="Assets" eyebrow={ctx.site?.name ?? 'site equipment'} rows={ctx.assets ?? []} empty="No equipment registered for this site." onOpen={(a) => nav.push({ name: 'asset', id: a.id })}
+    render={(a) => (<>
+      <Boxes size={24} className={a.openAlarms ? 'text-[#ff9a5c]' : 'text-lime'} />
+      <span className="min-w-0 flex-1"><span className="block truncate text-white">{a.tag} · {a.name}</span><span className="block text-[17px] text-white/55">{a.type.replace(/_/g, ' ')} · {a.status}{a.openAlarms ? ` · ${a.openAlarms} alarm(s)` : ''}</span></span>
+    </>)} />;
+}
+
+/** Load with offline fallback: StaleError carries the cached copy. */
+function useCached<T>(load: () => Promise<T>, deps: unknown[]) {
+  const [s, setS] = useState<{ v: T | null; err: string | null; staleAt: string | null; loading: boolean }>({ v: null, err: null, staleAt: null, loading: true });
+  useEffect(() => {
+    let live = true;
+    load().then((v) => live && setS({ v, err: null, staleAt: null, loading: false }))
+      .catch((e) => live && setS(e instanceof StaleError ? { v: e.value as T, err: null, staleAt: e.at, loading: false } : { v: null, err: e instanceof Error ? e.message : 'Unavailable', staleAt: null, loading: false }));
+    return () => { live = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, deps);
+  return s;
+}
+
+function StaleNote({ at }: { at: string | null }) {
+  return at ? <div className="mb-3"><HudPill tone="high"><WifiOff size={16} />Offline copy · saved {timeAgo(at)}</HudPill></div> : null;
+}
+
+function SopLibrary({ data, nav }: { data: GlassesData; nav: Nav }) {
+  const s = useCached<GDocSummary[]>(() => data.documents(), [data]);
+  const rows = s.v ?? [];
+  const cursor = useHud({ actions: rows.map((d) => ({ key: d.id, onSelect: () => nav.push({ name: 'sop', id: d.id }) })) });
+  if (s.loading) return <Centered icon={<RefreshCw size={40} className="animate-spin" />} title="Loading" body="Fetching approved procedures…" />;
+  if (s.err) return <Centered icon={<AlertTriangle size={40} />} title="SOP library unavailable" body={s.err} />;
+  return (
+    <div className="flex h-full flex-col">
+      <HudTitle eyebrow={`${rows.length} approved`}>SOP library</HudTitle>
+      <StaleNote at={s.staleAt} />
+      {rows.length ? (
+        <div className="grid gap-2.5 overflow-y-auto pb-2 scrollbar-none">
+          {rows.map((d, i) => (
+            <HudItem key={d.id} active={cursor === i} onClick={() => nav.push({ name: 'sop', id: d.id })}>
+              <FileText size={24} className="text-lime" />
+              <span className="min-w-0 flex-1"><span className="block truncate text-white">{d.title}</span><span className="block text-[17px] text-white/55">{d.kind.toUpperCase()} · v{d.version}</span></span>
+            </HudItem>
+          ))}
+        </div>
+      ) : <p className="text-[22px] text-white/60">No approved documents yet. Ask your supervisor.</p>}
+    </div>
+  );
+}
+
+/** Paged SOP reader: ↑ ↓ scroll through the document, which is cached for offline reading. */
+function SopReader({ id, data }: { id: string; data: GlassesData }) {
+  const s = useCached<GDoc>(() => data.document(id), [data, id]);
+  const box = useRef<HTMLDivElement>(null);
+  useHud({ actions: [], onKey: (k) => { if ((k === 'down' || k === 'up') && box.current) { box.current.scrollBy({ top: k === 'down' ? 180 : -180, behavior: 'smooth' }); return true; } return false; } });
+  if (s.loading) return <Centered icon={<RefreshCw size={40} className="animate-spin" />} title="Opening" body="Loading the approved procedure…" />;
+  if (s.err || !s.v) return <Centered icon={<AlertTriangle size={40} />} title="Document unavailable" body={s.err ?? 'Not available offline — open it once while online to keep a copy.'} />;
+  const d = s.v;
+  return (
+    <div className="flex h-full flex-col">
+      <div className="mb-1 text-[17px] uppercase tracking-[0.14em] text-white/55">{d.kind} · version {d.version}</div>
+      <div className="mb-3 text-[28px] leading-tight tracking-[-0.02em]">{d.title}</div>
+      <StaleNote at={s.staleAt} />
+      <div ref={box} className="min-h-0 flex-1 overflow-y-auto whitespace-pre-line pb-4 text-[21px] leading-snug text-white/85 scrollbar-none">{d.body}</div>
+      <p className="pt-1 text-[15px] text-white/45">↑ ↓ scroll · approved document — follow site permit-to-work rules</p>
     </div>
   );
 }

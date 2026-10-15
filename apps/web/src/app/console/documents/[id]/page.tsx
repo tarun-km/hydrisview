@@ -1,5 +1,7 @@
 'use client';
 
+import { HistoryCard } from '@/console/history';
+
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useState } from 'react';
@@ -85,6 +87,7 @@ export default function DocumentReaderPage() {
             ]} />
             {d.tags.length > 0 && <div className="mt-4 flex flex-wrap gap-1.5">{d.tags.map((t) => <span key={t} className="rounded-full bg-bg-2 px-2 py-0.5 text-[12px] text-text-2">#{t}</span>)}</div>}
           </Card>
+          <HistoryCard entityType="document" entityId={d.id} version={d.updatedAt} initial={5} />
           <Button variant="ghost" icon={<Printer size={16} />} onClick={() => window.print()}>Print</Button>
         </aside>
       </article>

@@ -23,6 +23,7 @@ import { realtimeRoutes } from './modules/realtime.js';
 import { insightRoutes } from './modules/insights.js';
 import { publicRoutes } from './modules/public.js';
 import { simulationRoutes } from './modules/simulation.js';
+import { installProfileEnforcement, uiProfileRoutes } from './modules/ui-profiles.js';
 
 export interface BuildOptions {
   db: Db;
@@ -58,7 +59,9 @@ export async function buildApp(opts: BuildOptions): Promise<{ app: FastifyInstan
 
   app.get('/api/health', async () => ({ ok: true, time: new Date().toISOString() }));
 
-  const mods = [authRoutes, orgRoutes, plantRoutes, telemetryRoutes, alarmRoutes, inspectionModule, maintenanceRoutes, deviceRoutes, realtimeRoutes, insightRoutes, publicRoutes, simulationRoutes];
+  // Must precede route registration: appends glasses UI-profile checks to matching routes.
+  installProfileEnforcement(app, ctx);
+  const mods = [authRoutes, orgRoutes, plantRoutes, telemetryRoutes, alarmRoutes, inspectionModule, maintenanceRoutes, deviceRoutes, realtimeRoutes, insightRoutes, publicRoutes, simulationRoutes, uiProfileRoutes];
   for (const m of mods) await app.register(async (scope) => m(scope, ctx, opts), { prefix: '/api' });
 
   return { app, ctx };

@@ -12,7 +12,7 @@ import type { Tx } from '../db/client.js';
 import { badRequest, conflict, forbidden, notFound } from '../core/errors.js';
 import { has, requirePerm, requireSite, siteScope, type Principal } from '../core/principal.js';
 import { audit, notify } from '../core/services.js';
-import { scopedRow } from './plant.js';
+import { changes as diffFields, scopedRow } from './plant.js';
 
 const OPEN = ['open', 'assigned', 'in_progress', 'on_hold'] as const;
 
@@ -105,14 +105,45 @@ export async function maintenanceRoutes(app: FastifyInstance, ctx: Ctx) {
     const { id } = idParam.parse(req.params);
     const body = z.object({
       title: z.string().trim().min(3).max(160).optional(), description: z.string().max(4000).nullable().optional(), priority: z.enum(MAINTENANCE_PRIORITIES).optional(),
-      assignedTo: z.uuid().nullable().optional(), dueAt: z.coerce.date().nullable().optional(),
+      assignedTo: z.uuid().nullable().optional(), dueAt: z.coerce.date().nullable().optional(), kind: z.enum(MAINTENANCE_KINDS).optional(),
+      assetId: z.uuid().nullable().optional(),
+      /** Full checklist: existing items keep their id (and completion state); items without id are added; missing ids are removed. */
+      checklist: z.array(z.object({ id: z.string().max(20).optional(), label: z.string().trim().min(1, 'Item cannot be empty').max(200) })).max(40).optional(),
     }).parse(req.body);
     const t = await load(tx, p, id);
     if (!OPEN.includes(t.status as (typeof OPEN)[number])) throw conflict('not_editable', 'Closed tasks cannot be edited');
+    if (body.assignedTo) {
+      const [m] = await tx.select().from(memberships).where(and(eq(memberships.userId, body.assignedTo), eq(memberships.status, 'active')));
+      if (!m) throw badRequest('validation_failed', 'Assignee is not an active member', [{ path: 'assignedTo', message: 'Not an active member' }]);
+    }
+    if (body.assetId) {
+      const a = await scopedRow(tx, assets, body.assetId, p, 'Asset');
+      if (a.siteId !== t.siteId) throw badRequest('validation_failed', 'Asset is on a different site', [{ path: 'assetId', message: 'Choose an asset on the task\'s site' }]);
+    }
+    let checklist: typeof t.checklist | undefined;
+    if (body.checklist) {
+      const byId = new Map(t.checklist.map((c) => [c.id, c]));
+      for (const c of body.checklist) if (c.id && !byId.has(c.id)) throw badRequest('validation_failed', 'Unknown checklist item', [{ path: 'checklist', message: `Unknown item ${c.id}` }]);
+      checklist = body.checklist.map((c) => {
+        const prev = c.id ? byId.get(c.id) : undefined;
+        return prev ? { ...prev, label: c.label } : { id: randomUUID().slice(0, 8), label: c.label, done: false };
+      });
+    }
+    const { checklist: _c, ...fields } = body;
+    void _c;
     const status = body.assignedTo !== undefined && t.status === 'open' && body.assignedTo ? 'assigned' : body.assignedTo === null && t.status === 'assigned' ? 'open' : undefined;
-    const [u] = await tx.update(maintenanceTasks).set({ ...body, status, updatedAt: new Date() }).where(eq(maintenanceTasks.id, id)).returning();
-    await log(tx, p, id, body.assignedTo !== undefined ? 'assigned' : 'updated', body.assignedTo ? `Assigned` : undefined);
-    await audit(tx, p, { orgId: p.orgId, action: 'maintenance.updated', entityType: 'maintenance', entityId: id, metadata: body });
+    const [u] = await tx.update(maintenanceTasks).set({ ...fields, checklist, kind: body.kind, status, updatedAt: new Date() }).where(eq(maintenanceTasks.id, id)).returning();
+    const diff = diffFields(t, fields);
+    if (checklist) {
+      const before = t.checklist.map((c) => c.label);
+      const after = checklist.map((c) => c.label);
+      const added = after.filter((l, i) => !t.checklist.some((c) => c.id === checklist![i]!.id));
+      const removed = t.checklist.filter((c) => !checklist!.some((n) => n.id === c.id)).map((c) => c.label);
+      if (JSON.stringify(before) !== JSON.stringify(after)) diff.checklist = { from: before, to: after };
+      if (added.length || removed.length) await log(tx, p, id, 'checklist_edited', [added.length ? `Added: ${added.join(', ')}` : '', removed.length ? `Removed: ${removed.join(', ')}` : ''].filter(Boolean).join(' · '));
+    }
+    await log(tx, p, id, body.assignedTo !== undefined && body.assignedTo !== t.assignedTo ? 'assigned' : 'updated', body.assignedTo ? `Assigned` : undefined);
+    await audit(tx, p, { orgId: p.orgId, action: 'maintenance.updated', entityType: 'maintenance', entityId: id, summary: u!.title, metadata: { changes: diff } });
     if (body.assignedTo && body.assignedTo !== t.assignedTo) await notify(tx, ctx.bus, { orgId: p.orgId, userIds: [body.assignedTo], kind: 'maintenance_assigned', title: `Maintenance assigned: ${t.title}`, link: `/console/maintenance/${id}`, entityType: 'maintenance', entityId: id });
     ctx.bus.publish({ type: 'maintenance.updated', orgId: p.orgId, siteId: t.siteId, permission: 'maintenance.read', payload: { id, status: u!.status } });
     return { task: u };

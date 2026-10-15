@@ -1,5 +1,7 @@
 'use client';
 
+import { HistoryCard } from '@/console/history';
+
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useState, type ReactNode } from 'react';
@@ -229,6 +231,7 @@ export default function MaintenanceDetailPage() {
               </div>
             </Card>
           )}
+          <HistoryCard entityType="maintenance" entityId={t.id} version={t.updatedAt} title="Change history" />
           <Card title="Attachments" action={can('maintenance.request') ? <UploadButton ownerType="maintenance" ownerId={t.id} onUploaded={async () => { await q.refetch(); toast({ title: 'File attached', tone: 'ok' }); }} /> : undefined}>
             <AttachmentList items={t.attachments} emptyText="No photos or documents attached." />
             <p className="mt-3 text-xs text-muted">JPEG, PNG, WebP, PDF or plain text up to 10 MB.</p>

@@ -13,7 +13,7 @@ import type { InputKey } from './input';
 export interface HudAction { key: string; onSelect: () => void; disabled?: boolean }
 export interface HudControl { actions: HudAction[]; onKey?: (k: InputKey) => boolean }
 
-const Ctx = createContext<{ cursor: number; register: (c: HudControl) => void }>({ cursor: 0, register: () => {} });
+const Ctx = createContext<{ cursor: number; register: (c: HudControl) => void; density?: 'compact' | 'comfortable' }>({ cursor: 0, register: () => {} });
 export const HudContext = Ctx;
 
 /** Register this screen's focusable actions; returns the current cursor index. */
@@ -39,6 +39,7 @@ export function useFitScale(size = 600) {
 
 export function HudItem({ active, children, tone, disabled, onClick }: { active: boolean; children: ReactNode; tone?: 'critical' | 'high' | 'lime' | 'muted'; disabled?: boolean; onClick?: () => void }) {
   const ref = useRef<HTMLButtonElement>(null);
+  const compact = useContext(Ctx).density === 'compact';
   useEffect(() => {
     // Scroll only the nearest scrollable container — never the embedding page (iframe demos).
     const el = ref.current;
@@ -53,7 +54,8 @@ export function HudItem({ active, children, tone, disabled, onClick }: { active:
   return (
     <button ref={ref} type="button" onClick={onClick} disabled={disabled} aria-current={active || undefined}
       className={clsx(
-        'flex w-full items-center gap-4 rounded-[26px] border-2 px-6 py-[14px] text-left text-[23px] leading-tight transition-colors',
+        'flex w-full items-center gap-4 rounded-[26px] border-2 px-6 text-left text-[23px] leading-tight transition-colors',
+        compact ? 'py-[9px]' : 'py-[14px]',
         active ? 'border-lime bg-lime/10' : 'border-white/10',
         disabled && 'opacity-40',
         tone === 'critical' && 'text-[#ff8a80]', tone === 'high' && 'text-[#ff9a5c]', tone === 'muted' && 'text-white/60',

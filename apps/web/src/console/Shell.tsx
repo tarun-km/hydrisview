@@ -9,7 +9,7 @@ import * as RMenu from '@radix-ui/react-dropdown-menu';
 import * as RDialog from '@radix-ui/react-dialog';
 import clsx from 'clsx';
 import {
-  Activity, BarChart3, Bell, Boxes, Building2, Check, ClipboardCheck, FileText, Glasses, LayoutGrid, LogOut, Menu, Monitor, MonitorSmartphone, Moon, Route, ScrollText, Search,
+  SlidersHorizontal, Activity, BarChart3, Bell, Boxes, Building2, Check, ClipboardCheck, FileText, Glasses, LayoutGrid, LogOut, Menu, Monitor, MonitorSmartphone, Moon, Route, ScrollText, Search,
   Settings, ShieldCheck, Siren, Sun, UserRound, Users, Wrench, X,
 } from 'lucide-react';
 import { ROLE_LABELS, type Permission } from '@hydris/domain';
@@ -36,6 +36,7 @@ const NAV: NavItem[] = [
   { href: '/console/sites', label: 'Sites & facilities', icon: <Building2 size={19} />, perm: 'site.read', group: 'Plant' },
   { href: '/console/assets', label: 'Assets & equipment', icon: <Boxes size={19} />, perm: 'asset.read', group: 'Plant' },
   { href: '/console/devices', label: 'Field glasses', icon: <Glasses size={19} />, perm: 'device.read', group: 'People & devices' },
+  { href: '/console/glasses-profiles', label: 'Glasses UI profiles', icon: <SlidersHorizontal size={19} />, perm: 'device.manage', group: 'People & devices' },
   { href: '/console/operators', label: 'Operators', icon: <Users size={19} />, perm: 'member.read', group: 'People & devices' },
   { href: '/console/reports', label: 'Reports & analytics', icon: <BarChart3 size={19} />, perm: 'report.read', group: 'Insight' },
   { href: '/console/audit', label: 'Audit log', icon: <ScrollText size={19} />, perm: 'audit.read', group: 'Insight' },

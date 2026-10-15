@@ -35,7 +35,7 @@ export function ManualEntryDialog({ open, onOpenChange, sensor, source }: {
   const act = useAction(() => post<IngestResult>('/telemetry/manual', {
     sensorId: sensor.id, value: n, unit: unit === def.unit ? undefined : unit, ts: when.toISOString(), source,
   }), {
-    invalidate: ['/telemetry', '/sensors', '/alarms', '/overview'],
+    invalidate: ['/telemetry', '/sensors', '/alarms', '/overview', '/history'],
     success: (r) => r.duplicates ? 'A reading already exists at that time. Nothing was changed.' : r.alarmsRaised ? `Recorded. ${r.alarmsRaised} alarm${r.alarmsRaised > 1 ? 's' : ''} raised.` : 'Reading recorded',
     onSuccess: () => { setValue(''); setTried(false); onOpenChange(false); },
   });
