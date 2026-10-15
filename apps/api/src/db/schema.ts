@@ -830,3 +830,84 @@ export const simulationRuns = pgTable(
   },
   (t) => [index('simulation_runs_org_idx').on(t.orgId, t.status)],
 );
+
+// ---------------- measurement corrections (provenance-preserving) ----------------
+
+/**
+ * Corrections never overwrite telemetry_readings: the original row is kept and a
+ * correction record supersedes its value for display/aggregation, with who/why/when.
+ */
+export const telemetryCorrections = pgTable(
+  'telemetry_corrections',
+  {
+    id: pk(),
+    orgId: orgRef(),
+    sensorId: uuid('sensor_id').notNull().references(() => sensors.id, { onDelete: 'cascade' }),
+    readingId: bigint('reading_id', { mode: 'number' }).notNull().references(() => telemetryReadings.id, { onDelete: 'cascade' }),
+    originalValue: doublePrecision('original_value').notNull(),
+    correctedValue: doublePrecision('corrected_value'),
+    /** 'correct' replaces the value; 'invalidate' marks the reading as excluded. */
+    action: text('action').$type<'correct' | 'invalidate'>().notNull(),
+    reason: text('reason').notNull(),
+    correctedBy: uuid('corrected_by').references(() => users.id),
+    createdAt: createdAt(),
+  },
+  (t) => [index('telemetry_corrections_reading_idx').on(t.readingId, t.createdAt), index('telemetry_corrections_sensor_idx').on(t.sensorId)],
+);
+
+// ---------------- glasses UI profiles ----------------
+
+export const uiProfiles = pgTable(
+  'ui_profiles',
+  {
+    id: pk(),
+    orgId: orgRef(),
+    name: text('name').notNull(),
+    description: text('description'),
+    createdBy: uuid('created_by').references(() => users.id),
+    archivedAt: ts('archived_at'),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [index('ui_profiles_org_idx').on(t.orgId)],
+);
+
+export const uiProfileVersions = pgTable(
+  'ui_profile_versions',
+  {
+    id: pk(),
+    orgId: orgRef(),
+    profileId: uuid('profile_id').notNull().references(() => uiProfiles.id, { onDelete: 'cascade' }),
+    version: integer('version').notNull(),
+    config: jsonb('config').$type<Record<string, unknown>>().notNull(),
+    status: text('status').$type<'draft' | 'published' | 'superseded'>().notNull().default('draft'),
+    notes: text('notes'),
+    createdBy: uuid('created_by').references(() => users.id),
+    createdAt: createdAt(),
+    publishedBy: uuid('published_by').references(() => users.id),
+    publishedAt: ts('published_at'),
+  },
+  (t) => [uniqueIndex('ui_profile_versions_uq').on(t.profileId, t.version), index('ui_profile_versions_status_idx').on(t.profileId, t.status)],
+);
+
+/** Assignment precedence (most specific wins): device > user > role > org. */
+export const uiProfileAssignments = pgTable(
+  'ui_profile_assignments',
+  {
+    id: pk(),
+    orgId: orgRef(),
+    profileId: uuid('profile_id').notNull().references(() => uiProfiles.id, { onDelete: 'cascade' }),
+    scope: text('scope').$type<'org' | 'role' | 'user' | 'device'>().notNull(),
+    role: roleEnum('role'),
+    userId: uuid('user_id').references(() => users.id, { onDelete: 'cascade' }),
+    deviceId: uuid('device_id').references(() => devices.id, { onDelete: 'cascade' }),
+    createdBy: uuid('created_by').references(() => users.id),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    uniqueIndex('ui_assign_org_uq').on(t.orgId).where(sql`${t.scope} = 'org'`),
+    uniqueIndex('ui_assign_role_uq').on(t.orgId, t.role).where(sql`${t.scope} = 'role'`),
+    uniqueIndex('ui_assign_user_uq').on(t.orgId, t.userId).where(sql`${t.scope} = 'user'`),
+    uniqueIndex('ui_assign_device_uq').on(t.orgId, t.deviceId).where(sql`${t.scope} = 'device'`),
+  ],
+);

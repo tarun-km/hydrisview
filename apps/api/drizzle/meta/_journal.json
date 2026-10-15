@@ -15,6 +15,20 @@
       "when": 1791962687477,
       "tag": "0001_rls",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1792052905543,
+      "tag": "0002_corrections_ui_profiles",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1792052908054,
+      "tag": "0003_rls_new_tables",
+      "breakpoints": true
     }
   ]
 }
