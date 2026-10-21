@@ -10,8 +10,8 @@ import type { FastifyInstance } from 'fastify';
 import { and, asc, desc, eq, inArray } from 'drizzle-orm';
 import { z } from 'zod';
 import {
-  agreementOf, agreementScore, applyPlausibility, crossCheck, inferType, keyValuesFromLines, normalizeValue, reviewProgress, splitUnit, structureFromOcr,
-  type AuditExtraction, type AuditField, type AuditFigure, type AuditTable, type BBox, type OcrLine, type OcrReading,
+  agreementOf, agreementScore, applyPlausibility, checkTables, crossCheck, inferType, keyValuesFromLines, normalizeValue, reviewProgress, splitUnit, structureFromOcr,
+  guessTitle, type AuditExtraction, type AuditField, type AuditFigure, type AuditTable, type BBox, type OcrLine, type OcrReading,
 } from '@hydris/domain';
 import type { Ctx } from '../context';
 import { authenticate, tenant } from '../context';
@@ -87,6 +87,7 @@ export function mergeVision(v: VisionExtraction, readings: OcrReading[][]): Audi
   const tables: AuditTable[] = v.tables.map((t, i) => ({
     id: `p${t.page}-t${i + 1}`, title: t.title, page: t.page, bbox: toBox(t.box), header: t.header, rows: t.rows, conf: 0.9, engine: VISION_ENGINE, status: 'pending',
   }));
+  checkTables(tables, fields);
   return {
     title: v.title, docType: v.doc_type, summary: v.summary,
     pages: v.pages.map((p) => ({ page: p.page, text: p.markdown, engine: VISION_ENGINE })),
@@ -516,14 +517,3 @@ export async function auditDocRoutes(app: FastifyInstance, ctx: Ctx) {
 
 }
 
-/** Largest-type line near the top of page 1 that is not a label/value pair (OCR noise tokens stripped). */
-function guessTitle(readings: OcrReading[][]): string | null {
-  const lines = readings[0]?.[0]?.lines ?? [];
-  const median = (xs: number[]) => [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)] ?? 0;
-  const cand = lines.slice(0, 8).map((l) => {
-    const words = l.words.filter((w) => /[A-Za-z0-9]{2,}/.test(w.text) && w.conf > 50);
-    return { text: normalizeValue(words.map((w) => w.text).join(' ')), h: median(words.map((w) => w.bbox[3])), conf: l.conf };
-  }).filter((c) => c.text.length >= 6 && !/[:=]/.test(c.text) && c.conf > 55);
-  cand.sort((a, b) => b.h - a.h);
-  return cand[0] ? cand[0].text.slice(0, 120) : null;
-}

@@ -197,7 +197,7 @@ function squareToQuad(q: Pt[]): number[] {
 }
 
 /** Warp the page inside `quad` (0..1 coordinates of `src`) to a flat A4 canvas. */
-export function warpToA4(src: HTMLCanvasElement | HTMLImageElement | ImageBitmap, quad: Quad, outW = 1240): HTMLCanvasElement {
+export function warpToA4(src: HTMLCanvasElement | HTMLImageElement | ImageBitmap, quad: Quad, outW = 1654): HTMLCanvasElement {
   const sw = src.width;
   const sh = src.height;
   const sc = document.createElement('canvas');

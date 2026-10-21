@@ -1,11 +1,22 @@
 pluginManagement {
-  repositories { google(); mavenCentral(); gradlePluginPortal() }
+  repositories {
+    google {
+      content {
+        includeGroupByRegex("com\\.android.*")
+        includeGroupByRegex("com\\.google.*")
+        includeGroupByRegex("androidx.*")
+      }
+    }
+    mavenCentral()
+    gradlePluginPortal()
+  }
   plugins {
-    id("com.android.application") version "8.7.3"
-    id("org.jetbrains.kotlin.android") version "2.2.0"
+    id("com.android.application") version "8.11.1"
+    id("org.jetbrains.kotlin.android") version "2.2.21"
   }
 }
 dependencyResolutionManagement {
+  repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
   repositories { google(); mavenCentral() }
 }
 rootProject.name = "hydris-glasses-bridge"

@@ -1,165 +1,322 @@
 package ai.hydris.glassesbridge
 
+import android.Manifest.permission.BLUETOOTH
+import android.Manifest.permission.BLUETOOTH_CONNECT
+import android.Manifest.permission.INTERNET
 import android.annotation.SuppressLint
-import android.graphics.Bitmap
-import android.graphics.ImageFormat
-import android.graphics.Rect
-import android.graphics.YuvImage
+import android.content.Intent
 import android.os.Bundle
-import android.util.Base64
+import android.speech.tts.TextToSpeech
+import android.speech.tts.UtteranceProgressListener
+import android.util.Log
 import android.webkit.JavascriptInterface
 import android.webkit.PermissionRequest
 import android.webkit.WebChromeClient
 import android.webkit.WebView
+import android.webkit.WebViewClient
 import androidx.activity.ComponentActivity
+import androidx.activity.result.contract.ActivityResultContracts.RequestMultiplePermissions
 import androidx.lifecycle.lifecycleScope
+import com.meta.wearable.dat.camera.Camera
 import com.meta.wearable.dat.camera.addCamera
-import com.meta.wearable.dat.camera.types.PhotoData
 import com.meta.wearable.dat.camera.types.StreamConfiguration
+import com.meta.wearable.dat.camera.types.StreamState
 import com.meta.wearable.dat.camera.types.VideoQuality
 import com.meta.wearable.dat.core.Wearables
 import com.meta.wearable.dat.core.selectors.AutoDeviceSelector
+import com.meta.wearable.dat.core.session.DeviceSession
 import com.meta.wearable.dat.core.session.DeviceSessionState
 import com.meta.wearable.dat.core.types.Permission
+import com.meta.wearable.dat.core.types.PermissionStatus
 import com.meta.wearable.dat.core.types.RegistrationState
-import java.io.ByteArrayOutputStream
+import com.meta.wearable.dat.core.voiceinvocations.isVoiceInvocationsIntent
+import com.meta.wearable.dat.inputs.Inputs
+import com.meta.wearable.dat.inputs.addInputs
+import com.meta.wearable.dat.inputs.types.CapturePressType
+import com.meta.wearable.dat.inputs.types.InputEvent
+import com.meta.wearable.dat.inputs.types.InputSource
+import com.meta.wearable.dat.inputs.types.InputsConfiguration
+import com.meta.wearable.dat.speech.Speech
+import com.meta.wearable.dat.speech.addSpeech
+import com.meta.wearable.dat.speech.types.SpeechState
+import java.util.Locale
+import java.util.concurrent.atomic.AtomicBoolean
+import kotlin.coroutines.resume
+import kotlinx.coroutines.CancellableContinuation
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
+import org.json.JSONObject
 
 /**
- * Hydris glasses bridge.
+ * Hydris glasses bridge: hosts the Hydris glasses web app and connects it to Ray-Ban Meta glasses
+ * through Meta's Wearables Device Access Toolkit (DAT 1.0.x).
  *
- * Hosts the Hydris glasses web app (/glasses) in a WebView and bridges the Ray-Ban Meta camera
- * into it with Meta's Wearables Device Access Toolkit (DAT):
- *   - registers with the Meta AI app and requests the glasses CAMERA permission;
- *   - opens a device session, adds the camera and streams frames to the page
- *     (window.__hydrisCameraFrame) for live A4 detection;
- *   - on capture, calls camera.stream.capturePhoto() and returns the still
- *     (window.__hydrisCameraPhoto).
- * The page side of this contract lives in apps/web/src/glasses/camera.ts.
+ * Page contract (apps/web/src/glasses/camera.ts and voice.ts):
+ *   HydrisNative.startPreview()/stopPreview()/capturePhoto(id)/deviceName()
+ *   HydrisNative.startSpeech()/stopSpeech()/speak(text)/connectGlasses()/status()
+ *   → window.__hydrisCameraFrame(jpegB64, w, h), __hydrisCameraPhoto(id, jpegB64), __hydrisCameraError(id, msg)
+ *   → window.__hydrisSpeech(text, isFinal), __hydrisSpeechState(state, detail), __hydrisSpoken()
+ *   → window dispatches 'hydris:glasses-capture-button' on a short press of the glasses capture button.
  */
 class MainActivity : ComponentActivity() {
-  private lateinit var web: WebView
-  private var camera: Any? = null // DAT camera handle (typed via addCamera's result)
-  private var previewJob: Job? = null
-  private var previewOn = false
-  private var lastFrameAt = 0L
+  companion object {
+    private const val TAG = "HydrisBridge"
+    private val ANDROID_PERMISSIONS = arrayOf(BLUETOOTH, BLUETOOTH_CONNECT, INTERNET)
+    private const val PREVIEW_INTERVAL_MS = 120L // ~8 fps is enough for page detection
+  }
 
-  private val permissionLauncher = registerForActivityResult(Wearables.RequestPermissionContract()) { result ->
-    js("console.log('Hydris bridge: camera permission ' + ${quote(result.toString())})")
+  private lateinit var web: WebView
+  private var tts: TextToSpeech? = null
+  private var initialized = false
+
+  // ---- DAT state
+  private var session: DeviceSession? = null
+  private var sessionReady: CompletableDeferred<DeviceSession>? = null
+  private var camera: Camera? = null
+  private var speech: Speech? = null
+  private var inputs: Inputs? = null
+  private val previewOn = AtomicBoolean(false)
+  private val speechWanted = AtomicBoolean(false)
+  private var lastFrameAt = 0L
+  private var frameJob: Job? = null
+  private val cameraMutex = Mutex()
+
+  // ---- permissions
+  private val androidPermissions = registerForActivityResult(RequestMultiplePermissions()) { result ->
+    if (result.values.all { it }) initWearables() else emitStatus("Bluetooth permission is required to reach the glasses")
+  }
+  private var datPermissionContinuation: CancellableContinuation<PermissionStatus>? = null
+  private val datPermissionLauncher = registerForActivityResult(Wearables.RequestPermissionContract()) { result ->
+    datPermissionContinuation?.resume(result.getOrDefault(PermissionStatus.Denied))
+    datPermissionContinuation = null
+  }
+  private val permissionMutex = Mutex()
+
+  /** Check, and if needed request (opens the Meta AI app), a glasses permission. */
+  private suspend fun ensureDatPermission(p: Permission): Boolean {
+    var granted = false
+    Wearables.checkPermissionStatus(p).onSuccess { granted = it == PermissionStatus.Granted }
+    if (granted) return true
+    val status = permissionMutex.withLock {
+      suspendCancellableCoroutine { cont ->
+        datPermissionContinuation = cont
+        cont.invokeOnCancellation { datPermissionContinuation = null }
+        datPermissionLauncher.launch(p)
+      }
+    }
+    return status == PermissionStatus.Granted
   }
 
   @SuppressLint("SetJavaScriptEnabled")
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
-    Wearables.initialize(this).onFailure { error, _ -> toastJs("Wearables init failed: $error") }
-
     web = WebView(this)
     web.settings.javaScriptEnabled = true
     web.settings.domStorageEnabled = true
     web.settings.mediaPlaybackRequiresUserGesture = false
-    // Phone-camera fallback inside the web app still works (getUserMedia).
+    web.webViewClient = WebViewClient()
     web.webChromeClient = object : WebChromeClient() {
+      // The page's phone-camera fallback (getUserMedia) still works inside the bridge.
       override fun onPermissionRequest(request: PermissionRequest) = request.grant(request.resources)
     }
     web.addJavascriptInterface(Bridge(), "HydrisNative")
     setContentView(web)
     web.loadUrl(BuildConfig.HYDRIS_URL + "/glasses")
 
-    lifecycleScope.launch {
-      Wearables.registrationState.collect { state ->
-        if (state == RegistrationState.REGISTERED) permissionLauncher.launch(Permission.CAMERA)
-      }
-    }
-    Wearables.startRegistration(this)
+    tts = TextToSpeech(this) { status -> if (status == TextToSpeech.SUCCESS) tts?.language = Locale.getDefault() }
+    tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
+      override fun onStart(utteranceId: String?) = Unit
+      override fun onDone(utteranceId: String?) = js("window.__hydrisSpoken && window.__hydrisSpoken()")
+      @Deprecated("Deprecated in Java") override fun onError(utteranceId: String?) = js("window.__hydrisSpoken && window.__hydrisSpoken()")
+    })
+    handleVoiceInvocation(intent)
   }
 
-  /** Open a session and start the glasses camera stream (idempotent). */
-  private fun ensureCamera(onReady: () -> Unit) {
-    if (camera != null) return onReady()
-    Wearables.createSession(AutoDeviceSelector()).fold(
-      { session ->
-        lifecycleScope.launch {
-          session.state.collect { state ->
-            if (state == DeviceSessionState.STARTED && camera == null) {
-              session.addCamera(StreamConfiguration(videoQuality = VideoQuality.MEDIUM, frameRate = 24)).fold(
-                { cam ->
-                  camera = cam
-                  cam.stream.start().onFailure { error, _ -> toastJs("Camera stream failed: $error") }
-                  onReady()
-                },
-                { error -> toastJs("Camera unavailable: $error") },
-              )
+  override fun onStart() {
+    super.onStart()
+    androidPermissions.launch(ANDROID_PERMISSIONS)
+  }
+
+  override fun onNewIntent(intent: Intent) {
+    super.onNewIntent(intent)
+    setIntent(intent)
+    handleVoiceInvocation(intent)
+  }
+
+  /** "Hey Meta, start Hydris" → open the assistant. */
+  private fun handleVoiceInvocation(intent: Intent) {
+    if (isVoiceInvocationsIntent(intent)) js("window.dispatchEvent(new CustomEvent('hydris:voice-activate', { detail: {} }))")
+  }
+
+  private fun initWearables() {
+    if (initialized) return
+    Wearables.initialize(this)
+    initialized = true
+    lifecycleScope.launch {
+      Wearables.registrationState.collect { state -> emitStatus("registration: $state") }
+    }
+  }
+
+  /** One device session for camera, speech and inputs; started lazily, reused. */
+  private suspend fun ensureSession(): DeviceSession? {
+    session?.let { s -> if (s.state.value == DeviceSessionState.STARTED) return s }
+    if (Wearables.registrationState.value != RegistrationState.REGISTERED) {
+      Wearables.startRegistration(this)
+      emitStatus("Connect Hydris in the Meta AI app, then try again")
+      return null
+    }
+    val ready = sessionReady ?: CompletableDeferred<DeviceSession>().also { deferred ->
+      sessionReady = deferred
+      Wearables.createSession(AutoDeviceSelector())
+          .onSuccess { created ->
+            session = created
+            lifecycleScope.launch {
+              created.state.collect { state ->
+                if (state == DeviceSessionState.STARTED) { if (!deferred.isCompleted) deferred.complete(created); attachInputs(created) }
+                if (state == DeviceSessionState.STOPPED) resetSession()
+              }
+            }
+            lifecycleScope.launch { created.errors.collect { error -> emitStatus("session: ${error.description}") } }
+            created.start()
+          }
+          .onFailure { error, _ ->
+            emitStatus("No glasses session: ${error.description}")
+            deferred.completeExceptionally(IllegalStateException(error.description))
+            sessionReady = null
+          }
+    }
+    return runCatching { ready.await() }.getOrNull()
+  }
+
+  private fun resetSession() {
+    frameJob?.cancel()
+    camera = null
+    speech = null
+    inputs = null
+    session = null
+    sessionReady = null
+  }
+
+  // ------------------------------------------------------------------ camera
+  private suspend fun ensureCamera(): Camera? = cameraMutex.withLock {
+    camera?.let { c -> if (c.stream.state.value != StreamState.STOPPED && c.stream.state.value != StreamState.CLOSED) return c }
+    val s = ensureSession() ?: return null
+    if (!ensureDatPermission(Permission.CAMERA)) { emitStatus("Camera permission denied in Meta AI"); return null }
+    var added: Camera? = null
+    // Raw (decoded) frames: VideoFrame.buffer holds YUV pixels; photos come from capturePhoto().
+    s.addCamera(StreamConfiguration(videoQuality = VideoQuality.MEDIUM, frameRate = 24))
+        .onSuccess { c -> added = c }
+        .onFailure { error, _ -> emitStatus("Camera unavailable: ${error.description}") }
+    val c = added ?: return null
+    camera = c
+    lifecycleScope.launch { c.stream.errorStream.collect { error -> emitStatus("stream: ${error.description}") } }
+    frameJob = lifecycleScope.launch(Dispatchers.Default) {
+      c.stream.videoStream.collect { frame ->
+        if (!previewOn.get() || frame.isCompressed) return@collect
+        val now = System.currentTimeMillis()
+        if (now - lastFrameAt < PREVIEW_INTERVAL_MS) return@collect
+        lastFrameAt = now
+        val jpeg = FrameCodec.lumaToJpeg(frame.buffer, frame.width, frame.height) ?: return@collect
+        js("window.__hydrisCameraFrame && window.__hydrisCameraFrame('${FrameCodec.b64(jpeg)}', ${frame.width}, ${frame.height})")
+      }
+    }
+    c.stream.start().onFailure { error, _ -> emitStatus("Stream failed: ${error.description}") }
+    // Wait until the stream is live (capturePhoto only works on an active stream).
+    c.stream.state.first { it == StreamState.STREAMING || it == StreamState.STOPPED || it == StreamState.CLOSED }
+    c
+  }
+
+  private fun capture(requestId: String) = lifecycleScope.launch {
+    val c = ensureCamera()
+    if (c == null) { js("window.__hydrisCameraError('$requestId', 'Glasses camera not available')"); return@launch }
+    c.stream.capturePhoto()
+        .onSuccess { photo ->
+          val jpeg = withContext(Dispatchers.Default) { FrameCodec.photoToJpeg(photo) }
+          if (jpeg == null) js("window.__hydrisCameraError('$requestId', 'Could not decode the photo')")
+          else js("window.__hydrisCameraPhoto('$requestId', '${FrameCodec.b64(jpeg)}')")
+        }
+        .onFailure { error, _ -> js("window.__hydrisCameraError('$requestId', ${JSONObject.quote(error.description)})") }
+  }
+
+  // ------------------------------------------------------------------ capture button
+  private fun attachInputs(s: DeviceSession) {
+    if (inputs != null) return
+    s.addInputs(InputsConfiguration(sources = setOf(InputSource.CAPTURE_BUTTON), consumeBack = false))
+        .onSuccess { i ->
+          inputs = i
+          lifecycleScope.launch {
+            i.events.collect { event ->
+              if (event is InputEvent.Capture && event.pressType == CapturePressType.SHORT_PRESS) {
+                js("window.dispatchEvent(new CustomEvent('hydris:glasses-capture-button'))")
+              }
             }
           }
         }
-        session.start()
-      },
-      { error -> toastJs("No glasses session: $error") },
-    )
+        .onFailure { error, _ -> Log.w(TAG, "inputs unavailable: ${error.description}") }
   }
 
-  private fun startFrames() {
-    val cam = camera as? com.meta.wearable.dat.camera.Camera ?: return
-    previewJob?.cancel()
-    previewJob = lifecycleScope.launch {
-      cam.stream.videoStream.collect { frame ->
-        if (!previewOn) return@collect
-        val now = System.currentTimeMillis()
-        if (now - lastFrameAt < 120) return@collect // ~8 fps is enough for page detection
-        lastFrameAt = now
-        // DAT decodes on the phone; VideoFrame.buffer holds YUV pixel data.
-        val jpeg = yuvToJpeg(frame.buffer, frame.width, frame.height, 70) ?: return@collect
-        js("window.__hydrisCameraFrame && window.__hydrisCameraFrame('${b64(jpeg)}', ${frame.width}, ${frame.height})")
-      }
-    }
-  }
-
-  private fun capture(requestId: String) {
-    val cam = camera as? com.meta.wearable.dat.camera.Camera ?: return js("window.__hydrisCameraError('$requestId', 'Glasses camera not ready')")
-    lifecycleScope.launch {
-      cam.stream.capturePhoto().fold(
-        { photo ->
-          val bytes = when (photo) {
-            is PhotoData.Bitmap -> ByteArrayOutputStream().also { photo.bitmap.compress(Bitmap.CompressFormat.JPEG, 92, it) }.toByteArray()
-            is PhotoData.HEIC -> heicToJpeg(photo.data)
+  // ------------------------------------------------------------------ speech (glasses microphone)
+  private fun startSpeech() = lifecycleScope.launch {
+    speechWanted.set(true)
+    speech?.let { it.start(); return@launch }
+    val s = ensureSession() ?: return@launch speechState("error", "Glasses not connected")
+    if (!ensureDatPermission(Permission.MICROPHONE)) return@launch speechState("error", "Microphone permission denied in Meta AI")
+    s.addSpeech()
+        .onSuccess { sp ->
+          speech = sp
+          var started = false
+          lifecycleScope.launch {
+            sp.transcriptions.collect { r ->
+              r ?: return@collect
+              js("window.__hydrisSpeech && window.__hydrisSpeech(${JSONObject.quote(r.text)}, ${r.isFinal})")
+            }
           }
-          js("window.__hydrisCameraPhoto('$requestId', '${b64(bytes)}')")
-        },
-        { error -> js("window.__hydrisCameraError('$requestId', ${quote(error.toString())})") },
-      )
-    }
+          lifecycleScope.launch {
+            sp.state.collect { st ->
+              when (st) {
+                SpeechState.STARTED -> { started = true; speechState("listening", null) }
+                // Recognition ends after silence; keep "Hey Hydris" always on while wanted.
+                SpeechState.STOPPED -> if (started && speechWanted.get()) sp.start() else speechState("idle", null)
+                else -> Unit
+              }
+            }
+          }
+          lifecycleScope.launch { sp.errors.collect { e -> if (e != null) speechState("error", e.description) } }
+          sp.start().onFailure { error, _ -> speechState("error", error.description) }
+        }
+        .onFailure { error, _ -> speechState("error", "Speech unavailable: ${error.description}") }
   }
 
+  private fun speechState(state: String, detail: String?) =
+      js("window.__hydrisSpeechState && window.__hydrisSpeechState('$state', ${if (detail == null) "undefined" else JSONObject.quote(detail)})")
+
+  // ------------------------------------------------------------------ page bridge
   inner class Bridge {
-    @JavascriptInterface fun startPreview() = runOnUiThread { previewOn = true; ensureCamera { startFrames() } }
-    @JavascriptInterface fun stopPreview() { previewOn = false }
-    @JavascriptInterface fun capturePhoto(requestId: String) = runOnUiThread { ensureCamera { capture(requestId) } }
+    @JavascriptInterface fun startPreview() { previewOn.set(true); lifecycleScope.launch { ensureCamera() } }
+    @JavascriptInterface fun stopPreview() = previewOn.set(false)
+    @JavascriptInterface fun capturePhoto(requestId: String) { capture(requestId) }
     @JavascriptInterface fun deviceName(): String = "Ray-Ban Meta"
+    @JavascriptInterface fun startSpeech() { this@MainActivity.startSpeech() }
+    @JavascriptInterface fun stopSpeech() { speechWanted.set(false); speech?.stop() }
+    @JavascriptInterface fun speak(text: String) { tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "hydris-${System.nanoTime()}") }
+    @JavascriptInterface fun connectGlasses() = runOnUiThread { Wearables.startRegistration(this@MainActivity) }
+    @JavascriptInterface fun status(): String = Wearables.registrationState.value.toString()
   }
 
-  // ---- helpers
   private fun js(code: String) = runOnUiThread { web.evaluateJavascript(code, null) }
-  private fun toastJs(msg: String) = js("console.warn(${quote(msg)})")
-  private fun quote(s: String) = "'" + s.replace("\\", "\\\\").replace("'", "\\'") + "'"
-  private fun b64(bytes: ByteArray) = Base64.encodeToString(bytes, Base64.NO_WRAP)
+  private fun emitStatus(msg: String) { Log.i(TAG, msg); js("console.info(${JSONObject.quote("[Hydris bridge] $msg")})") }
 
-  /** I420/NV21 → JPEG via YuvImage (converts planar I420 to NV21 first). */
-  private fun yuvToJpeg(buffer: java.nio.ByteBuffer, w: Int, h: Int, quality: Int): ByteArray? = try {
-    val src = ByteArray(buffer.remaining()).also { buffer.duplicate().get(it) }
-    val ySize = w * h
-    val nv21 = if (src.size >= ySize * 3 / 2) {
-      val out = ByteArray(ySize * 3 / 2)
-      System.arraycopy(src, 0, out, 0, ySize)
-      val q = ySize / 4
-      for (i in 0 until q) { out[ySize + 2 * i] = src[ySize + q + i]; out[ySize + 2 * i + 1] = src[ySize + i] }
-      out
-    } else src
-    ByteArrayOutputStream().also { YuvImage(nv21, ImageFormat.NV21, w, h, null).compressToJpeg(Rect(0, 0, w, h), quality, it) }.toByteArray()
-  } catch (e: Exception) { null }
-
-  private fun heicToJpeg(data: ByteArray): ByteArray {
-    val bmp = android.graphics.BitmapFactory.decodeByteArray(data, 0, data.size)
-    return ByteArrayOutputStream().also { bmp.compress(Bitmap.CompressFormat.JPEG, 92, it) }.toByteArray()
+  override fun onDestroy() {
+    speechWanted.set(false)
+    tts?.shutdown()
+    session?.stop()
+    super.onDestroy()
   }
 }

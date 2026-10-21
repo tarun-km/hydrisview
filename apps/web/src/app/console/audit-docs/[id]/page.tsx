@@ -292,10 +292,16 @@ function TableCard({ t, selected, canReview, busy, onSelect, onConfirm, onFlag, 
         <span className="text-[11.5px] text-muted">p{t.page} · {engineLabel(t.engine)}</span>
         <span className="ml-auto"><Chip tone={REVIEW_TONE[t.status]}>{t.status}</Chip></span>
       </div>
+      {t.issues?.map((is, k) => (
+        <p key={k} className="flex flex-wrap items-center gap-2 text-[12.5px] text-[var(--color-high)]" onClick={(e) => e.stopPropagation()}>
+          <AlertTriangle size={13} aria-hidden />{is.message}
+          {is.suggestion && canReview && <Button disabled={busy} onClick={() => onSave(header, rows.map((r, ri) => (ri === is.row ? Object.assign([...r], { [is.col]: is.suggestion! }) : r)))}>Use {is.suggestion}</Button>}
+        </p>
+      ))}
       <div className="overflow-x-auto">
         <table className="w-full border-collapse text-[13px]">
           <thead><tr>{Array.from({ length: cols }, (_, c) => <th key={c} className="border border-line bg-bg-2 px-2 py-1.5 text-left font-medium">{cell(header[c] ?? '', (v) => setHeader((h) => Object.assign([...h], { [c]: v })), `Header ${c + 1}`, true)}</th>)}</tr></thead>
-          <tbody>{rows.map((r, ri) => <tr key={ri}>{Array.from({ length: cols }, (_, c) => <td key={c} className="border border-line px-2 py-1.5 num">{cell(r[c] ?? '', (v) => setRows((rs) => rs.map((row, i) => (i === ri ? Object.assign([...row], { [c]: v }) : row))), `Row ${ri + 1} column ${c + 1}`)}</td>)}</tr>)}</tbody>
+          <tbody>{rows.map((r, ri) => <tr key={ri}>{Array.from({ length: cols }, (_, c) => <td key={c} className={`border border-line px-2 py-1.5 num ${t.issues?.some((x) => x.row === ri && x.col === c) ? 'bg-[rgb(255_106_61/0.15)] text-[var(--color-high)]' : ''}`}>{cell(r[c] ?? '', (v) => setRows((rs) => rs.map((row, i) => (i === ri ? Object.assign([...row], { [c]: v }) : row))), `Row ${ri + 1} column ${c + 1}`)}</td>)}</tr>)}</tbody>
         </table>
       </div>
       {canReview && (

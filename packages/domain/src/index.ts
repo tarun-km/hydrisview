@@ -9,3 +9,4 @@ export * from './random';
 export * from './scenarios';
 export * from './uiprofile';
 export * from './auditdoc';
+export * from './voice';

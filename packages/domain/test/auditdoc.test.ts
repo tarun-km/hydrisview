@@ -63,3 +63,17 @@ test('values both engines agree on are still range-checked (dropped decimal poin
   assert.ok(fields[0]!.conf <= 0.4);
   assert.match(fields[0]!.note ?? '', /pH/);
 });
+
+test('table cells are range-checked; a matching labelled value is offered as the fix', () => {
+  const lines = [
+    line(0.10, [[0.05, 'Outlet pH: 7.3']]),
+    line(0.40, [[0.05, 'Parameter'], [0.35, 'Limit'], [0.6, 'Result']]),
+    line(0.43, [[0.05, 'pH'], [0.35, '6.5-8.5'], [0.6, '73']]),
+    line(0.46, [[0.05, 'TSS'], [0.35, '100'], [0.6, '38']]),
+    line(0.49, [[0.05, 'COD'], [0.35, '250'], [0.6, '212']]),
+  ];
+  const r = structureFromOcr(1, [{ engine: 'a', text: '', conf: 90, lines }]);
+  const t = r.tables[0]!;
+  assert.equal(t.issues?.length, 1);
+  assert.deepEqual([t.issues![0]!.row, t.issues![0]!.col, t.issues![0]!.suggestion], [0, 2, '7.3']);
+});

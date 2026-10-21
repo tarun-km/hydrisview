@@ -2,9 +2,10 @@
 
 import {
   DEFAULT_UI_PROFILE_CONFIG, MEASURAND_DEFS, SCENARIOS, applyMeasurementProfile, normalizeUiProfileConfig, type UiProfileConfig, SIM_PLANT, SIM_STEP_SECONDS, evaluateThreshold, freshness, scenarioFrame, stepOutcome,
-  agreementScore, structureFromOcr, type AuditFigure, type OcrReading, type Freshness, type InspectionStep, type ScenarioKey, type StepValue,
+  agreementScore, guessTitle, structureFromOcr, type AuditFigure, type OcrReading, type Freshness, type InspectionStep, type ScenarioKey, type StepValue,
 } from '@hydris/domain';
 import { DeviceLink } from './link';
+import { answerFromContext } from './voice';
 
 export interface GAlarm { id: string; title: string; severity: 'critical' | 'high' | 'medium' | 'low'; state: string; triggeredAt: string; assetTag: string | null; triggerValue: number | null; unit: string | null; recommendedAction: string | null; synthetic: boolean }
 export interface GInspectionSummary { id: string; title: string; status: string; priority: string; dueAt: string | null; assetTag: string | null; assetName: string | null; stepCount: number; revision: number }
@@ -56,11 +57,13 @@ export interface GlassesData {
   markNotificationsRead(): Promise<void>;
   documents(): Promise<GDocSummary[]>;
   document(id: string): Promise<GDoc>;
+  ask(text: string, history?: { role: 'user' | 'assistant'; text: string }[]): Promise<GAnswer>;
   auditScans(): Promise<GAuditScan[]>;
   submitAuditScan(body: AuditScanBody): Promise<GAuditScan>;
   enhanceAuditScan(id: string): Promise<void>;
 }
 
+export interface GAnswer { answer: string; intent: string; engine: string; facts: { label: string; value: string; unit?: string | null; at?: string | null; source?: string | null; ref?: string }[] }
 export interface GAuditScan {
   id: string; title: string; docType: string; status: 'processing' | 'in_review' | 'verified' | 'approved' | 'rejected'; pageCount: number; createdAt: string;
   aiStatus: string; agreement: number | null; fields: number; tables: number; figures: number; attention: number;
@@ -99,6 +102,17 @@ export class LiveData implements GlassesData {
   }
   async acknowledge(id: string) {
     await this.link.call(`/alarms/${id}/acknowledge`, { method: 'POST', json: {} });
+  }
+  async ask(text: string, history: { role: 'user' | 'assistant'; text: string }[] = []): Promise<GAnswer> {
+    try {
+      return await this.link.call<GAnswer>('/assistant/ask', { method: 'POST', json: { text, history } });
+    } catch (e) {
+      // Offline: answer from the last cached context and say so.
+      const c = cachedContext();
+      if (!isNetwork(e) || !c) throw e;
+      const a = answerFromContext(c.v, text);
+      return { ...a, answer: `${a.answer} (offline - data from ${new Date(c.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })})`, engine: 'offline-cache', facts: [] };
+    }
   }
   auditScans() {
     return this.link.call<GAuditScan[]>('/audit-docs?mine=true');
@@ -173,6 +187,9 @@ export class DemoData implements GlassesData {
   previewConfig: UiProfileConfig | null = null;
   constructor(public scenario: ScenarioKey) {}
   private scans: GAuditScan[] = [];
+  async ask(text: string): Promise<GAnswer> {
+    return { ...answerFromContext(await this.context(), text), engine: 'demo', facts: [] };
+  }
   async auditScans() {
     return this.scans;
   }
@@ -181,7 +198,7 @@ export class DemoData implements GlassesData {
     const parts = body.pages.map((p, i) => structureFromOcr(i + 1, p.readings, p.figures));
     const fields = parts.flatMap((x) => x.fields);
     const scan: GAuditScan = {
-      id: `demo-${Date.now()}`, title: body.title || parts[0]?.text.text.split(/\r?\n/).find((l) => l.trim().length > 6 && !l.includes(':'))?.trim() || 'Audit scan', docType: 'general',
+      id: `demo-${Date.now()}`, title: body.title || guessTitle(body.pages.map((p) => p.readings)) || 'Audit scan', docType: 'general',
       status: 'in_review', pageCount: body.pages.length, createdAt: new Date().toISOString(), aiStatus: 'unavailable', agreement: agreementScore(fields),
       fields: fields.length, tables: parts.reduce((n, x) => n + x.tables.length, 0), figures: parts.reduce((n, x) => n + x.figures.length, 0), attention: fields.filter((f) => f.agreement === 'mismatch' || f.conf < 0.75).length,
       review: { total: fields.length, done: 0, flagged: 0, pending: fields.length, complete: false },

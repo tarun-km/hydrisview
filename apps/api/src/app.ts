@@ -19,6 +19,7 @@ import { alarmRoutes } from './modules/alarms';
 import { inspectionModule } from './modules/inspections';
 import { maintenanceRoutes } from './modules/maintenance';
 import { auditDocRoutes } from './modules/audit-docs';
+import { voiceAssistantRoutes } from './modules/voice-assistant';
 import { deviceRoutes } from './modules/devices';
 import { realtimeRoutes } from './modules/realtime';
 import { insightRoutes } from './modules/insights';
@@ -72,7 +73,7 @@ export async function buildApp(opts: BuildOptions): Promise<{ app: FastifyInstan
 
   // Must precede route registration: appends glasses UI-profile checks to matching routes.
   installProfileEnforcement(app, ctx);
-  const mods = [authRoutes, orgRoutes, plantRoutes, telemetryRoutes, alarmRoutes, inspectionModule, maintenanceRoutes, deviceRoutes, realtimeRoutes, insightRoutes, publicRoutes, simulationRoutes, uiProfileRoutes, auditDocRoutes];
+  const mods = [authRoutes, orgRoutes, plantRoutes, telemetryRoutes, alarmRoutes, inspectionModule, maintenanceRoutes, deviceRoutes, realtimeRoutes, insightRoutes, publicRoutes, simulationRoutes, uiProfileRoutes, auditDocRoutes, voiceAssistantRoutes];
   for (const m of mods) await app.register(async (scope) => m(scope, ctx, opts), { prefix: '/api' });
 
   return { app, ctx };

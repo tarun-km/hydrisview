@@ -3,7 +3,7 @@
 import QRCode from 'qrcode';
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
-  AlertTriangle, Ban, Bell, Boxes, FileText, Gauge, Library, Minus, TrendingDown, TrendingUp, Layers, LocateFixed, Map as MapIcon, BookOpen, Sparkles, Check, ChevronRight, CircleDot, ClipboardCheck, Cog, Glasses, Info, RefreshCw, ShieldAlert, Signal, SignalZero, Wifi, WifiOff, Wrench, X, ScanLine,
+  AlertTriangle, Ban, Bell, Boxes, FileText, Gauge, Library, Minus, TrendingDown, TrendingUp, Layers, LocateFixed, Map as MapIcon, BookOpen, Sparkles, Check, ChevronRight, CircleDot, ClipboardCheck, Cog, Glasses, Info, RefreshCw, ShieldAlert, Signal, SignalZero, Wifi, WifiOff, Wrench, X, ScanLine, Mic,
 } from 'lucide-react';
 import {
   DEFAULT_UI_PROFILE_CONFIG, FRESHNESS_LABELS, actionAllowed, applyMeasurementProfile, inspectionProgress, isScenarioKey, normalizeUiProfileConfig, screenEnabled,
@@ -15,6 +15,7 @@ import { DemoData, LiveData, StaleError, cachedContext, type GAlarm, type GAsset
 import { emitToHost, useHudInput, type InputKey } from './input';
 import { PlantMap, routeDistance } from './PlantMap';
 import { AuditScanScreen } from './AuditScan';
+import { VoiceAssistant } from './VoiceAssistant';
 import { HudContext, HudItem, HudMetric, HudPill, HudTitle, SEV_HUD, useFitScale, useHud, type HudControl } from './hud';
 
 type Screen =
@@ -303,6 +304,7 @@ export function GlassesApp({ demoScenario, simulator, profilePreview }: { demoSc
             <div style={{ zoom: cfg.layout.textScale, width: `${100 / cfg.layout.textScale}%`, height: `${100 / cfg.layout.textScale}%` }}>{body}</div>
           </div>
           {phase === 'app' && <HintBar hand={cfg.layout.handedness} />}
+          {phase === 'app' && ctx && <VoiceAssistant data={data} online={online} />}
           {phase === 'app' && stack.length > 1 && (
             <button type="button" onClick={pop} aria-label="Back" className="absolute bottom-[8px] left-8 z-20 flex h-[38px] items-center gap-2 rounded-full bg-white/10 px-4 text-[16px] text-white/80 hover:bg-white/20">
               ← Back
@@ -326,12 +328,13 @@ function StatusBar({ ctx, online, queued, stream, demo }: { ctx: GContext; onlin
   return (
     <div className="absolute inset-x-0 top-0 flex h-[64px] items-center gap-3 px-8 text-[18px]">
       <span className="num font-medium">{now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-      <span className="text-white/50">{ctx.site?.code ?? ''}</span>
-      {demo && <span className="rounded-full border border-dashed border-lime/60 px-2.5 text-[15px] text-lime">synthetic demo</span>}
-      <span className="ml-auto flex items-center gap-2">
+      <span className="truncate text-white/50">{ctx.site?.code ?? ''}</span>
+      {demo && <span className="flex-none whitespace-nowrap rounded-full border border-dashed border-lime/60 px-2.5 text-[15px] text-lime">demo</span>}
+      <span className="ml-auto flex min-w-0 items-center gap-3">
+        <span id="hud-voice-slot" className="flex items-center" />
         {queued > 0 && <span className="num rounded-full bg-[#f26414] px-2.5 text-[15px] font-semibold text-black">{queued} queued</span>}
         {online ? (stream === 'live' ? <Signal size={22} className="text-lime" aria-label="Connected" /> : <Wifi size={22} className="text-white/60" aria-label="Connecting" />) : <SignalZero size={22} className="text-[#ff9a5c]" aria-label="Offline" />}
-        <span className="grid h-[38px] w-[38px] place-items-center rounded-full bg-white/10 text-[15px]">{ctx.operator.name.split(' ').map((p) => p[0]).slice(0, 2).join('')}</span>
+        <span className="grid h-[38px] w-[38px] flex-none place-items-center rounded-full bg-white/10 text-[15px]">{ctx.operator.name.split(' ').map((p) => p[0]).slice(0, 2).join('')}</span>
       </span>
     </div>
   );
@@ -556,7 +559,7 @@ function Home({ ctx, nav }: { ctx: GContext; nav: Nav }) {
   const catalog: Partial<Record<UiScreen, Item>> = {
     alerts: { key: 'alerts', icon: <AlertTriangle size={26} />, label: 'Alerts', meta: ctx.alarms.length ? `${ctx.alarms.length} open${crit ? ` · ${crit} critical` : ''}` : 'none', tone: crit ? 'critical' : active ? 'high' : undefined, go: () => nav.push({ name: 'alerts' }) },
     inspections: { key: 'insp', icon: <ClipboardCheck size={26} />, label: 'Inspections', meta: `${ctx.inspections.length} assigned`, go: () => nav.push({ name: 'inspections' }) },
-    tasks: { key: 'tasks', icon: <Wrench size={26} />, label: 'Maintenance', meta: `${ctx.tasks.length} tasks`, go: () => nav.push({ name: 'tasks' }) },
+    tasks: { key: 'tasks', icon: <Wrench size={26} />, label: 'Maintenance', meta: `${ctx.tasks.length} task${ctx.tasks.length === 1 ? '' : 's'}`, go: () => nav.push({ name: 'tasks' }) },
     map: { key: 'map', icon: <MapIcon size={26} />, label: 'Plant map', meta: 'route to next asset', go: () => nav.push({ name: 'map' }) },
     measurements: { key: 'meas', icon: <Gauge size={26} />, label: 'Live measurements', meta: `${ms.length} sensors`, tone: ms.some((m) => m.threshold === 'alarm') ? 'high' : undefined, go: () => nav.push({ name: 'measurements' }) },
     assets: { key: 'assets', icon: <Boxes size={26} />, label: 'Assets', meta: `${ctx.assets?.length ?? 0} on site`, go: () => nav.push({ name: 'assets' }) },
@@ -605,7 +608,7 @@ function Home({ ctx, nav }: { ctx: GContext; nav: Nav }) {
         {widgets.includes('alarm_summary') && crit > 0 && <HudPill tone="critical">{crit} critical</HudPill>}
       </div>
       {widgets.filter((w) => w !== 'alarm_summary').map((w) => widgetNodes[w])}
-      <div className="grid min-h-0 gap-2.5 overflow-y-auto pb-1 scrollbar-none">
+      <div className="grid grid-cols-[minmax(0,1fr)] min-h-0 gap-2.5 overflow-y-auto pb-1 scrollbar-none">
         {items.map((i, idx) => (
           <HudItem key={i.key} active={cursor === idx + offset} tone={i.tone} onClick={i.go}>
             {i.icon}<span className="flex-1 text-white">{i.label}</span><span className="text-[18px] text-white/55">{i.meta}</span>
@@ -621,7 +624,7 @@ function ListScreen<T extends { id: string }>({ title, eyebrow, rows, render, on
   return (
     <div className="flex h-full flex-col">
       <HudTitle eyebrow={eyebrow}>{title}</HudTitle>
-      {rows.length ? <div className="grid gap-2.5 overflow-y-auto pb-2 scrollbar-none">{rows.map((r, i) => <HudItem key={r.id} active={cursor === i} onClick={() => onOpen(r)}>{render(r)}</HudItem>)}</div>
+      {rows.length ? <div className="grid grid-cols-[minmax(0,1fr)] gap-2.5 overflow-y-auto pb-2 scrollbar-none">{rows.map((r, i) => <HudItem key={r.id} active={cursor === i} onClick={() => onOpen(r)}>{render(r)}</HudItem>)}</div>
         : <p className="text-[22px] text-white/60">{empty}</p>}
     </div>
   );
@@ -889,7 +892,7 @@ function TaskDetail({ ctx, id, data, nav, online }: { ctx: GContext; id: string;
         {t.checklist.length > 0 && done === t.checklist.length && <HudPill tone="ok"><Check size={16} />complete</HudPill>}
       </div>
       {canToggle ? <p className="mb-3 text-[17px] text-white/50">Records only — Hydris does not operate equipment.</p> : <div className="mb-3"><Blocked what="Ticking checklist items" /></div>}
-      <div className="grid gap-2.5 overflow-y-auto scrollbar-none">
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-2.5 overflow-y-auto scrollbar-none">
         {t.checklist.map((c, i) => (
           <HudItem key={c.id} active={cursor === i} onClick={() => void toggle(c.id, !c.done)}>
             <span className={`grid h-[34px] w-[34px] flex-none place-items-center rounded-full border-2 ${c.done ? 'border-lime bg-lime text-[#141714]' : 'border-white/30'}`}>{c.done && <Check size={20} />}</span>
@@ -1015,7 +1018,7 @@ function Notifications({ data, nav, online }: { data: GlassesData; nav: Nav; onl
     <div className="flex h-full flex-col">
       <HudTitle eyebrow={`${r.unread} unread${canMark ? '' : ' · read receipts off by profile'}`}>Notifications</HudTitle>
       {rows.length ? (
-        <div className="grid gap-2.5 overflow-y-auto pb-2 scrollbar-none">
+        <div className="grid grid-cols-[minmax(0,1fr)] gap-2.5 overflow-y-auto pb-2 scrollbar-none">
           {rows.map((n, i) => (
             <HudItem key={n.id} active={cursor === i} tone={n.severity === 'critical' ? 'critical' : n.severity === 'warning' ? 'high' : undefined}>
               <CircleDot size={22} className={n.readAt ? 'text-white/30' : 'text-lime'} />
@@ -1040,18 +1043,27 @@ function HydrisAI({ ctx, nav }: { ctx: GContext; nav: Nav }) {
     'Low dissolved oxygen',
   ].slice(0, 5);
   const ask = (text: string) => { if (text.trim()) nav.push({ name: 'assist', q: text.trim() }); };
-  const cursor = useHud({ actions: [{ key: 'type', onSelect: () => inputRef.current?.focus() }, ...suggestions.map((s) => ({ key: s, onSelect: () => ask(s) }))] });
+  const talk = (question?: string) => window.dispatchEvent(new CustomEvent('hydris:voice-activate', { detail: { question } }));
+  const live = ['What is the current pH?', 'Any open alarms?', 'What are my tasks?'];
+  const cursor = useHud({ actions: [{ key: 'talk', onSelect: () => talk() }, ...live.map((l) => ({ key: l, onSelect: () => talk(l) })), { key: 'type', onSelect: () => inputRef.current?.focus() }, ...suggestions.map((s) => ({ key: s, onSelect: () => ask(s) }))] });
+  const o = 1 + live.length;
   return (
     <div className="flex h-full flex-col">
       <HudTitle eyebrow="Hydris AI"><span className="flex items-center gap-3"><Sparkles size={30} className="text-lime" />Ask a question</span></HudTitle>
-      <form onSubmit={(e) => { e.preventDefault(); ask(q); }} className={`mb-3 rounded-[26px] border-2 px-5 py-3 ${cursor === 0 ? 'border-lime bg-lime/10' : 'border-white/10'}`}>
+      <div className="mb-3 grid gap-2">
+        <HudItem active={cursor === 0} tone="lime" onClick={() => talk()}><Mic size={24} /><span className="min-w-0 flex-1"><span className="block">Talk to Hydris</span><span className="block text-[16px] text-white/55">or just say “Hey Hydris” anytime</span></span></HudItem>
+        <div className="grid grid-cols-3 gap-2">
+          {live.map((l, i) => <HudItem key={l} active={cursor === i + 1} onClick={() => talk(l)}><span className="text-[16px] leading-tight">{l}</span></HudItem>)}
+        </div>
+      </div>
+      <form onSubmit={(e) => { e.preventDefault(); ask(q); }} className={`mb-3 rounded-[26px] border-2 px-5 py-3 ${cursor === o ? 'border-lime bg-lime/10' : 'border-white/10'}`}>
         <input ref={inputRef} value={q} onChange={(e) => setQ(e.target.value)} placeholder="Type with a keyboard, or pick below…" aria-label="Ask Hydris AI"
           className="w-full bg-transparent text-[22px] text-white outline-none placeholder:text-white/40" />
       </form>
-      <div className="grid gap-2 overflow-y-auto scrollbar-none">
-        {suggestions.map((s, i) => <HudItem key={s} active={cursor === i + 1} onClick={() => ask(s)}><span className="truncate">{s}</span></HudItem>)}
+      <div className="grid grid-cols-[minmax(0,1fr)] min-h-0 flex-1 content-start gap-2 overflow-y-auto pb-1 scrollbar-none">
+        {suggestions.map((s, i) => <HudItem key={s} active={cursor === i + o + 1} onClick={() => ask(s)}><span className="truncate">{s}</span></HudItem>)}
       </div>
-      <p className="mt-auto pt-2 text-[15px] leading-snug text-white/45">Answers quote your organization’s approved SOPs with sources. Voice input is planned for hardware.</p>
+      <p className="flex-none truncate pt-2 text-[15px] text-white/45">Live values from your account · procedures from approved SOPs</p>
     </div>
   );
 }
@@ -1116,7 +1128,7 @@ function Measurements({ ctx, nav, history, demo }: { ctx: GContext; nav: Nav; hi
     <div className="flex h-full flex-col">
       <HudTitle eyebrow={`${rows.length} sensors · ${rows.filter((m) => m.threshold !== 'normal').length} attention`}>Live measurements</HudTitle>
       {rows.length ? (
-        <div className="grid gap-2.5 overflow-y-auto pb-2 scrollbar-none">
+        <div className="grid grid-cols-[minmax(0,1fr)] gap-2.5 overflow-y-auto pb-2 scrollbar-none">
           {rows.map((m, i) => <MeasurementRow key={m.id} m={m} active={cursor === i} trend={trendOf(history.get(m.id))} onOpen={() => { if (m.assetId) nav.push({ name: 'asset', id: m.assetId }); }} />)}
         </div>
       ) : <p className="text-[22px] text-white/60">No measurements are configured for this site, or none are shown on your profile.</p>}
@@ -1187,7 +1199,7 @@ function SopLibrary({ data, nav }: { data: GlassesData; nav: Nav }) {
       <HudTitle eyebrow={`${rows.length} approved`}>SOP library</HudTitle>
       <StaleNote at={s.staleAt} />
       {rows.length ? (
-        <div className="grid gap-2.5 overflow-y-auto pb-2 scrollbar-none">
+        <div className="grid grid-cols-[minmax(0,1fr)] gap-2.5 overflow-y-auto pb-2 scrollbar-none">
           {rows.map((d, i) => (
             <HudItem key={d.id} active={cursor === i} onClick={() => nav.push({ name: 'sop', id: d.id })}>
               <FileText size={24} className="text-lime" />

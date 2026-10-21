@@ -49,6 +49,8 @@ export interface AuditTable {
   conf: number;
   engine: string;
   status: FieldStatus;
+  /** Cells that failed a plausibility check (row, column, message). */
+  issues?: { row: number; col: number; message: string; suggestion?: string }[];
 }
 
 export type FigureKind = 'photo' | 'diagram' | 'chart' | 'signature' | 'stamp' | 'logo' | 'other';
@@ -260,6 +262,26 @@ export function plausibilityIssue(f: Pick<AuditField, 'label' | 'value' | 'unit'
   return null;
 }
 
+/** Range-check numeric table cells against the measurand named in the row (first cell). */
+export function checkTables(tables: AuditTable[], fields: AuditField[] = []): void {
+  for (const t of tables) {
+    const issues: NonNullable<AuditTable['issues']> = [];
+    t.rows.forEach((row, ri) => {
+      const label = row[0] ?? '';
+      row.forEach((cell, ci) => {
+        if (ci === 0 || !/^\s*[-+]?\d[\d,]*(\.\d+)?\s*$/.test(cell)) return; // single numbers only (not "6.5-8.5")
+        const issue = plausibilityIssue({ label, value: cell.trim(), unit: null, type: 'number' });
+        if (!issue) return;
+        // A labelled value on the page with the same digits is the likely reading (dropped decimal point).
+        const digits = cell.replace(/\D/g, '');
+        const twin = fields.find((f) => similarity(f.label.replace(/^(outlet|inlet|final|raw)\s+/i, ''), label) >= 0.8 && f.value.replace(/\D/g, '') === digits && !plausibilityIssue(f));
+        issues.push({ row: ri, col: ci, message: `${label}: "${cell}" - ${issue.replace('Implausible value: ', '')}`, suggestion: twin?.value });
+      });
+    });
+    if (issues.length) t.issues = issues;
+  }
+}
+
 export function applyPlausibility(fields: AuditField[]): void {
   for (const f of fields) {
     const issue = plausibilityIssue(f);
@@ -279,6 +301,7 @@ export function structureFromOcr(page: number, readings: OcrReading[], figures: 
   const fields = keyValuesFromLines(primary.lines.filter((l) => !inTable(l.bbox)), page, primary.engine);
   for (const other of others) crossCheck(fields, keyValuesFromLines(other.lines, page, other.engine));
   applyPlausibility(fields);
+  checkTables(tables, fields);
   return { fields, tables, figures, text: { page, text: visualRows(primary.lines).map((l) => l.text).join('\n'), engine: primary.engine } };
 }
 
@@ -310,3 +333,15 @@ export function reviewProgress(x: Pick<AuditExtraction, 'fields' | 'tables'>) {
 
 /** Fields the reviewer must look at first: disagreement between engines or low confidence. */
 export const needsAttention = (f: AuditField) => f.agreement === 'mismatch' || f.conf < 0.75;
+
+/** Largest-type line near the top of page 1 that is not a label/value pair (OCR noise tokens stripped). */
+export function guessTitle(readings: OcrReading[][]): string | null {
+  const lines = readings[0]?.[0]?.lines ?? [];
+  const median = (xs: number[]) => [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)] ?? 0;
+  const cand = lines.slice(0, 8).map((l) => {
+    const words = l.words.filter((w) => /[A-Za-z0-9]{2,}/.test(w.text) && w.conf > 50);
+    return { text: normalizeValue(words.map((w) => w.text).join(' ')), h: median(words.map((w) => w.bbox[3])), conf: l.conf };
+  }).filter((c) => c.text.length >= 6 && !/[:=]/.test(c.text) && c.conf > 55);
+  cand.sort((a, b) => b.h - a.h);
+  return cand[0] ? cand[0].text.slice(0, 120) : null;
+}

@@ -14,7 +14,7 @@ export interface PreparedPage { mime: 'image/jpeg'; data: string; width: number;
 export interface ScannedPage extends PreparedPage { readings: OcrReading[]; figures: AuditFigure[] }
 export type OcrProgress = (p: { stage: string; progress: number }) => void;
 
-const MAX_SIDE = 1800;
+const MAX_SIDE = 2400;
 const MAX_BYTES = 850 * 1024;
 
 type TesseractWorker = Awaited<ReturnType<typeof import('tesseract.js')['createWorker']>>;

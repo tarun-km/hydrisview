@@ -259,3 +259,37 @@ test('demo audit scans are visible and reviewable from every instance', async ()
   const back = await c.req('GET', `/api/audit-docs/${r.json().id}`);
   assert.equal(back.json().status, 'verified', 'instance a sees the verification made on b');
 });
+
+test('voice assistant answers from the connected account (user and paired glasses)', async () => {
+  const c = await guest(a.app, 'Voice Tester');
+  const ask = async (cl: Client, text: string) => {
+    const r = await cl.req('POST', '/api/assistant/ask', { text });
+    assert.equal(r.statusCode, 200, r.body);
+    return r.json() as { answer: string; intent: string; facts: { label: string; value: string; ref?: string }[]; engine: string };
+  };
+  const ph = await ask(c, "Hey Hydris, what's the current pH value?");
+  assert.equal(ph.intent, 'reading');
+  assert.match(ph.answer, /pH/);
+  // The spoken value is exactly the stored sensor value for that tag.
+  const sensorRows = await withSystem(a.database.db, (tx) => tx.select().from(sensors));
+  const f = ph.facts[0]!;
+  const s = sensorRows.find((x) => x.tag === f.ref)!;
+  assert.equal(s.measurand, 'ph');
+  assert.equal(Number(f.value).toFixed(2), s.lastValue!.toFixed(2));
+  assert.ok(ph.answer.includes(f.value), ph.answer);
+
+  assert.equal((await ask(c, 'hey hydris any alarms')).intent, 'alarms');
+  const work = await ask(c, 'what are my tasks');
+  assert.equal(work.intent, 'my_work');
+  assert.match(work.answer, /inspection/);
+  assert.equal((await ask(c, 'hey hydris dissolved oxygen')).facts.length > 0, true);
+  assert.equal((await ask(c, 'what is the meaning of life')).intent, 'unknown');
+
+  // Same question from paired glasses (device token) on the other instance.
+  const t = await pairAcross(a.app, b.app, c, 'hw-voice-test-000001');
+  const glasses = new Client(b.app);
+  glasses.token = t.accessToken;
+  const g = await ask(glasses, 'Hey Hydris what is the current pH');
+  assert.equal(g.intent, 'reading');
+  assert.match(g.answer, /pH/);
+});

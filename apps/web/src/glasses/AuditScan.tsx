@@ -32,6 +32,17 @@ export function AuditScanScreen({ data, online, flash }: { data: GlassesData; on
     if (online) data.auditScans().then(setRecent).catch(() => setRecent([]));
   }, [data, online, stage.s]);
   useEffect(() => () => cam.current?.stop(), []);
+  // Ray-Ban capture button (companion app → DAT Inputs): shoot while framing, or start a scan.
+  const stageRef = useRef(stage.s);
+  stageRef.current = stage.s;
+  useEffect(() => {
+    const onButton = () => {
+      if (stageRef.current === 'camera') shutter.current?.capture();
+      else if (stageRef.current === 'menu' || stageRef.current === 'review') void startCamera(lastKind.current);
+    };
+    window.addEventListener('hydris:glasses-capture-button', onButton);
+    return () => window.removeEventListener('hydris:glasses-capture-button', onButton);
+  });
 
   const read = async (blob: Blob) => {
     setStage({ s: 'reading', stage: 'Preparing', progress: 0 });
@@ -140,8 +151,8 @@ export function AuditScanScreen({ data, online, flash }: { data: GlassesData; on
       <div className="flex h-full flex-col gap-4">
         <HudTitle eyebrow="Sent · awaiting dual verification">{sc.title}</HudTitle>
         <div className="flex flex-wrap gap-2">
-          <HudPill tone="ok"><CheckCircle2 size={17} />{sc.fields} values</HudPill>
-          <HudPill tone="line">{sc.tables} tables</HudPill>
+          <HudPill tone="ok"><CheckCircle2 size={17} />{sc.fields} value{sc.fields === 1 ? "" : "s"}</HudPill>
+          <HudPill tone="line">{sc.tables} table{sc.tables === 1 ? "" : "s"}</HudPill>
           {sc.agreement !== null && <HudPill tone={sc.agreement >= 0.9 ? 'ok' : 'medium'}>{Math.round(sc.agreement * 100)}% engines agree</HudPill>}
           {sc.attention > 0 && <HudPill tone="high"><AlertTriangle size={17} />{sc.attention} to check</HudPill>}
           {sc.aiStatus === 'pending' && <HudPill tone="lime"><Sparkles size={17} />vision AI reading</HudPill>}
@@ -157,17 +168,17 @@ export function AuditScanScreen({ data, online, flash }: { data: GlassesData; on
     const fields = parts.flatMap((x) => x.fields);
     const tables = parts.reduce((n, x) => n + x.tables.length, 0);
     const agree = agreementScore(fields);
-    const disagree = fields.filter((f) => f.agreement === 'mismatch' || f.note).length;
+    const disagree = fields.filter((f) => f.agreement === 'mismatch' || f.note).length + parts.reduce((n, x) => n + x.tables.reduce((k, t) => k + (t.issues?.length ?? 0), 0), 0);
     return (
       <div className="flex h-full flex-col gap-3">
         <HudTitle eyebrow={`${pages.length} page${pages.length === 1 ? '' : 's'} read on this device`}>Check the capture</HudTitle>
         <div className="flex flex-wrap gap-2">
-          <HudPill tone="line">{fields.length} values</HudPill>
-          <HudPill tone="line">{tables} tables</HudPill>
+          <HudPill tone="line">{fields.length} value{fields.length === 1 ? "" : "s"}</HudPill>
+          <HudPill tone="line">{tables} table{tables === 1 ? "" : "s"}</HudPill>
           {agree !== null && <HudPill tone={disagree ? 'high' : 'ok'}>{disagree ? `${disagree} unclear` : 'both passes agree'}</HudPill>}
           <HudPill tone="line">{Math.round(pages[pages.length - 1]!.readings[0]!.conf)}% OCR conf</HudPill>
         </div>
-        <ul className="grid min-h-0 gap-1.5 overflow-y-auto text-[19px] scrollbar-none">
+        <ul className="grid grid-cols-[minmax(0,1fr)] min-h-0 gap-1.5 overflow-y-auto text-[19px] scrollbar-none">
           {fields.slice(0, 5).map((f) => (
             <li key={f.id} className="flex gap-3 rounded-[16px] bg-white/5 px-4 py-1.5">
               <span className="truncate text-white/55">{f.label}</span>
@@ -205,7 +216,7 @@ export function AuditScanScreen({ data, online, flash }: { data: GlassesData; on
       {!online ? <p className="flex items-center gap-2 text-[19px] text-white/55"><WifiOff size={18} /> Offline</p>
         : !recent ? <p className="text-[19px] text-white/55">Loading…</p>
           : recent.length ? (
-            <ul className="grid min-h-0 gap-1.5 overflow-y-auto scrollbar-none">
+            <ul className="grid grid-cols-[minmax(0,1fr)] min-h-0 gap-1.5 overflow-y-auto scrollbar-none">
               {recent.slice(0, 4).map((r) => (
                 <li key={r.id} className="flex items-center gap-3 rounded-[16px] bg-white/5 px-4 py-2 text-[19px]">
                   <FileScan size={20} className="flex-none text-white/50" />

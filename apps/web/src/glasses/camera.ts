@@ -43,7 +43,11 @@ export interface CameraSource {
 
 declare global {
   interface Window {
-    HydrisNative?: { startPreview(): void; stopPreview(): void; capturePhoto(requestId: string): void; deviceName?(): string };
+    HydrisNative?: {
+      startPreview(): void; stopPreview(): void; capturePhoto(requestId: string): void; deviceName?(): string;
+      /** Glasses microphone via DAT Speech + phone TextToSpeech (see voice.ts). */
+      startSpeech?(): void; stopSpeech?(): void; speak?(text: string): void;
+    };
     HydrisWearables?: { capturePhoto(): Promise<{ dataUrl: string }>; startPreview?(onFrame: (dataUrl: string) => void): void; stopPreview?(): void; deviceName?: string };
     ReactNativeWebView?: { postMessage(msg: string): void };
     __hydrisCameraFrame?: (b64: string, w?: number, h?: number) => void;
