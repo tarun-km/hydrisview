@@ -271,6 +271,16 @@ export async function deviceRoutes(app: FastifyInstance, ctx: Ctx, opts: { relax
     });
   });
 
+  /** Glasses-initiated logout: ends this device's sessions so it can be paired again (by anyone). */
+  app.post('/device/logout', auth, async (req, reply) => {
+    await tenant(ctx, req, async (tx, p) => {
+      if (p.kind !== 'device') throw forbidden('Device session required');
+      await tx.update(deviceSessions).set({ revokedAt: new Date() }).where(and(eq(deviceSessions.deviceId, p.deviceId!), isNull(deviceSessions.revokedAt)));
+      await invalidateDeviceTokens(tx, p.deviceId!);
+    });
+    return reply.code(204).send();
+  });
+
   /** Everything the glasses need for the home screen, scoped to the assigned operator. */
   app.get('/device/context', auth, async (req) => tenant(ctx, req, async (tx, p) => {
     if (p.kind !== 'device') throw forbidden('Device session required');

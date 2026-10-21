@@ -86,6 +86,11 @@ export class DeviceLink {
   hasCredential() {
     return !!this.store.get(K.refresh);
   }
+  /** Log out on the server (best effort) and drop local credentials. */
+  async logout() {
+    try { await this.fetchJson('/device/logout', { method: 'POST', json: {} }); } catch { /* offline or already revoked */ }
+    this.forget();
+  }
   forget() {
     this.store.remove(K.refresh);
     this.access = null;

@@ -267,7 +267,16 @@ export function GlassesApp({ demoScenario, simulator, profilePreview }: { demoSc
   const register = useCallback((c: HudControl) => { control.current = c; }, []);
   useEffect(() => { emitToHost('screen', { phase, screen: screen.name }); }, [phase, screen.name]);
 
-  const nav = { push, pop, home, flash, reload: loadContext };
+  const logout = useCallback(() => {
+    void link.logout().finally(() => {
+      setStack([{ name: 'home' }]);
+      setCursor(0);
+      setCtx(null);
+      setPhase('setup');
+      emitToHost('logout');
+    });
+  }, [link]);
+  const nav = { push, pop, home, flash, reload: loadContext, logout };
   const status: StatusInfo = { online, queued, stream: demo ? 'live' : stream, staleAt, lastSync, demo, profile: previewCfg ? { name: 'Draft preview', version: null, source: 'preview' } : ctx?.profile ?? null };
   let body: ReactNode;
   if (phase === 'boot') body = <Centered icon={<Glasses size={46} />} title="Starting Hydris" body="Checking device session…" />;
@@ -487,7 +496,7 @@ const Kv = ({ k, v }: { k: string; v: string }) => (
 );
 
 // ---------------- app screens ----------------
-interface Nav { push: (s: Screen) => void; pop: () => void; home: () => void; flash: (t: string, tone?: 'lime' | 'critical' | 'high') => void; reload: () => Promise<GContext> }
+interface Nav { push: (s: Screen) => void; pop: () => void; home: () => void; flash: (t: string, tone?: 'lime' | 'critical' | 'high') => void; reload: () => Promise<GContext>; logout: () => void }
 
 interface StatusInfo {
   online: boolean; queued: number; stream: string; staleAt: string | null; lastSync: string | null; demo: boolean;
@@ -527,7 +536,7 @@ function ScreenView({ screen, ctx, data, nav, online, status, history }: { scree
     case 'task': return <TaskDetail ctx={ctx} id={screen.id} data={data} nav={nav} online={online} />;
     case 'asset': return <AssetContext id={screen.id} data={data} nav={nav} />;
     case 'assist': return <Assist q={screen.q} assetId={screen.assetId} data={data} online={online} />;
-    case 'status': return <Status ctx={ctx} status={status} />;
+    case 'status': return <Status ctx={ctx} status={status} onLogout={nav.logout} />;
     case 'notifications': return <Notifications data={data} nav={nav} online={online} />;
     case 'ai': return <HydrisAI ctx={ctx} nav={nav} />;
     case 'map': return <MapScreen ctx={ctx} nav={nav} />;
@@ -551,7 +560,7 @@ function Home({ ctx, nav }: { ctx: GContext; nav: Nav }) {
     sops: { key: 'sops', icon: <Library size={26} />, label: 'SOP library', meta: 'approved procedures', go: () => nav.push({ name: 'sops' }) },
     ai: { key: 'ai', icon: <Sparkles size={26} />, label: 'Ask Hydris AI', meta: 'procedures & answers', go: () => nav.push({ name: 'ai' }) },
     notifications: { key: 'notif', icon: <Bell size={26} />, label: 'Notifications', meta: 'updates for you', go: () => nav.push({ name: 'notifications' }) },
-    status: { key: 'status', icon: <Cog size={26} />, label: 'Device & session', meta: ctx.device.name, go: () => nav.push({ name: 'status' }) },
+    status: { key: 'status', icon: <Cog size={26} />, label: 'Device & log out', meta: ctx.device.name, go: () => nav.push({ name: 'status' }) },
   };
   // Menu order and visibility come from the UI profile.
   const items = cfg.screens.filter((s) => s.id !== 'home' && screenPermitted(cfg, screenFor(s.id))).map((s) => catalog[s.id]).filter((x): x is Item => !!x);
@@ -947,8 +956,11 @@ function Assist({ q, assetId, data, online }: { q: string; assetId?: string; dat
   );
 }
 
-function Status({ ctx, status }: { ctx: GContext; status: StatusInfo }) {
-  useHud({ actions: [] });
+function Status({ ctx, status, onLogout }: { ctx: GContext; status: StatusInfo; onLogout: () => void }) {
+  const [confirm, setConfirm] = useState(false);
+  const cursor = useHud({ actions: confirm
+    ? [{ key: 'yes', onSelect: onLogout }, { key: 'no', onSelect: () => setConfirm(false) }]
+    : [{ key: 'logout', onSelect: () => setConfirm(true) }] });
   const pr = status.profile;
   const conn = !status.online ? 'Offline' : status.stream === 'live' ? 'Online · live stream' : 'Online · connecting stream';
   return (
@@ -965,7 +977,19 @@ function Status({ ctx, status }: { ctx: GContext; status: StatusInfo }) {
         <Kv k="UI profile" v={pr ? `${pr.name}${pr.version ? ` · v${pr.version}` : ''}` : 'Built-in default'} /><Kv k="Applied via" v={pr?.source ?? 'default'} />
         <Kv k="Last sync" v={status.lastSync ? timeAgo(status.lastSync) : 'not yet'} /><Kv k="App version" v={`${APP_VERSION} · ${ctx.device.kind}`} />
       </dl>
-      <p className="mt-auto text-[16px] text-white/45">To unpair or hand over these glasses, ask an administrator (Console → Field glasses). Revocation ends this session immediately.</p>
+      <div className="mt-auto grid gap-2">
+        {confirm ? (
+          <>
+            <p className="text-[18px] text-white/70">Log out and unpair these glasses? You can pair them to another account straight away.</p>
+            <div className="grid grid-cols-2 gap-3">
+              <HudItem active={cursor === 0} tone="critical" onClick={onLogout}><span className="mx-auto">Yes, log out</span></HudItem>
+              <HudItem active={cursor === 1} onClick={() => setConfirm(false)}><span className="mx-auto">Cancel</span></HudItem>
+            </div>
+          </>
+        ) : (
+          <HudItem active={cursor === 0} tone="critical" onClick={() => setConfirm(true)}><span className="mx-auto">Log out &amp; unpair</span></HudItem>
+        )}
+      </div>
     </div>
   );
 }
