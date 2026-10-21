@@ -21,7 +21,7 @@ const FOLLOW_UP_MS = 8000;
 const LISTEN_TIMEOUT_MS = 8000;
 const STOP_RE = /^(stop|cancel|thanks|thank you|never ?mind|that's all|bye)\b/i;
 
-export function VoiceAssistant({ data, online }: { data: GlassesData; online: boolean }) {
+export function VoiceAssistant({ data, online, bottom = 62 }: { data: GlassesData; online: boolean; bottom?: number }) {
   const engine = useRef<VoiceEngine | null>(null);
   const [kind, setKind] = useState<VoiceEngine['kind']>('none');
   const [enabled, setEnabled] = useState(true);
@@ -97,6 +97,7 @@ export function VoiceAssistant({ data, online }: { data: GlassesData; online: bo
   useEffect(() => {
     const activate = (ev: Event) => {
       const q = (ev as CustomEvent<{ question?: string }>).detail?.question;
+      if (q && STOP_RE.test(q.trim())) { close(); return; }
       if (q) { void ask(q); return; }
       setReply(null);
       setHeard('');
@@ -127,9 +128,10 @@ export function VoiceAssistant({ data, online }: { data: GlassesData; online: bo
       {slot && createPortal(pill, slot)}
 
       {mode !== 'idle' && (
-        <div className="absolute inset-x-6 bottom-[62px] z-40 rounded-[28px] border-2 border-lime/70 bg-[#06121c]/95 px-6 py-5 shadow-[0_0_40px_rgba(25,84,241,0.35)]" role="dialog" aria-live="polite" aria-label="Hydris voice assistant">
+        <div style={{ bottom: `calc(env(safe-area-inset-bottom) + ${bottom}px)` }} className="absolute inset-x-6 z-40 rounded-[28px] border-2 border-lime/70 bg-[#06121c]/95 px-6 py-5 shadow-[0_0_40px_rgba(25,84,241,0.35)]" role="dialog" aria-live="polite" aria-label="Hydris voice assistant">
           <div className="mb-2 flex items-center gap-2 text-[16px] uppercase tracking-[0.14em] text-lime">
             <Sparkles size={17} />Hydris
+            <button type="button" onClick={close} aria-label="Close assistant" className="order-last -mr-2 grid h-[36px] w-[36px] place-items-center rounded-full text-white/60 hover:bg-white/10">✕</button>
             <span className="ml-auto text-[14px] normal-case tracking-normal text-white/45">{mode === 'listening' ? 'listening…' : mode === 'thinking' ? 'checking your plant data…' : reply?.engine === 'hydris-rules' || reply?.engine === 'demo' ? 'from live data' : reply?.engine ?? ''}</span>
           </div>
           {heard && <p className="text-[19px] leading-snug text-white/60">“{heard}”</p>}

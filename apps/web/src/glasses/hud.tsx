@@ -25,6 +25,35 @@ export function useHud(control: HudControl): number {
   return cursor;
 }
 
+/**
+ * Viewport layout.
+ *  - "hud": a 600×600 canvas (the field of view of display glasses / the simulator), scaled to fit.
+ *  - "phone": portrait phones and the Ray-Ban Meta companion app (camera glasses have no display, so
+ *    the phone is the screen). The canvas keeps a 540-unit design width but grows to the phone's full
+ *    height, so every screen fills the device instead of sitting in a letterboxed square.
+ */
+export const PHONE_DESIGN_WIDTH = 540;
+export function useViewportLayout(forceHud = false) {
+  const [v, setV] = useState({ mode: 'hud' as 'hud' | 'phone', scale: 1, w: 600, h: 600 });
+  useEffect(() => {
+    const f = () => {
+      const W = window.innerWidth;
+      const H = window.innerHeight;
+      const q = new URLSearchParams(window.location.search).get('mode');
+      const bridged = !!(window as { HydrisNative?: unknown }).HydrisNative;
+      const phone = !forceHud && (q === 'phone' || bridged || (q !== 'hud' && W < 760 && H > W * 1.15));
+      if (phone) {
+        const scale = W / PHONE_DESIGN_WIDTH;
+        setV({ mode: 'phone', scale, w: PHONE_DESIGN_WIDTH, h: Math.round(H / scale) });
+      } else setV({ mode: 'hud', scale: Math.min(W / 600, H / 600), w: 600, h: 600 });
+    };
+    f();
+    window.addEventListener('resize', f);
+    return () => window.removeEventListener('resize', f);
+  }, [forceHud]);
+  return v;
+}
+
 /** Scale a fixed 600×600 canvas to fit its container (simulator frames, standalone page). */
 export function useFitScale(size = 600) {
   const [scale, setScale] = useState(1);

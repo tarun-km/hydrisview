@@ -3,7 +3,7 @@
 import QRCode from 'qrcode';
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
-  AlertTriangle, Ban, Bell, Boxes, FileText, Gauge, Library, Minus, TrendingDown, TrendingUp, Layers, LocateFixed, Map as MapIcon, BookOpen, Sparkles, Check, ChevronRight, CircleDot, ClipboardCheck, Cog, Glasses, Info, RefreshCw, ShieldAlert, Signal, SignalZero, Wifi, WifiOff, Wrench, X, ScanLine, Mic,
+  AlertTriangle, Ban, Bell, Boxes, FileText, Gauge, Library, Minus, TrendingDown, TrendingUp, Layers, LocateFixed, Map as MapIcon, BookOpen, Sparkles, Check, ChevronRight, CircleDot, ClipboardCheck, Cog, Glasses, Info, RefreshCw, ShieldAlert, Signal, SignalZero, Wifi, WifiOff, Wrench, X, ScanLine, Mic, ChevronLeft,
 } from 'lucide-react';
 import {
   DEFAULT_UI_PROFILE_CONFIG, FRESHNESS_LABELS, actionAllowed, applyMeasurementProfile, inspectionProgress, isScenarioKey, normalizeUiProfileConfig, screenEnabled,
@@ -16,7 +16,7 @@ import { emitToHost, useHudInput, type InputKey } from './input';
 import { PlantMap, routeDistance } from './PlantMap';
 import { AuditScanScreen } from './AuditScan';
 import { VoiceAssistant } from './VoiceAssistant';
-import { HudContext, HudItem, HudMetric, HudPill, HudTitle, SEV_HUD, useFitScale, useHud, type HudControl } from './hud';
+import { HudContext, HudItem, HudMetric, HudPill, HudTitle, SEV_HUD, useHud, useViewportLayout, type HudControl } from './hud';
 
 type Screen =
   | { name: 'home' } | { name: 'alerts' } | { name: 'alert'; id: string } | { name: 'inspections' } | { name: 'inspection'; id: string }
@@ -66,7 +66,10 @@ export function GlassesApp({ demoScenario, simulator, profilePreview }: { demoSc
   const [banner, setBanner] = useState<{ text: string; tone: 'lime' | 'critical' | 'high' } | null>(null);
   const [interrupt, setInterrupt] = useState<GAlarm | null>(null);
   const [stream, setStream] = useState<'live' | 'connecting' | 'offline'>('connecting');
-  const scale = useFitScale();
+  // Simulator and embedded previews always show the glasses field of view; phones get the phone layout.
+  const vp = useViewportLayout(!!simulator || !!demoScenario && typeof window !== 'undefined' && window.parent !== window);
+  const phone = vp.mode === 'phone';
+  const bottomBar = phone ? 92 : 54;
   const screen = stack[stack.length - 1]!;
   const [previewCfg, setPreviewCfg] = useState<UiProfileConfig | null>(null);
   const [staleAt, setStaleAt] = useState<string | null>(null);
@@ -294,25 +297,27 @@ export function GlassesApp({ demoScenario, simulator, profilePreview }: { demoSc
     : <NotPermitted key={JSON.stringify(screen)} nav={nav} />;
 
   return (
-    <div className="fixed inset-0 grid place-items-center overflow-hidden bg-black text-white" style={{ fontFamily: 'var(--font-outfit), system-ui, sans-serif' }}>
-      <div className="relative h-[600px] w-[600px] origin-center" style={{ transform: `scale(${scale})` }} role="application" aria-label="Hydris glasses viewport" aria-roledescription="smart glasses display">
+    <div className={`fixed inset-0 overflow-hidden bg-black text-white ${phone ? '' : 'grid place-items-center'}`} style={{ fontFamily: 'var(--font-outfit), system-ui, sans-serif' }}>
+      <div className={`relative ${phone ? 'origin-top-left' : 'origin-center'}`} style={{ width: vp.w, height: vp.h, transform: `scale(${vp.scale})` }} role="application" aria-label="Hydris glasses viewport" aria-roledescription={phone ? 'Hydris mobile companion' : 'smart glasses display'}>
         <ProfileCtx.Provider value={cfg}>
         <HudContext.Provider value={{ cursor, register, density: cfg.layout.density }}>
-          {phase === 'app' && ctx && <StatusBar ctx={ctx} online={online} queued={queued} stream={demo ? 'live' : stream} demo={demo} />}
-          <div className={phase === 'app' ? 'absolute inset-x-0 bottom-[54px] top-[64px] overflow-hidden px-8' : 'absolute inset-0 px-8 py-8'}>
+          {phase === 'app' && ctx && <StatusBar ctx={ctx} online={online} queued={queued} stream={demo ? 'live' : stream} demo={demo} phone={phone} />}
+          <div className={phase === 'app' ? `absolute inset-x-0 overflow-hidden ${phone ? 'px-6' : 'px-8'}` : `absolute inset-0 ${phone ? 'px-6 pb-8 pt-[calc(env(safe-area-inset-top)+32px)]' : 'px-8 py-8'}`}
+            style={phase === 'app' ? { top: phone ? 'calc(env(safe-area-inset-top) + 68px)' : 64, bottom: phone ? `calc(env(safe-area-inset-bottom) + ${bottomBar}px)` : bottomBar } : undefined}>
             {/* Profile text scale: zoom the content and enlarge the box inversely so it still fills the area. */}
             <div style={{ zoom: cfg.layout.textScale, width: `${100 / cfg.layout.textScale}%`, height: `${100 / cfg.layout.textScale}%` }}>{body}</div>
           </div>
-          {phase === 'app' && <HintBar hand={cfg.layout.handedness} />}
-          {phase === 'app' && ctx && <VoiceAssistant data={data} online={online} />}
-          {phase === 'app' && stack.length > 1 && (
+          {phase === 'app' && !phone && <HintBar hand={cfg.layout.handedness} />}
+          {phase === 'app' && phone && <PhoneTabBar screen={screen.name} canBack={stack.length > 1} onBack={pop} onHome={home} onPush={push} alerts={ctx?.alarms.length ?? 0} />}
+          {phase === 'app' && ctx && <VoiceAssistant data={data} online={online} bottom={phone ? bottomBar + 10 : 62} />}
+          {phase === 'app' && !phone && stack.length > 1 && (
             <button type="button" onClick={pop} aria-label="Back" className="absolute bottom-[8px] left-8 z-20 flex h-[38px] items-center gap-2 rounded-full bg-white/10 px-4 text-[16px] text-white/80 hover:bg-white/20">
               ← Back
             </button>
           )}
           {banner && <div role="status" className={`absolute inset-x-8 top-[70px] z-20 rounded-[22px] border-2 px-5 py-3 text-[19px] ${banner.tone === 'critical' ? 'border-[#ff5a4e] bg-[#2a0d0b]' : banner.tone === 'high' ? 'border-[#f26414] bg-[#2a1608]' : 'border-lime bg-[#1b2207]'}`}>{banner.text}</div>}
           {interrupt && <AlertInterrupt a={interrupt} />}
-          {!online && phase === 'app' && <div className="absolute inset-x-0 bottom-[54px] z-10 bg-[#2a1608] py-1.5 text-center text-[17px] text-[#ff9a5c]">{staleAt ? `Offline · showing data cached ${timeAgo(staleAt)}` : 'Offline · steps are saved on the glasses and sync automatically'}</div>}
+          {!online && phase === 'app' && <div style={{ bottom: phone ? `calc(env(safe-area-inset-bottom) + ${bottomBar}px)` : bottomBar }} className="absolute inset-x-0 z-10 bg-[#2a1608] py-1.5 text-center text-[17px] text-[#ff9a5c]">{staleAt ? `Offline · showing data cached ${timeAgo(staleAt)}` : 'Offline · steps are saved on the glasses and sync automatically'}</div>}
           {previewCfg && phase === 'app' && <div className="absolute left-8 top-[46px] z-10 text-[13px] uppercase tracking-[0.14em] text-lime/80">draft preview</div>}
         </HudContext.Provider>
         </ProfileCtx.Provider>
@@ -322,11 +327,11 @@ export function GlassesApp({ demoScenario, simulator, profilePreview }: { demoSc
 }
 
 // ---------------- chrome ----------------
-function StatusBar({ ctx, online, queued, stream, demo }: { ctx: GContext; online: boolean; queued: number; stream: string; demo: boolean }) {
+function StatusBar({ ctx, online, queued, stream, demo, phone }: { ctx: GContext; online: boolean; queued: number; stream: string; demo: boolean; phone?: boolean }) {
   const [now, setNow] = useState(() => new Date());
   useEffect(() => { const t = setInterval(() => setNow(new Date()), 15000); return () => clearInterval(t); }, []);
   return (
-    <div className="absolute inset-x-0 top-0 flex h-[64px] items-center gap-3 px-8 text-[18px]">
+    <div className={`absolute inset-x-0 top-0 flex items-center gap-3 text-[18px] ${phone ? 'border-b border-white/10 bg-black/80 px-6 backdrop-blur' : 'h-[64px] px-8'}`} style={phone ? { paddingTop: 'env(safe-area-inset-top)', height: 'calc(env(safe-area-inset-top) + 64px)' } : undefined}>
       <span className="num font-medium">{now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
       <span className="truncate text-white/50">{ctx.site?.code ?? ''}</span>
       {demo && <span className="flex-none whitespace-nowrap rounded-full border border-dashed border-lime/60 px-2.5 text-[15px] text-lime">demo</span>}
@@ -337,6 +342,27 @@ function StatusBar({ ctx, online, queued, stream, demo }: { ctx: GContext; onlin
         <span className="grid h-[38px] w-[38px] flex-none place-items-center rounded-full bg-white/10 text-[15px]">{ctx.operator.name.split(' ').map((p) => p[0]).slice(0, 2).join('')}</span>
       </span>
     </div>
+  );
+}
+
+/** Phone layout: thumb-reach tab bar (the camera glasses' temple touchpad is replaced by the touchscreen). */
+function PhoneTabBar({ screen, canBack, onBack, onHome, onPush, alerts }: { screen: string; canBack: boolean; onBack: () => void; onHome: () => void; onPush: (s: Screen) => void; alerts: number }) {
+  const tab = (key: string, label: string, icon: ReactNode, onClick: () => void, active: boolean, badge?: number) => (
+    <button key={key} type="button" onClick={onClick} aria-current={active || undefined}
+      className={`relative flex min-w-0 flex-1 flex-col items-center justify-center gap-1 rounded-[20px] py-2 text-[15px] transition-colors ${active ? 'text-lime' : 'text-white/60 active:bg-white/10'}`}>
+      {icon}
+      <span className="truncate">{label}</span>
+      {badge ? <span className="absolute right-[22%] top-1 grid h-[20px] min-w-[20px] place-items-center rounded-full bg-[#ff5a4e] px-1 text-[12px] font-semibold text-white">{badge}</span> : null}
+    </button>
+  );
+  return (
+    <nav aria-label="Main" className="absolute inset-x-0 bottom-0 z-30 flex items-stretch gap-1 border-t border-white/10 bg-black/90 px-3 pt-1.5 backdrop-blur"
+      style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 8px)', height: 'calc(env(safe-area-inset-bottom) + 92px)' }}>
+      {canBack ? tab('back', 'Back', <ChevronLeft size={28} />, onBack, false) : tab('home', 'Home', <Glasses size={28} />, onHome, screen === 'home')}
+      {tab('scan', 'Scan', <ScanLine size={28} />, () => onPush({ name: 'scan' }), screen === 'scan')}
+      {tab('voice', 'Hey Hydris', <Mic size={28} />, () => window.dispatchEvent(new CustomEvent('hydris:voice-activate', { detail: {} })), false)}
+      {tab('alerts', 'Alerts', <AlertTriangle size={28} />, () => onPush({ name: 'alerts' }), screen === 'alerts', alerts)}
+    </nav>
   );
 }
 
