@@ -9,7 +9,8 @@ import { AlertTriangle, Camera, CheckCircle2, FileImage, FileScan, Plus, Refresh
 import { agreementScore, structureFromOcr } from '@hydris/domain';
 import { scanPage, uploadBody, warmUpOcr, type ScannedPage } from '@/lib/ocr';
 import { renderSampleAuditSheet } from '@/lib/sample-audit';
-import { openCamera, type CameraSource } from './camera';
+import { hasGlassesBridge, openCamera, type CameraKind, type CameraSource } from './camera';
+import { GuidedCapture, type CapturedPage } from '@/lib/GuidedCapture';
 import type { GAuditScan, GlassesData } from './data';
 import { HudItem, HudPill, HudTitle, useHud } from './hud';
 
@@ -22,15 +23,15 @@ export function AuditScanScreen({ data, online, flash }: { data: GlassesData; on
   const [pages, setPages] = useState<ScannedPage[]>([]);
   const [recent, setRecent] = useState<GAuditScan[] | null>(null);
   const cam = useRef<CameraSource | null>(null);
-  const [stream, setStream] = useState<MediaStream | null>(null);
-  const video = useRef<HTMLVideoElement>(null);
+  const [source, setSource] = useState<CameraSource | null>(null);
+  const shutter = useRef<{ capture: () => void } | null>(null);
+  const lastKind = useRef<CameraKind | undefined>(undefined);
 
   useEffect(() => warmUpOcr(), []);
   useEffect(() => {
     if (online) data.auditScans().then(setRecent).catch(() => setRecent([]));
   }, [data, online, stage.s]);
   useEffect(() => () => cam.current?.stop(), []);
-  useEffect(() => { if (video.current && stream) video.current.srcObject = stream; }, [stream, stage.s]);
 
   const read = async (blob: Blob) => {
     setStage({ s: 'reading', stage: 'Preparing', progress: 0 });
@@ -43,28 +44,25 @@ export function AuditScanScreen({ data, online, flash }: { data: GlassesData; on
     }
   };
 
-  const startCamera = async () => {
+  const closeCamera = () => {
+    cam.current?.stop();
+    cam.current = null;
+    setSource(null);
+  };
+  const startCamera = async (prefer?: CameraKind) => {
     try {
-      cam.current?.stop();
-      cam.current = await openCamera();
-      setStream(cam.current.stream ?? null);
+      closeCamera();
+      cam.current = await openCamera(prefer);
+      lastKind.current = cam.current.kind;
+      setSource(cam.current);
       setStage({ s: 'camera' });
     } catch (e) {
       setStage({ s: 'error', message: e instanceof Error ? e.message : 'Camera unavailable' });
     }
   };
-  const capture = async () => {
-    const c = cam.current;
-    if (!c) return;
-    try {
-      const blob = await c.capture();
-      c.stop();
-      cam.current = null;
-      setStream(null);
-      await read(blob);
-    } catch (e) {
-      setStage({ s: 'error', message: e instanceof Error ? e.message : 'Capture failed' });
-    }
+  const onCaptured = (p: CapturedPage) => {
+    closeCamera();
+    void read(p.blob);
   };
   const sample = async () => read(await renderSampleAuditSheet(Math.floor(Math.random() * 20)));
 
@@ -83,11 +81,11 @@ export function AuditScanScreen({ data, online, flash }: { data: GlassesData; on
 
   // ---- actions per stage (directional input: ↑↓ move, ● select)
   const actions =
-    stage.s === 'menu' ? [{ key: 'cam', onSelect: () => void startCamera() }, { key: 'sample', onSelect: () => void sample() }]
-      : stage.s === 'camera' ? [{ key: 'shoot', onSelect: () => void capture() }]
+    stage.s === 'menu' ? [{ key: 'cam', onSelect: () => void startCamera() }, { key: 'sim', onSelect: () => void startCamera('simulated') }, { key: 'sample', onSelect: () => void sample() }]
+      : stage.s === 'camera' ? [{ key: 'shoot', onSelect: () => shutter.current?.capture() }, { key: 'cancel', onSelect: () => { closeCamera(); setStage({ s: pages.length ? 'review' : 'menu' }); } }]
         : stage.s === 'review' ? [
           { key: 'send', onSelect: () => void send(), disabled: !online },
-          { key: 'more', onSelect: () => void startCamera(), disabled: pages.length >= MAX_PAGES },
+          { key: 'more', onSelect: () => void startCamera(lastKind.current), disabled: pages.length >= MAX_PAGES },
           { key: 'sample', onSelect: () => void sample(), disabled: pages.length >= MAX_PAGES },
           { key: 'drop', onSelect: () => { setPages([]); setStage({ s: 'menu' }); } },
         ]
@@ -95,21 +93,20 @@ export function AuditScanScreen({ data, online, flash }: { data: GlassesData; on
             : [];
   const cursor = useHud({ actions });
 
-  if (stage.s === 'camera') {
+  if (stage.s === 'camera' && source) {
     return (
-      <div className="flex h-full flex-col gap-3">
-        <HudTitle eyebrow={cam.current?.label ?? 'Camera'}>Frame the page</HudTitle>
-        {stream ? (
-          <div className="relative min-h-0 flex-1 overflow-hidden rounded-[26px] border-2 border-white/15">
-            <video ref={video} autoPlay playsInline muted className="h-full w-full object-cover" />
-            <div className="pointer-events-none absolute inset-[8%] rounded-[18px] border-[3px] border-dashed border-lime/80" aria-hidden />
-          </div>
-        ) : (
-          <div className="grid flex-1 place-items-center rounded-[26px] border-2 border-dashed border-lime/60 px-6 text-center text-[22px] text-white/75">
-            Look straight at the document, fill your view with the page and hold still.
-          </div>
-        )}
-        <HudItem active={cursor === 0} tone="lime" onClick={() => void capture()}><Camera size={26} /><span className="flex-1">Capture page {pages.length + 1}</span></HudItem>
+      <div className="flex h-full flex-col gap-2.5">
+        <div className="flex items-baseline justify-between">
+          <span className="text-[17px] uppercase tracking-[0.14em] text-white/55">Page {pages.length + 1} · {source.label}</span>
+          <span className="text-[16px] text-white/45">auto-captures when aligned</span>
+        </div>
+        <div className="min-h-0 flex-1">
+          <GuidedCapture source={source} controlRef={shutter} onCaptured={onCaptured} onError={(m) => { closeCamera(); setStage({ s: 'error', message: m }); }} />
+        </div>
+        <div className="grid grid-cols-[1fr_auto] gap-2">
+          <HudItem active={cursor === 0} tone="lime" onClick={() => shutter.current?.capture()}><Camera size={24} /><span className="flex-1">Capture now</span></HudItem>
+          <HudItem active={cursor === 1} onClick={() => { closeCamera(); setStage({ s: pages.length ? 'review' : 'menu' }); }}><span className="text-[19px]">Cancel</span></HudItem>
+        </div>
       </div>
     );
   }
@@ -182,7 +179,7 @@ export function AuditScanScreen({ data, online, flash }: { data: GlassesData; on
         <div className="mt-auto grid gap-2">
           <HudItem active={cursor === 0} tone="lime" disabled={!online} onClick={() => void send()}><Send size={24} /><span className="flex-1">{online ? 'Send for verification' : 'Offline - connect to send'}</span></HudItem>
           <div className="grid grid-cols-3 gap-2">
-            <HudItem active={cursor === 1} disabled={pages.length >= MAX_PAGES} onClick={() => void startCamera()}><Camera size={22} /><span className="text-[19px]">Add page</span></HudItem>
+            <HudItem active={cursor === 1} disabled={pages.length >= MAX_PAGES} onClick={() => void startCamera(lastKind.current)}><Camera size={22} /><span className="text-[19px]">Add page</span></HudItem>
             <HudItem active={cursor === 2} disabled={pages.length >= MAX_PAGES} onClick={() => void sample()}><FileImage size={22} /><span className="text-[19px]">Sample</span></HudItem>
             <HudItem active={cursor === 3} onClick={() => { setPages([]); setStage({ s: 'menu' }); }}><Trash2 size={22} /><span className="text-[19px]">Discard</span></HudItem>
           </div>
@@ -196,9 +193,12 @@ export function AuditScanScreen({ data, online, flash }: { data: GlassesData; on
     <div className="flex h-full flex-col gap-3">
       <HudTitle eyebrow="Paper records → verified digital audit">Audit scan</HudTitle>
       <HudItem active={cursor === 0} tone="lime" onClick={() => void startCamera()}>
-        <Camera size={26} /><span className="min-w-0 flex-1"><span className="block">Scan a document</span><span className="block text-[17px] text-white/55">Glasses camera · up to {MAX_PAGES} pages</span></span>
+        <Camera size={26} /><span className="min-w-0 flex-1"><span className="block">Scan a document</span><span className="block text-[17px] text-white/55">{hasGlassesBridge() ? 'Ray-Ban Meta camera' : 'Camera'} · guided A4 framing · up to {MAX_PAGES} pages</span></span>
       </HudItem>
-      <HudItem active={cursor === 1} onClick={() => void sample()}>
+      <HudItem active={cursor === 1} onClick={() => void startCamera('simulated')}>
+        <ScanLine size={26} /><span className="min-w-0 flex-1"><span className="block">Simulated glasses camera</span><span className="block text-[17px] text-white/55">Watch guided capture without hardware</span></span>
+      </HudItem>
+      <HudItem active={cursor === 2} onClick={() => void sample()}>
         <FileImage size={26} /><span className="min-w-0 flex-1"><span className="block">Use sample audit sheet</span><span className="block text-[17px] text-white/55">Try the pipeline without paper</span></span>
       </HudItem>
       <div className="mt-1 text-[17px] uppercase tracking-[0.14em] text-white/50">My recent scans</div>

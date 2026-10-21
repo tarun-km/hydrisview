@@ -7,6 +7,8 @@ import { apiBlob, errorMessage, post } from '@/lib/api';
 import { useApi, invalidatePaths } from '@/lib/query';
 import { scanPage, uploadBody, warmUpOcr, type ScannedPage } from '@/lib/ocr';
 import { renderSampleAuditSheet } from '@/lib/sample-audit';
+import { GuidedCapture } from '@/lib/GuidedCapture';
+import { openCamera, type CameraKind, type CameraSource } from '@/glasses/camera';
 import { Button, Chip, Progress } from '@/ui';
 import { useQueryClient } from '@tanstack/react-query';
 
@@ -67,16 +69,12 @@ export function ScanComposer({ onDone, onCancel }: { onDone: (id: string) => voi
   const [title, setTitle] = useState('');
   const [busy, setBusy] = useState<{ stage: string; progress: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [camera, setCamera] = useState<MediaStream | null>(null);
-  const video = useRef<HTMLVideoElement>(null);
+  const [camera, setCamera] = useState<CameraSource | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const max = caps.data?.maxPages ?? 6;
 
   useEffect(() => warmUpOcr(), []);
-  useEffect(() => () => camera?.getTracks().forEach((t) => t.stop()), [camera]);
-  useEffect(() => {
-    if (video.current && camera) video.current.srcObject = camera;
-  }, [camera]);
+  useEffect(() => () => camera?.stop(), [camera]);
 
   const add = async (src: Blob) => {
     setError(null);
@@ -90,24 +88,13 @@ export function ScanComposer({ onDone, onCancel }: { onDone: (id: string) => voi
     }
   };
 
-  const openCamera = async () => {
+  const startCamera = async (prefer?: CameraKind) => {
+    setError(null);
     try {
-      setCamera(await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' }, width: { ideal: 2560 } }, audio: false }));
+      setCamera(await openCamera(prefer));
     } catch (e) {
       setError(`Camera unavailable: ${errorMessage(e)}`);
     }
-  };
-  const snap = async () => {
-    const v = video.current;
-    if (!v) return;
-    const c = document.createElement('canvas');
-    c.width = v.videoWidth;
-    c.height = v.videoHeight;
-    c.getContext('2d')!.drawImage(v, 0, 0);
-    const blob = await new Promise<Blob | null>((r) => c.toBlob(r, 'image/jpeg', 0.92));
-    camera?.getTracks().forEach((t) => t.stop());
-    setCamera(null);
-    if (blob) await add(blob);
   };
 
   const submit = async () => {
@@ -138,10 +125,12 @@ export function ScanComposer({ onDone, onCancel }: { onDone: (id: string) => voi
 
       {camera ? (
         <div className="grid gap-3">
-          <video ref={video} autoPlay playsInline muted className="aspect-[3/4] w-full rounded-[20px] bg-black object-cover" />
+          <div className="aspect-[4/3] w-full">
+            <GuidedCapture source={camera} variant="console" onCaptured={(pg) => { camera.stop(); setCamera(null); void add(pg.blob); }} onError={(m) => { camera.stop(); setCamera(null); setError(m); }} />
+          </div>
+          <p className="text-xs text-muted">Hold the A4 sheet flat and square; it captures automatically when aligned and steady, then the page is flattened before OCR.</p>
           <div className="flex gap-2">
-            <Button variant="primary" icon={<Camera size={16} />} onClick={() => void snap()}>Capture page</Button>
-            <Button onClick={() => { camera.getTracks().forEach((t) => t.stop()); setCamera(null); }}>Cancel</Button>
+            <Button onClick={() => { camera.stop(); setCamera(null); }}>Cancel</Button>
           </div>
         </div>
       ) : (
@@ -149,11 +138,11 @@ export function ScanComposer({ onDone, onCancel }: { onDone: (id: string) => voi
           <button type="button" disabled={!!busy || pages.length >= max} onClick={() => fileRef.current?.click()} className="card card-tight flex flex-col items-start gap-2 text-left transition-colors hover:border-line-2 disabled:opacity-50">
             <Upload size={18} aria-hidden /><span className="font-medium">Photo or file</span><span className="text-xs text-muted">JPEG/PNG of a page</span>
           </button>
-          <button type="button" disabled={!!busy || pages.length >= max} onClick={() => void openCamera()} className="card card-tight flex flex-col items-start gap-2 text-left transition-colors hover:border-line-2 disabled:opacity-50">
-            <Camera size={18} aria-hidden /><span className="font-medium">Camera</span><span className="text-xs text-muted">Phone or webcam</span>
+          <button type="button" disabled={!!busy || pages.length >= max} onClick={() => void startCamera()} className="card card-tight flex flex-col items-start gap-2 text-left transition-colors hover:border-line-2 disabled:opacity-50">
+            <Camera size={18} aria-hidden /><span className="font-medium">Camera</span><span className="text-xs text-muted">Guided A4 capture</span>
           </button>
-          <button type="button" disabled={!!busy || pages.length >= max} onClick={async () => add(await renderSampleAuditSheet(Math.floor(Math.random() * 20)))} className="card card-tight flex flex-col items-start gap-2 text-left transition-colors hover:border-line-2 disabled:opacity-50">
-            <FileImage size={18} aria-hidden /><span className="font-medium">Sample audit sheet</span><span className="text-xs text-muted">Printed form for a quick test</span>
+          <button type="button" disabled={!!busy || pages.length >= max} onClick={() => void startCamera('simulated')} className="card card-tight flex flex-col items-start gap-2 text-left transition-colors hover:border-line-2 disabled:opacity-50">
+            <FileImage size={18} aria-hidden /><span className="font-medium">Simulated glasses camera</span><span className="text-xs text-muted">Sample sheet filmed on a desk</span>
           </button>
           <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp" capture="environment" multiple hidden onChange={async (e) => {
             const files = [...(e.target.files ?? [])].slice(0, max - pages.length);
