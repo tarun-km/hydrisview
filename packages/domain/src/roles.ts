@@ -57,6 +57,10 @@ export const PERMISSIONS = [
   'report.export',
   'audit.read',
   'simulation.control',
+  'auditdoc.read',
+  'auditdoc.capture',
+  'auditdoc.verify',
+  'auditdoc.approve',
 ] as const;
 export type Permission = (typeof PERMISSIONS)[number];
 
@@ -68,6 +72,7 @@ const READ_BASE: Permission[] = [
   'inspection.read',
   'maintenance.read',
   'document.read',
+  'auditdoc.read',
 ];
 
 export const ROLE_PERMISSIONS: Record<Role, ReadonlySet<Permission>> = {
@@ -98,6 +103,9 @@ export const ROLE_PERMISSIONS: Record<Role, ReadonlySet<Permission>> = {
     'report.export',
     'audit.read',
     'simulation.control',
+    'auditdoc.capture',
+    'auditdoc.verify',
+    'auditdoc.approve',
   ]),
   supervisor: new Set<Permission>([
     ...READ_BASE,
@@ -116,6 +124,8 @@ export const ROLE_PERMISSIONS: Record<Role, ReadonlySet<Permission>> = {
     'device.pair',
     'report.read',
     'report.export',
+    'auditdoc.capture',
+    'auditdoc.verify',
   ]),
   field_operator: new Set<Permission>([
     ...READ_BASE,
@@ -123,6 +133,7 @@ export const ROLE_PERMISSIONS: Record<Role, ReadonlySet<Permission>> = {
     'inspection.execute',
     'maintenance.request',
     'device.pair',
+    'auditdoc.capture',
   ]),
   maintenance_engineer: new Set<Permission>([
     ...READ_BASE,
@@ -133,6 +144,7 @@ export const ROLE_PERMISSIONS: Record<Role, ReadonlySet<Permission>> = {
     'maintenance.request',
     'maintenance.execute',
     'device.pair',
+    'auditdoc.capture',
   ]),
   viewer: new Set<Permission>([...READ_BASE, 'report.read']),
 };

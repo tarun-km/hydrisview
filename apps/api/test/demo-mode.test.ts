@@ -243,3 +243,19 @@ test('demo pairing: works across instances, shows the guest name and tasks, surv
   const r = await a.app.inject({ method: 'GET', url: '/api/device/context', headers: { authorization: `Bearer ${t2.accessToken}` } });
   assert.equal(r.json().operator.name, 'Arjun Rao');
 });
+
+test('demo audit scans are visible and reviewable from every instance', async () => {
+  const c = await guest(a.app, 'Nisha Audit');
+  const PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+  const ln = { text: 'Outlet pH: 7.2', conf: 90, bbox: [0.05, 0.1, 0.3, 0.02], words: [{ text: 'Outlet', conf: 90, bbox: [0.05, 0.1, 0.07, 0.02] }, { text: 'pH:', conf: 90, bbox: [0.13, 0.1, 0.05, 0.02] }, { text: '7.2', conf: 90, bbox: [0.19, 0.1, 0.04, 0.02] }] };
+  const r = await c.req('POST', '/api/audit-docs', { title: 'Cross-instance scan', pages: [{ mime: 'image/png', data: PNG, width: 800, height: 1000, readings: [{ engine: 'ocr:original', text: ln.text, conf: 90, lines: [ln] }, { engine: 'ocr:enhanced', text: ln.text, conf: 90, lines: [ln] }] }] });
+  assert.equal(r.statusCode, 201, r.body);
+  const onB = new Client(b.app);
+  onB.token = c.token;
+  const list = await onB.req('GET', '/api/audit-docs');
+  assert.ok(list.json().some((d: { id: string }) => d.id === r.json().id), 'listed on the other instance');
+  assert.equal((await onB.req('POST', `/api/audit-docs/${r.json().id}/confirm-agreed`)).statusCode, 200);
+  assert.equal((await onB.req('POST', `/api/audit-docs/${r.json().id}/verify`, {})).statusCode, 200);
+  const back = await c.req('GET', `/api/audit-docs/${r.json().id}`);
+  assert.equal(back.json().status, 'verified', 'instance a sees the verification made on b');
+});

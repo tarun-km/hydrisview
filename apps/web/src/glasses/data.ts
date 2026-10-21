@@ -2,7 +2,7 @@
 
 import {
   DEFAULT_UI_PROFILE_CONFIG, MEASURAND_DEFS, SCENARIOS, applyMeasurementProfile, normalizeUiProfileConfig, type UiProfileConfig, SIM_PLANT, SIM_STEP_SECONDS, evaluateThreshold, freshness, scenarioFrame, stepOutcome,
-  type Freshness, type InspectionStep, type ScenarioKey, type StepValue,
+  agreementScore, structureFromOcr, type AuditFigure, type OcrReading, type Freshness, type InspectionStep, type ScenarioKey, type StepValue,
 } from '@hydris/domain';
 import { DeviceLink } from './link';
 
@@ -56,7 +56,17 @@ export interface GlassesData {
   markNotificationsRead(): Promise<void>;
   documents(): Promise<GDocSummary[]>;
   document(id: string): Promise<GDoc>;
+  auditScans(): Promise<GAuditScan[]>;
+  submitAuditScan(body: AuditScanBody): Promise<GAuditScan>;
+  enhanceAuditScan(id: string): Promise<void>;
 }
+
+export interface GAuditScan {
+  id: string; title: string; docType: string; status: 'processing' | 'in_review' | 'verified' | 'approved' | 'rejected'; pageCount: number; createdAt: string;
+  aiStatus: string; agreement: number | null; fields: number; tables: number; figures: number; attention: number;
+  review: { total: number; done: number; flagged: number; pending: number; complete: boolean };
+}
+export interface AuditScanBody { title?: string; pages: { mime: string; data: string; width: number; height: number; readings: OcrReading[]; figures?: AuditFigure[] }[] }
 
 // ---------------- offline cache (last context + SOPs read) ----------------
 const CK = { ctx: 'hydris.glasses.cache.ctx', docs: 'hydris.glasses.cache.docs', doc: 'hydris.glasses.cache.doc.' };
@@ -89,6 +99,15 @@ export class LiveData implements GlassesData {
   }
   async acknowledge(id: string) {
     await this.link.call(`/alarms/${id}/acknowledge`, { method: 'POST', json: {} });
+  }
+  auditScans() {
+    return this.link.call<GAuditScan[]>('/audit-docs?mine=true');
+  }
+  submitAuditScan(body: AuditScanBody) {
+    return this.link.call<GAuditScan>('/audit-docs', { method: 'POST', json: body });
+  }
+  async enhanceAuditScan(id: string) {
+    await this.link.call(`/audit-docs/${id}/enhance`, { method: 'POST', json: {} });
   }
   async inspection(id: string) {
     return (await this.link.call<{ inspection: GInspection }>(`/inspections/${id}`)).inspection;
@@ -153,6 +172,24 @@ export class DemoData implements GlassesData {
   /** Live preview (console): config posted by the profile editor; demo mode only. */
   previewConfig: UiProfileConfig | null = null;
   constructor(public scenario: ScenarioKey) {}
+  private scans: GAuditScan[] = [];
+  async auditScans() {
+    return this.scans;
+  }
+  /** Client-side demo: structure the OCR readings locally with the same domain logic the server uses. */
+  async submitAuditScan(body: AuditScanBody): Promise<GAuditScan> {
+    const parts = body.pages.map((p, i) => structureFromOcr(i + 1, p.readings, p.figures));
+    const fields = parts.flatMap((x) => x.fields);
+    const scan: GAuditScan = {
+      id: `demo-${Date.now()}`, title: body.title || parts[0]?.text.text.split(/\r?\n/).find((l) => l.trim().length > 6 && !l.includes(':'))?.trim() || 'Audit scan', docType: 'general',
+      status: 'in_review', pageCount: body.pages.length, createdAt: new Date().toISOString(), aiStatus: 'unavailable', agreement: agreementScore(fields),
+      fields: fields.length, tables: parts.reduce((n, x) => n + x.tables.length, 0), figures: parts.reduce((n, x) => n + x.figures.length, 0), attention: fields.filter((f) => f.agreement === 'mismatch' || f.conf < 0.75).length,
+      review: { total: fields.length, done: 0, flagged: 0, pending: fields.length, complete: false },
+    };
+    this.scans.unshift(scan);
+    return scan;
+  }
+  async enhanceAuditScan() {}
   async documents(): Promise<GDocSummary[]> {
     return Object.entries(DEMO_DOCS).map(([id, d]) => ({ id, title: d.title, kind: 'sop', version: 1, status: 'approved' }));
   }

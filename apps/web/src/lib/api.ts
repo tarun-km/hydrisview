@@ -93,12 +93,17 @@ export async function publicGet<T>(path: string): Promise<T> {
   return parse<T>(await raw(path, {}, false));
 }
 
-/** Authenticated file download (CSV exports) without putting tokens in URLs. */
-export async function download(path: string, filename: string) {
+/** Authenticated binary fetch (images, PDFs) without putting tokens in URLs. */
+export async function apiBlob(path: string): Promise<Blob> {
   let res = await raw(path);
   if (res.status === 401 && (await refreshSession())) res = await raw(path);
   if (!res.ok) await parse(res);
-  const blob = await res.blob();
+  return res.blob();
+}
+
+/** Authenticated file download (CSV exports) without putting tokens in URLs. */
+export async function download(path: string, filename: string) {
+  const blob = await apiBlob(path);
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;

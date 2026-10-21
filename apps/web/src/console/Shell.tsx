@@ -10,7 +10,7 @@ import * as RDialog from '@radix-ui/react-dialog';
 import clsx from 'clsx';
 import {
   SlidersHorizontal, Activity, BarChart3, Bell, Boxes, Building2, Check, ClipboardCheck, FileText, Glasses, LayoutGrid, LogOut, Menu, Monitor, MonitorSmartphone, Moon, Route, ScrollText, Search,
-  Settings, ShieldCheck, Siren, Sun, UserRound, Users, Wrench, X,
+  Settings, ShieldCheck, Siren, Sun, UserRound, Users, Wrench, X, ScanLine,
 } from 'lucide-react';
 import { ROLE_LABELS, type Permission } from '@hydris/domain';
 import { getAccessToken, refreshSession } from '@/lib/api';
@@ -33,6 +33,7 @@ const NAV: NavItem[] = [
   { href: '/console/inspections', label: 'Inspections', icon: <ClipboardCheck size={19} />, perm: 'inspection.read', group: 'Work' },
   { href: '/console/maintenance', label: 'Maintenance', icon: <Wrench size={19} />, perm: 'maintenance.read', group: 'Work' },
   { href: '/console/documents', label: 'Documents & SOPs', icon: <FileText size={19} />, perm: 'document.read', group: 'Work' },
+  { href: '/console/audit-docs', label: 'Audit documents', icon: <ScanLine size={19} />, perm: 'auditdoc.read', group: 'Work' },
   { href: '/console/sites', label: 'Sites & facilities', icon: <Building2 size={19} />, perm: 'site.read', group: 'Plant' },
   { href: '/console/assets', label: 'Assets & equipment', icon: <Boxes size={19} />, perm: 'asset.read', group: 'Plant' },
   { href: '/console/devices', label: 'Field glasses', icon: <Glasses size={19} />, perm: 'device.read', group: 'People & devices' },

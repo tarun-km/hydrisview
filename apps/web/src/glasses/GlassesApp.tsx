@@ -3,7 +3,7 @@
 import QRCode from 'qrcode';
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
-  AlertTriangle, Ban, Bell, Boxes, FileText, Gauge, Library, Minus, TrendingDown, TrendingUp, Layers, LocateFixed, Map as MapIcon, BookOpen, Sparkles, Check, ChevronRight, CircleDot, ClipboardCheck, Cog, Glasses, Info, RefreshCw, ShieldAlert, Signal, SignalZero, Wifi, WifiOff, Wrench, X,
+  AlertTriangle, Ban, Bell, Boxes, FileText, Gauge, Library, Minus, TrendingDown, TrendingUp, Layers, LocateFixed, Map as MapIcon, BookOpen, Sparkles, Check, ChevronRight, CircleDot, ClipboardCheck, Cog, Glasses, Info, RefreshCw, ShieldAlert, Signal, SignalZero, Wifi, WifiOff, Wrench, X, ScanLine,
 } from 'lucide-react';
 import {
   DEFAULT_UI_PROFILE_CONFIG, FRESHNESS_LABELS, actionAllowed, applyMeasurementProfile, inspectionProgress, isScenarioKey, normalizeUiProfileConfig, screenEnabled,
@@ -14,11 +14,12 @@ import { DeviceError, DeviceLink, type PairingChallenge } from './link';
 import { DemoData, LiveData, StaleError, cachedContext, type GAlarm, type GAsset, type GAssist, type GContext, type GDoc, type GDocSummary, type GInspection, type GlassesData, type GMeasurement, type GNotification } from './data';
 import { emitToHost, useHudInput, type InputKey } from './input';
 import { PlantMap, routeDistance } from './PlantMap';
+import { AuditScanScreen } from './AuditScan';
 import { HudContext, HudItem, HudMetric, HudPill, HudTitle, SEV_HUD, useFitScale, useHud, type HudControl } from './hud';
 
 type Screen =
   | { name: 'home' } | { name: 'alerts' } | { name: 'alert'; id: string } | { name: 'inspections' } | { name: 'inspection'; id: string }
-  | { name: 'tasks' } | { name: 'task'; id: string } | { name: 'asset'; id: string } | { name: 'assist'; q: string; assetId?: string } | { name: 'status' } | { name: 'notifications' } | { name: 'ai' } | { name: 'map' }
+  | { name: 'tasks' } | { name: 'task'; id: string } | { name: 'asset'; id: string } | { name: 'assist'; q: string; assetId?: string } | { name: 'status' } | { name: 'notifications' } | { name: 'ai' } | { name: 'map' } | { name: 'scan' }
   | { name: 'measurements' } | { name: 'assets' } | { name: 'sops' } | { name: 'sop'; id: string };
 type Phase = 'boot' | 'setup' | 'ready' | 'app' | 'revoked' | 'suspended' | 'unassigned';
 
@@ -41,6 +42,7 @@ function screenPermitted(cfg: UiProfileConfig, s: Screen): boolean {
     case 'asset': return on('assets') || on('measurements') || on('inspections') || on('map');
     case 'assist': return canAssist(cfg);
     case 'notifications': return on('notifications');
+    case 'scan': return on('scan');
     case 'ai': return on('ai') && allowed(cfg, 'ask_ai');
     case 'map': return on('map') && allowed(cfg, 'view_map');
     case 'measurements': return on('measurements');
@@ -540,6 +542,7 @@ function ScreenView({ screen, ctx, data, nav, online, status, history }: { scree
     case 'notifications': return <Notifications data={data} nav={nav} online={online} />;
     case 'ai': return <HydrisAI ctx={ctx} nav={nav} />;
     case 'map': return <MapScreen ctx={ctx} nav={nav} />;
+    case 'scan': return <AuditScanScreen data={data} online={online} flash={nav.flash} />;
   }
 }
 
@@ -559,6 +562,7 @@ function Home({ ctx, nav }: { ctx: GContext; nav: Nav }) {
     assets: { key: 'assets', icon: <Boxes size={26} />, label: 'Assets', meta: `${ctx.assets?.length ?? 0} on site`, go: () => nav.push({ name: 'assets' }) },
     sops: { key: 'sops', icon: <Library size={26} />, label: 'SOP library', meta: 'approved procedures', go: () => nav.push({ name: 'sops' }) },
     ai: { key: 'ai', icon: <Sparkles size={26} />, label: 'Ask Hydris AI', meta: 'procedures & answers', go: () => nav.push({ name: 'ai' }) },
+    scan: { key: 'scan', icon: <ScanLine size={26} />, label: 'Audit scan', meta: 'paper → verified record', go: () => nav.push({ name: 'scan' }) },
     notifications: { key: 'notif', icon: <Bell size={26} />, label: 'Notifications', meta: 'updates for you', go: () => nav.push({ name: 'notifications' }) },
     status: { key: 'status', icon: <Cog size={26} />, label: 'Device & log out', meta: ctx.device.name, go: () => nav.push({ name: 'status' }) },
   };

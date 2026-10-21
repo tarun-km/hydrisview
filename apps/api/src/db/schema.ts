@@ -25,6 +25,7 @@ import {
   ROLES,
   SENSOR_QUALITIES,
   TELEMETRY_SOURCES,
+  type AuditExtraction,
   type InspectionStep,
   type StepValue,
 } from '@hydris/domain';
@@ -931,4 +932,74 @@ export const realtimeEvents = pgTable(
     createdAt: createdAt(),
   },
   (t) => [index('realtime_events_created_idx').on(t.createdAt)],
+);
+
+// =================== Audit document scans (OCR) ===================
+export const auditDocStatusEnum = pgEnum('audit_doc_status', ['processing', 'in_review', 'verified', 'approved', 'rejected']);
+
+export const auditDocuments = pgTable(
+  'audit_documents',
+  {
+    id: pk(),
+    orgId: uuid('org_id').notNull().references(() => organizations.id, { onDelete: 'cascade' }),
+    siteId: uuid('site_id').references(() => sites.id, { onDelete: 'set null' }),
+    assetId: uuid('asset_id').references(() => assets.id, { onDelete: 'set null' }),
+    title: text('title').notNull(),
+    docType: text('doc_type').notNull().default('general'),
+    status: auditDocStatusEnum('status').notNull().default('in_review'),
+    pageCount: integer('page_count').notNull().default(0),
+    extraction: jsonb('extraction').$type<AuditExtraction>().notNull(),
+    engines: jsonb('engines').$type<string[]>().notNull().default([]),
+    aiStatus: text('ai_status').$type<'none' | 'pending' | 'done' | 'failed' | 'unavailable'>().notNull().default('none'),
+    aiError: text('ai_error'),
+    capturedBy: uuid('captured_by').references(() => users.id),
+    capturedVia: text('captured_via').$type<'glasses' | 'console'>().notNull(),
+    deviceId: uuid('device_id').references(() => devices.id, { onDelete: 'set null' }),
+    verifiedBy: uuid('verified_by').references(() => users.id),
+    verifiedAt: ts('verified_at'),
+    approvedBy: uuid('approved_by').references(() => users.id),
+    approvedAt: ts('approved_at'),
+    rejectedReason: text('rejected_reason'),
+    revision: integer('revision').notNull().default(1),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [index('audit_documents_org_idx').on(t.orgId, t.createdAt)],
+);
+
+export const auditDocumentPages = pgTable(
+  'audit_document_pages',
+  {
+    id: pk(),
+    orgId: uuid('org_id').notNull().references(() => organizations.id, { onDelete: 'cascade' }),
+    documentId: uuid('document_id').notNull().references(() => auditDocuments.id, { onDelete: 'cascade' }),
+    pageNo: integer('page_no').notNull(),
+    mime: text('mime').notNull(),
+    /** Base64 image data (scans are downscaled on the device to <= ~600 KB). */
+    data: text('data').notNull(),
+    width: integer('width').notNull(),
+    height: integer('height').notNull(),
+    ocr: jsonb('ocr').$type<unknown>(),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex('audit_document_pages_uq').on(t.documentId, t.pageNo)],
+);
+
+/** Append-only review history: every confirmation, correction and decision is kept. */
+export const auditDocumentEvents = pgTable(
+  'audit_document_events',
+  {
+    id: pk(),
+    orgId: uuid('org_id').notNull().references(() => organizations.id, { onDelete: 'cascade' }),
+    documentId: uuid('document_id').notNull().references(() => auditDocuments.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id').references(() => users.id),
+    deviceId: uuid('device_id').references(() => devices.id, { onDelete: 'set null' }),
+    action: text('action').notNull(),
+    target: text('target'),
+    before: jsonb('before').$type<unknown>(),
+    after: jsonb('after').$type<unknown>(),
+    note: text('note'),
+    createdAt: createdAt(),
+  },
+  (t) => [index('audit_document_events_doc_idx').on(t.documentId, t.createdAt)],
 );

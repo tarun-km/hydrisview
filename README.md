@@ -16,6 +16,15 @@ Deploy the repository to Vercel with **no environment variables** (or run anywhe
 npm run build && cd apps/web && DEMO_MODE=true npx next start -p 3000   # local demo, nothing else to configure
 ```
 
+## Audit document scanning (OCR)
+Glasses → **Audit scan** (or Console → Work → **Audit documents** → Scan document) turns a paper record into a verified digital document:
+1. **Capture**: Meta Ray-Ban camera through the companion-app bridge (`window.HydrisWearables.capturePhoto()` or the `hydris:camera-*` postMessage protocol, see `apps/web/src/glasses/camera.ts`), otherwise the phone/laptop camera or an uploaded photo. A built-in sample audit sheet lets you test without paper.
+2. **On-device OCR** (Tesseract.js / WebAssembly): two independent passes per page, the photo as captured and a contrast-normalized copy with ruling lines removed. Figures (photos, logos, signatures) are located from ink not covered by text.
+3. **Structuring** (`packages/domain/src/auditdoc.ts`): labelled values with units and types, tables from word geometry, page text; every value is cross-checked between engines and range-checked (pH 0-14, %, temperature...).
+4. **Vision AI (optional)**: set `ANTHROPIC_API_KEY` and Claude (`claude-opus-5-5`) reads the layout (tables, handwriting, figures with boxes); each AI value is cross-checked against the OCR text inside its box.
+5. **Dual verification**: machine cross-check, then a reviewer confirms/corrects every value (corrections keep the extracted value in history), then a *different* person approves (demo tenants may self-approve; it is recorded).
+6. **PDF**: cover with the verification trail, the original scan with an invisible searchable text layer, and a reconstructed page (values, ruled tables, cropped figures, text).
+
 ## Run locally
 ```bash
 npm install

@@ -8,3 +8,4 @@ export * from './catalog';
 export * from './random';
 export * from './scenarios';
 export * from './uiprofile';
+export * from './auditdoc';

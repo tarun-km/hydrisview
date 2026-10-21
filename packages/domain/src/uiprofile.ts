@@ -13,11 +13,11 @@ import { ROLES, type Role } from './roles';
 
 export const UI_PROFILE_SCHEMA_VERSION = 1 as const;
 
-export const UI_SCREENS = ['home', 'alerts', 'inspections', 'tasks', 'map', 'measurements', 'assets', 'sops', 'ai', 'notifications', 'status'] as const;
+export const UI_SCREENS = ['home', 'alerts', 'inspections', 'tasks', 'map', 'measurements', 'assets', 'sops', 'ai', 'scan', 'notifications', 'status'] as const;
 export type UiScreen = (typeof UI_SCREENS)[number];
 export const UI_SCREEN_LABELS: Record<UiScreen, string> = {
   home: 'Home', alerts: 'Alerts', inspections: 'Inspections', tasks: 'Maintenance tasks', map: 'Plant map', measurements: 'Live measurements',
-  assets: 'Assets', sops: 'SOP library', ai: 'Hydris AI', notifications: 'Notifications', status: 'Device & session',
+  assets: 'Assets', sops: 'SOP library', ai: 'Hydris AI', scan: 'Audit scan', notifications: 'Notifications', status: 'Device & session',
 };
 /** Screens that can never be disabled (navigation root and device/session information). */
 export const UI_REQUIRED_SCREENS: ReadonlySet<UiScreen> = new Set(['home', 'status']);

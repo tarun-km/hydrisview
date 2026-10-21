@@ -15,6 +15,8 @@ export const DEVICE_PERMISSIONS: ReadonlySet<Permission> = new Set([
   'maintenance.request',
   'maintenance.execute',
   'document.read',
+  'auditdoc.read',
+  'auditdoc.capture',
 ]);
 
 export interface Principal {

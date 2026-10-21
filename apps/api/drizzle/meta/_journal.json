@@ -50,6 +50,20 @@
       "when": 1792056244336,
       "tag": "0006_realtime_events_rls",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1792574006812,
+      "tag": "0007_audit_documents",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1792574017128,
+      "tag": "0008_audit_documents_rls",
+      "breakpoints": true
     }
   ]
 }
