@@ -5,11 +5,13 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useState, type FormEvent } from 'react';
 import { AuthFrame } from '@/console/AuthFrame';
 import { Button, Input, PasswordInput } from '@/ui';
-import { errorMessage } from '@/lib/api';
+import { errorMessage, post, type SessionView } from '@/lib/api';
 import { useSessionCtx } from '@/lib/session';
 
 function LoginForm() {
-  const { state, signIn, verifyMfa } = useSessionCtx();
+  const { state, signIn, verifyMfa, adopt } = useSessionCtx();
+  const [demoOpen, setDemoOpen] = useState(false);
+  const [demoName, setDemoName] = useState('');
   const router = useRouter();
   const params = useSearchParams();
   const next = params.get('next');
@@ -42,11 +44,13 @@ function LoginForm() {
     }
   };
 
-  const demoSignIn = async () => {
+  const demoSignIn = async (e: FormEvent) => {
+    e.preventDefault();
+    if (demoName.trim().length < 2) return;
     setBusy(true);
     setError(null);
     try {
-      await signIn('tarun@hydris.ai', 'demo@123');
+      adopt(await post<SessionView>('/auth/demo', { name: demoName.trim() }));
     } catch (err) {
       setError(errorMessage(err));
     } finally {
@@ -69,8 +73,8 @@ function LoginForm() {
         <Button type="submit" variant="primary" size="lg" busy={busy} disabled={mfaToken ? code.length !== 6 : !email || !password}>
           {mfaToken ? 'Verify and continue' : 'Sign in'}
         </Button>
-        {!mfaToken && (
-          <Button type="button" variant="secondary" size="lg" busy={busy} onClick={demoSignIn}>
+        {!mfaToken && !demoOpen && (
+          <Button type="button" variant="secondary" size="lg" onClick={() => setDemoOpen(true)}>
             Enter demo mode
           </Button>
         )}
@@ -79,6 +83,16 @@ function LoginForm() {
           <Link href="/" className="text-muted hover:text-text">Back to website</Link>
         </div>
       </form>
+      {!mfaToken && demoOpen && (
+        <form onSubmit={demoSignIn} className="mt-4 grid gap-3 rounded-[20px] border border-line p-4" noValidate>
+          <p className="text-sm text-text-2">Demo mode creates a personal account for you with synthetic plant data, your own inspections and maintenance tasks. Pair glasses with it to see your name and work on the glasses.</p>
+          <Input label="Your name" autoComplete="name" autoFocus required maxLength={40} value={demoName} onChange={(e) => setDemoName(e.target.value)} />
+          <div className="grid grid-cols-2 gap-3">
+            <Button type="button" variant="secondary" onClick={() => setDemoOpen(false)}>Cancel</Button>
+            <Button type="submit" variant="primary" busy={busy} disabled={demoName.trim().length < 2}>Start demo</Button>
+          </div>
+        </form>
+      )}
     </AuthFrame>
   );
 }

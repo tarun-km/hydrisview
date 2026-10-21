@@ -178,3 +178,68 @@ test('lazy ticker advances live data through the ingestion pipeline', async () =
   }
   assert.equal(DEMO_ORG_ID.length, 36);
 });
+
+// ---------------------------------------------------------------- named guests + cross-instance pairing
+async function guest(app: FastifyInstance, name: string) {
+  const c = new Client(app);
+  const r = await c.req('POST', '/api/auth/demo', { name });
+  assert.equal(r.statusCode, 200, r.body);
+  c.absorb(r);
+  return c;
+}
+
+/** Glasses on `g`, approval on `h`: the full RFC 8628-style flow across two instances. */
+async function pairAcross(g: FastifyInstance, h: FastifyInstance, approver: Client, hardwareId: string, assigneeUserId?: string) {
+  const cr = await g.inject({ method: 'POST', url: '/api/pairing/challenges', payload: { hardwareId, device: { kind: 'simulator', name: 'Demo viewport' } } });
+  assert.equal(cr.statusCode, 201, cr.body);
+  const ch = cr.json();
+  const hc = new Client(h);
+  hc.token = approver.token;
+  const lk = await hc.req('GET', `/api/pairing/lookup?code=${ch.userCode}`);
+  assert.equal(lk.statusCode, 200, lk.body);
+  const ap = await hc.req('POST', '/api/pairing/approve', { code: ch.userCode, siteId: lk.json().sites[0].id, ...(assigneeUserId ? { assigneeUserId } : {}) });
+  assert.equal(ap.statusCode, 200, ap.body);
+  const pl = await g.inject({ method: 'POST', url: `/api/pairing/challenges/${ch.challengeId}/poll`, payload: { pollSecret: ch.pollSecret } });
+  assert.equal(pl.statusCode, 200, pl.body);
+  const done = pl.json();
+  assert.equal(done.status, 'completed', pl.body);
+  return done as { accessToken: string; refreshToken: string };
+}
+
+test('demo guest: named account works on every instance and owns personal work', async () => {
+  const c = await guest(a.app, 'Priya Sharma');
+  const me = await c.req('GET', '/api/auth/me');
+  assert.equal(me.statusCode, 200, me.body);
+  assert.equal(me.json().user.name, 'Priya Sharma');
+  // Same token on the other instance (which has never seen this guest).
+  const onB = new Client(b.app);
+  onB.token = c.token;
+  const meB = await onB.req('GET', '/api/auth/me');
+  assert.equal(meB.statusCode, 200, meB.body);
+  assert.equal(meB.json().user.name, 'Priya Sharma');
+});
+
+test('demo pairing: works across instances, shows the guest name and tasks, survives logout + re-pair cycles', async () => {
+  const c = await guest(a.app, 'Arjun Rao');
+  const hw = 'hw-cross-instance-0001';
+  for (let round = 0; round < 3; round++) {
+    // Alternate which instance hosts the glasses and which approves.
+    const [g, h] = round % 2 === 0 ? [a.app, b.app] : [b.app, a.app];
+    const t = await pairAcross(g, h, c, hw);
+    for (const app of [a.app, b.app]) {
+      const ctxR = await app.inject({ method: 'GET', url: '/api/device/context', headers: { authorization: `Bearer ${t.accessToken}` } });
+      assert.equal(ctxR.statusCode, 200, `round ${round} on ${app === a.app ? "a" : "b"}: ${ctxR.body}`);
+      const body = ctxR.json();
+      assert.equal(body.operator.name, 'Arjun Rao');
+      assert.ok(body.inspections.length + body.tasks.length > 0, 'guest has assigned work on the glasses');
+    }
+    const rf = await h.inject({ method: 'POST', url: '/api/device/refresh', payload: { refreshToken: t.refreshToken } });
+    assert.equal(rf.statusCode, 200, rf.body);
+    const out = await g.inject({ method: 'POST', url: '/api/device/logout', headers: { authorization: `Bearer ${t.accessToken}` } });
+    assert.equal(out.statusCode, 204, out.body);
+  }
+  // A brand-new device for the same person also pairs.
+  const t2 = await pairAcross(b.app, a.app, c, 'hw-cross-instance-0002');
+  const r = await a.app.inject({ method: 'GET', url: '/api/device/context', headers: { authorization: `Bearer ${t2.accessToken}` } });
+  assert.equal(r.json().operator.name, 'Arjun Rao');
+});

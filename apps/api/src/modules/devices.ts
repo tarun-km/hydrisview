@@ -19,6 +19,8 @@ import { has, requirePerm, requireSite, siteScope, type Principal } from '../cor
 import { pairingCode, randomToken, safeEqual, sha256 } from '../core/crypto';
 import { audit } from '../core/services';
 import { effectiveProfile } from './ui-profiles';
+import { ensureGuest } from '../core/demo-guests';
+import { demoShared } from '../core/demo-shared';
 
 const deviceInfoSchema = z.object({
   kind: z.enum(['hardware', 'simulator']), model: z.string().max(80).optional(), appVersion: z.string().max(40).optional(), firmwareVersion: z.string().max(40).optional(),
@@ -50,6 +52,52 @@ export async function deviceRoutes(app: FastifyInstance, ctx: Ctx, opts: { relax
     return { accessToken, refreshToken: refresh };
   }
 
+  // ---- Demo mode: pairing state shared across serverless instances (each has its own in-memory DB).
+  type Challenge = typeof pairingChallenges.$inferSelect;
+  const SHARE_TTL_S = PAIRING_TTL_S + 600;
+  const piKey = (id: string) => `pair:id:${id}`;
+  const pcKey = (codeHash: string) => `pair:code:${codeHash}`;
+  const DATE_FIELDS = ['expiresAt', 'lastPolledAt', 'approvedAt', 'completedAt', 'createdAt'] as const;
+  async function shareChallenge(c: Challenge) {
+    if (!ctx.config.demoMode) return;
+    await demoShared().set(piKey(c.id), c, SHARE_TTL_S);
+    await demoShared().set(pcKey(c.codeHash), c.id, SHARE_TTL_S);
+  }
+  /** Bring this instance's copy of a challenge up to date with the shared one. */
+  async function hydrateChallenge(tx: Tx, id: string) {
+    if (!ctx.config.demoMode) return;
+    const raw = await demoShared().get<Record<string, unknown>>(piKey(id));
+    if (!raw) return;
+    const s = { ...raw } as Record<string, unknown>;
+    for (const f of DATE_FIELDS) if (typeof s[f] === 'string') s[f] = new Date(s[f] as string);
+    const row = s as unknown as Challenge;
+    for (const u of [row.approvedBy, row.assigneeUserId]) if (u) await ensureGuest(tx, u);
+    const [local] = await tx.select().from(pairingChallenges).where(eq(pairingChallenges.id, id));
+    if (!local) {
+      // deviceId may reference a device this instance has never seen; completion sets it again.
+      await tx.insert(pairingChallenges).values({ ...row, deviceId: null }).onConflictDoNothing();
+      return;
+    }
+    const open = (st: string) => st === 'pending' || st === 'approved';
+    if (local.status === 'pending' && row.status === 'approved') {
+      await tx.update(pairingChallenges).set({
+        status: 'approved', approvedBy: row.approvedBy, approvedAt: row.approvedAt, orgId: row.orgId, siteId: row.siteId, assigneeUserId: row.assigneeUserId, deviceInfo: row.deviceInfo,
+      }).where(eq(pairingChallenges.id, id));
+    } else if (open(local.status) && !open(row.status)) {
+      await tx.update(pairingChallenges).set({ status: row.status, completedAt: row.completedAt }).where(eq(pairingChallenges.id, id));
+    }
+  }
+  async function hydrateByCode(tx: Tx, rawCode: string) {
+    if (!ctx.config.demoMode || !isValidPairingCode(rawCode)) return;
+    const id = await demoShared().get<string>(pcKey(sha256(normalizePairingCode(rawCode))));
+    if (id) await hydrateChallenge(tx, id);
+  }
+  async function shareById(tx: Tx, id: string) {
+    if (!ctx.config.demoMode) return;
+    const [c] = await tx.select().from(pairingChallenges).where(eq(pairingChallenges.id, id));
+    if (c) await shareChallenge(c);
+  }
+
   // =================== Pairing: device side (unauthenticated, rate limited) ===================
   app.post('/pairing/challenges', limit(10), async (req, reply) => {
     const body = z.object({ hardwareId: z.string().min(16).max(80).regex(/^[A-Za-z0-9_-]+$/), device: deviceInfoSchema }).parse(req.body);
@@ -71,6 +119,7 @@ export async function deviceRoutes(app: FastifyInstance, ctx: Ctx, opts: { relax
       }
       throw new HttpError(503, 'pairing_unavailable', 'Could not allocate a pairing code. Try again.');
     });
+    await shareChallenge(out.c);
     const display = formatPairingCode(out.code);
     return reply.code(201).send({
       challengeId: out.c.id, userCode: display, pollSecret, expiresAt: out.c.expiresAt, pollIntervalS: PAIRING_POLL_INTERVAL_S,
@@ -84,6 +133,7 @@ export async function deviceRoutes(app: FastifyInstance, ctx: Ctx, opts: { relax
     const { id } = z.object({ id: z.uuid() }).parse(req.params);
     const { pollSecret } = z.object({ pollSecret: z.string().min(20).max(100) }).parse(req.body);
     return withSystem(ctx.db, async (tx) => {
+      await hydrateChallenge(tx, id);
       const [c] = await tx.select().from(pairingChallenges).where(eq(pairingChallenges.id, id));
       if (!c || !safeEqual(c.pollSecretHash, sha256(pollSecret))) throw notFound('Pairing request');
       const now = new Date();
@@ -100,6 +150,7 @@ export async function deviceRoutes(app: FastifyInstance, ctx: Ctx, opts: { relax
       const [claimed] = await tx.update(pairingChallenges).set({ status: 'completed', completedAt: now })
         .where(and(eq(pairingChallenges.id, id), eq(pairingChallenges.status, 'approved'))).returning();
       if (!claimed) return { status: 'completed' as const, error: 'already_claimed' };
+      await shareChallenge(claimed);
       const orgId = claimed.orgId!;
       return withTenantInside(tx, orgId, async () => {
         // Re-pairing the same install within the same org reuses the device record (handover/recovery).
@@ -142,9 +193,11 @@ export async function deviceRoutes(app: FastifyInstance, ctx: Ctx, opts: { relax
     const { id } = z.object({ id: z.uuid() }).parse(req.params);
     const { pollSecret } = z.object({ pollSecret: z.string() }).parse(req.body);
     await withSystem(ctx.db, async (tx) => {
+      await hydrateChallenge(tx, id);
       const [c] = await tx.select().from(pairingChallenges).where(eq(pairingChallenges.id, id));
       if (!c || !safeEqual(c.pollSecretHash, sha256(pollSecret))) throw notFound('Pairing request');
       await tx.update(pairingChallenges).set({ status: 'cancelled' }).where(and(eq(pairingChallenges.id, id), inArray(pairingChallenges.status, ['pending', 'approved'])));
+      await shareById(tx, id);
     });
     return { ok: true };
   });
@@ -161,7 +214,10 @@ export async function deviceRoutes(app: FastifyInstance, ctx: Ctx, opts: { relax
     const { code } = z.object({ code: z.string().max(20) }).parse(req.query);
     const p = req.principal!;
     requirePerm(p, 'device.pair');
-    const c = await withSystem(ctx.db, (tx) => findPending(tx, code));
+    const c = await withSystem(ctx.db, async (tx) => {
+      await hydrateByCode(tx, code);
+      return findPending(tx, code);
+    });
     return tenant(ctx, req, async (tx) => {
       const siteRows = await tx.select({ id: sites.id, name: sites.name, code: sites.code }).from(sites).where(and(siteScope(p, sites.id), isNull(sites.archivedAt))).orderBy(asc(sites.name));
       const assignees = has(p, 'device.manage')
@@ -194,6 +250,7 @@ export async function deviceRoutes(app: FastifyInstance, ctx: Ctx, opts: { relax
         if (!ok) throw badRequest('assignee_no_site_access', 'The assignee has no access to that site');
       }
       await tx.execute(sql`select set_config('app.bypass', 'on', true)`);
+      await hydrateByCode(tx, body.code);
       const c = await findPending(tx, body.code);
       const [existing] = await tx.select().from(devices).where(eq(devices.hardwareId, c.hardwareId));
       if (existing && existing.orgId !== p.orgId && existing.status !== 'revoked') {
@@ -205,6 +262,7 @@ export async function deviceRoutes(app: FastifyInstance, ctx: Ctx, opts: { relax
       }).where(and(eq(pairingChallenges.id, c.id), eq(pairingChallenges.status, 'pending'))).returning();
       await tx.execute(sql`select set_config('app.bypass', 'off', true)`);
       if (!ok) throw conflict('already_used', 'This pairing code was already used');
+      await shareChallenge(ok);
       await audit(tx, p, { orgId: p.orgId, action: 'device.pairing_approved', entityType: 'pairing', entityId: c.id, metadata: { siteId: body.siteId, assignee, device: c.deviceInfo }, ip: req.ip });
       return { ok: true, challengeId: c.id };
     });
@@ -215,8 +273,10 @@ export async function deviceRoutes(app: FastifyInstance, ctx: Ctx, opts: { relax
     const p = req.principal!;
     requirePerm(p, 'device.pair');
     await withSystem(ctx.db, async (tx) => {
+      await hydrateByCode(tx, code);
       const c = await findPending(tx, code);
       await tx.update(pairingChallenges).set({ status: 'denied', approvedBy: p.userId }).where(eq(pairingChallenges.id, c.id));
+      await shareById(tx, c.id);
       await audit(tx, p, { orgId: p.orgId, action: 'device.pairing_denied', entityType: 'pairing', entityId: c.id, ip: req.ip });
     });
     return { ok: true };
@@ -229,6 +289,7 @@ export async function deviceRoutes(app: FastifyInstance, ctx: Ctx, opts: { relax
       const c = decodeDemoDeviceRefresh(ctx.config.JWT_SECRET, refreshToken);
       if (!c) throw unauthorized('device_session_invalid', 'This device must be paired again');
       return withSystem(ctx.db, async (tx) => {
+        await ensureGuest(tx, c.uid);
         await ensureDemoDevice(tx, c);
         const [d] = await tx.select().from(devices).where(eq(devices.id, c.sub));
         if (!d || d.status === 'revoked') throw unauthorized('device_revoked', 'This device has been revoked by an administrator');

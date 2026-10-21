@@ -10,6 +10,7 @@ import type { EventBus } from './core/events';
 import type { Storage } from './core/services';
 import type { Role } from '@hydris/domain';
 import { ensureDemoDevice } from './core/demo-auth';
+import { ensureGuest } from './core/demo-guests';
 
 export interface Ctx {
   db: Db;
@@ -76,6 +77,7 @@ export async function resolveTokenPrincipal(
 ): Promise<Principal | null> {
   if (tok.typ === 'user') {
     return withSystem(ctx.db, async (tx) => {
+      if (ctx.config.demoMode) await ensureGuest(tx, tok.sub);
       const [u] = await tx.select({ status: users.status, isPlatformAdmin: users.isPlatformAdmin }).from(users).where(eq(users.id, tok.sub));
       if (!u || u.status !== 'active') return null;
       // sid is the refresh-token family; logout/reuse-detection revoke the whole family,
@@ -97,7 +99,10 @@ export async function resolveTokenPrincipal(
   }
   if (tok.typ === 'device') {
     return withSystem(ctx.db, async (tx) => {
-      if (ctx.config.demoMode) await ensureDemoDevice(tx, tok);
+      if (ctx.config.demoMode) {
+        if (tok.uid) await ensureGuest(tx, tok.uid);
+        await ensureDemoDevice(tx, tok);
+      }
       const [d] = await tx.select().from(devices).where(eq(devices.id, tok.sub));
       if (!d || d.status !== 'active' || d.sessionVersion !== tok.sv || d.orgId !== tok.org) return null;
       const [a] = await tx.select({ userId: deviceAssignments.userId }).from(deviceAssignments).where(and(eq(deviceAssignments.deviceId, d.id), isNull(deviceAssignments.unassignedAt)));

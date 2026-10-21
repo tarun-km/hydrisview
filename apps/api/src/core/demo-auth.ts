@@ -9,15 +9,20 @@ import { safeEqual } from './crypto';
 /** Re-create a device record + assignment from token claims when this instance has never seen it. */
 export async function ensureDemoDevice(tx: Tx, tok: { sub: string; org: string; sv: number; uid?: string | undefined; site?: string | null | undefined }): Promise<void> {
   if (!tok.uid) return;
-  const [d] = await tx.select({ id: devices.id }).from(devices).where(eq(devices.id, tok.sub));
+  const [d] = await tx.select({ id: devices.id, sv: devices.sessionVersion }).from(devices).where(eq(devices.id, tok.sub));
   if (!d) {
     await tx.insert(devices).values({
       id: tok.sub, orgId: tok.org, siteId: tok.site ?? null, name: 'Demo glasses', kind: 'simulator', model: 'Hydris browser simulator',
       hardwareId: `demo-${tok.sub}`, sessionVersion: tok.sv, pairedBy: tok.uid,
     }).onConflictDoNothing();
+  } else if (tok.sv > d.sv) {
+    // The device was re-paired on another instance (signed token with a newer session version):
+    // this instance's copy is stale, so adopt the newer pairing (status, site, operator).
+    await tx.update(devices).set({ sessionVersion: tok.sv, status: 'active', siteId: tok.site ?? null, suspendedAt: null, updatedAt: new Date() }).where(eq(devices.id, tok.sub));
+    await tx.update(deviceAssignments).set({ unassignedAt: new Date(), reason: 'demo: re-paired on another instance' }).where(and(eq(deviceAssignments.deviceId, tok.sub), isNull(deviceAssignments.unassignedAt)));
   }
   const [a] = await tx.select({ id: deviceAssignments.id }).from(deviceAssignments).where(and(eq(deviceAssignments.deviceId, tok.sub), isNull(deviceAssignments.unassignedAt)));
-  if (!a && !d) await tx.insert(deviceAssignments).values({ orgId: tok.org, deviceId: tok.sub, userId: tok.uid, reason: 'demo: restored from device token' }).onConflictDoNothing();
+  if (!a && (!d || tok.sv > d.sv)) await tx.insert(deviceAssignments).values({ orgId: tok.org, deviceId: tok.sub, userId: tok.uid, reason: 'demo: restored from device token' }).onConflictDoNothing();
 }
 
 /** Demo device claims that let any instance rebuild the device (see ensureDemoDevice). */

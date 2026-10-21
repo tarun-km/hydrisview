@@ -12,6 +12,8 @@ import type { Tx } from '../db/client';
 import { badRequest, HttpError, unauthorized } from '../core/errors';
 import { decrypt, dummyVerify, encrypt, hashPassword, newTotpSecret, passwordProblems, randomToken, sha256, verifyPassword, verifyTotp } from '../core/crypto';
 import { audit, sendMail } from '../core/services';
+import { createGuest, ensureGuest } from '../core/demo-guests';
+import { DEMO_ORG_ID } from '../seed/showcase';
 
 const COOKIE = 'hg_refresh';
 /** Demo mode only: signed session fallback for instances that never saw the refresh-token row. */
@@ -69,6 +71,18 @@ export async function authRoutes(app: FastifyInstance, ctx: Ctx, opts: { relaxed
   }
 
   // ---------- login / MFA ----------
+  // Demo mode only: one-click sign-in as a named guest (own account + personal work in the demo tenant).
+  app.post('/auth/demo', strict(20), async (req, reply) => {
+    if (!ctx.config.demoMode) throw new HttpError(404, 'not_found', 'Not found');
+    const body = z.object({ name: z.string().trim().min(2, 'Enter your name').max(40) }).parse(req.body);
+    return withSystem(ctx.db, async (tx) => {
+      const g = await createGuest(tx, body.name);
+      await tx.update(users).set({ lastLoginAt: new Date() }).where(eq(users.id, g.id));
+      await audit(tx, { userId: g.id }, { orgId: DEMO_ORG_ID, action: 'auth.login', entityType: 'user', entityId: g.id, metadata: { demoGuest: true }, ip: req.ip });
+      return startSession(tx, req, reply, g.id, DEMO_ORG_ID);
+    });
+  });
+
   app.post('/auth/login', strict(10), async (req, reply) => {
     const body = z.object({ email: emailSchema, password: z.string().min(1).max(200) }).parse(req.body);
     return withSystem(ctx.db, async (tx) => {
@@ -142,6 +156,7 @@ export async function authRoutes(app: FastifyInstance, ctx: Ctx, opts: { relaxed
       const [known] = await tx.select({ id: authSessions.id }).from(authSessions).where(and(eq(authSessions.familyId, d.sid), isNull(authSessions.revokedAt), isNull(authSessions.rotatedAt))).limit(1);
       const [revoked] = known ? [] : await tx.select({ id: authSessions.id }).from(authSessions).where(and(eq(authSessions.familyId, d.sid), sql`${authSessions.revokedAt} is not null`)).limit(1);
       if (revoked) throw fail('session_revoked');
+      await ensureGuest(tx, d.sub);
       const [u] = await tx.select({ status: users.status }).from(users).where(eq(users.id, d.sub));
       if (!u || u.status !== 'active') throw fail('no_session');
       return startSession(tx, req, reply, d.sub, await pickOrg(tx, d.sub, d.org), d.sid);
