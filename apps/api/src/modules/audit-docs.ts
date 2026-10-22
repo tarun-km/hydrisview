@@ -280,6 +280,7 @@ export async function auditDocRoutes(app: FastifyInstance, ctx: Ctx) {
       siteId: z.uuid().optional(),
       assetId: z.uuid().optional(),
       pages: z.array(pageInput).min(1).max(MAX_PAGES),
+      source: z.enum(['mobile']).optional(),
     }).parse(req.body);
     for (const pg of body.pages) {
       const bytes = Buffer.from(pg.data, 'base64');
@@ -298,7 +299,7 @@ export async function auditDocRoutes(app: FastifyInstance, ctx: Ctx) {
       const [d] = await tx.insert(auditDocuments).values({
         orgId: p.orgId, siteId, assetId: body.assetId ?? null, title, status: 'in_review', pageCount: body.pages.length, extraction,
         engines: [...new Set(readings.flat().map((r) => r.engine))], aiStatus: visionAvailable() ? 'pending' : 'unavailable',
-        capturedBy: p.userId, capturedVia: p.kind === 'device' ? 'glasses' : 'console', deviceId: p.deviceId ?? null,
+        capturedBy: p.userId, capturedVia: p.kind === 'device' ? 'glasses' : body.source ?? 'console', deviceId: p.deviceId ?? null,
       }).returning();
       for (const [i, pg] of body.pages.entries()) {
         await tx.insert(auditDocumentPages).values({ orgId: p.orgId, documentId: d!.id, pageNo: i + 1, mime: pg.mime, data: pg.data, width: pg.width, height: pg.height, ocr: { readings: pg.readings } });

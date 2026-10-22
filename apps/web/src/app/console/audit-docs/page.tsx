@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
-import { AlertTriangle, FileScan, Glasses, Monitor, ScanLine } from 'lucide-react';
+import { AlertTriangle, FileScan, Glasses, Monitor, ScanLine, Smartphone } from 'lucide-react';
 import { useApi } from '@/lib/query';
 import { useCan } from '@/lib/session';
 import { ago } from '@/lib/format';
@@ -53,7 +53,7 @@ export default function AuditDocsPage() {
               <Link key={d.id} href={`/console/audit-docs/${d.id}`} className="card group flex flex-col gap-3 transition-colors hover:border-line-2">
                 <div className="flex items-center gap-2">
                   <Chip tone={statusTone(d.status)}>{STATUS_LABEL[d.status]}</Chip>
-                  <span className="ml-auto flex items-center gap-1 text-xs text-muted">{d.capturedVia === 'glasses' ? <Glasses size={13} aria-hidden /> : <Monitor size={13} aria-hidden />}{d.capturedVia}</span>
+                  <span className="ml-auto flex items-center gap-1 text-xs text-muted">{d.capturedVia === 'glasses' ? <Glasses size={13} aria-hidden /> : d.capturedVia === 'mobile' ? <Smartphone size={13} aria-hidden /> : <Monitor size={13} aria-hidden />}{d.capturedVia}</span>
                 </div>
                 <h2 className="t-card group-hover:text-lime">{d.title}</h2>
                 <p className="text-xs text-muted">{d.docType} · {d.pageCount} page{d.pageCount === 1 ? '' : 's'} · {d.fields} values · {d.tables} tables · {d.figures} figures</p>

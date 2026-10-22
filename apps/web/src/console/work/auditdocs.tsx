@@ -15,7 +15,7 @@ import { useQueryClient } from '@tanstack/react-query';
 export interface ReviewProgress { total: number; done: number; flagged: number; pending: number; complete: boolean }
 export interface AuditDocSummary {
   id: string; title: string; docType: string; status: AuditDocStatus; siteId: string | null; siteName: string | null; pageCount: number;
-  capturedVia: 'glasses' | 'console'; capturedBy: string | null; createdAt: string; updatedAt: string; engines: string[];
+  capturedVia: 'glasses' | 'console' | 'mobile'; capturedBy: string | null; createdAt: string; updatedAt: string; engines: string[];
   aiStatus: 'none' | 'pending' | 'done' | 'failed' | 'unavailable'; agreement: number | null; fields: number; tables: number; figures: number;
   review: ReviewProgress; attention: number;
 }

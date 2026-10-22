@@ -22,6 +22,8 @@ android {
     versionName = "0.2.0"
     buildConfigField("String", "HYDRIS_URL", "\"${localProperties.getProperty("hydris_url", "https://hydrisview.vercel.app")}\"")
     // Developer Mode in the Meta AI app: "0"/"0". Production: values from Wearables Developer Center.
+    // Exactly as Meta's DAT docs: placeholders "0" in Developer Mode (attestation unused; DAT logs that it
+    // read no credentials - expected). Production builds set real values in local.properties.
     manifestPlaceholders["mwdat_application_id"] = localProperties.getProperty("mwdat_application_id", "0")
     manifestPlaceholders["mwdat_client_token"] = localProperties.getProperty("mwdat_client_token", "0")
   }

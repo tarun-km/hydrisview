@@ -151,7 +151,8 @@ const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(
 export function keyValuesFromLines(lines: OcrLine[], page: number, engine: string): AuditField[] {
   const out: AuditField[] = [];
   const seen = new Map<string, number>();
-  for (const l of lines) {
+  // Engines such as ML Kit return label and value columns as separate lines: read whole visual rows.
+  for (const l of visualRows(lines)) {
     const text = normalizeValue(l.text);
     const m = /^([A-Za-z][A-Za-z0-9 #&/().'-]{1,48}?)\s*(?::|=|\.{3,}|\s-\s|\s–\s)\s*(.+)$/.exec(text);
     if (!m) continue;

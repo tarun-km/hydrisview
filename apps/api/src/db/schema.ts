@@ -953,7 +953,7 @@ export const auditDocuments = pgTable(
     aiStatus: text('ai_status').$type<'none' | 'pending' | 'done' | 'failed' | 'unavailable'>().notNull().default('none'),
     aiError: text('ai_error'),
     capturedBy: uuid('captured_by').references(() => users.id),
-    capturedVia: text('captured_via').$type<'glasses' | 'console'>().notNull(),
+    capturedVia: text('captured_via').$type<'glasses' | 'console' | 'mobile'>().notNull(),
     deviceId: uuid('device_id').references(() => devices.id, { onDelete: 'set null' }),
     verifiedBy: uuid('verified_by').references(() => users.id),
     verifiedAt: ts('verified_at'),

@@ -77,3 +77,11 @@ test('table cells are range-checked; a matching labelled value is offered as the
   assert.equal(t.issues?.length, 1);
   assert.deepEqual([t.issues![0]!.row, t.issues![0]!.col, t.issues![0]!.suggestion], [0, 2, '7.3']);
 });
+
+test('label and value columns returned as separate lines (ML Kit) pair up by visual row', () => {
+  const f = keyValuesFromLines([
+    line(0.1, [[0.05, 'Audit No:']]), line(0.13, [[0.05, 'Outlet pH:']]),
+    line(0.1, [[0.3, 'ECA-2026-1052']]), line(0.13, [[0.3, '7.3']]),
+  ], 1, 'mlkit');
+  assert.deepEqual(f.map((x) => [x.label, x.value]), [['Audit No', 'ECA-2026-1052'], ['Outlet pH', '7.3']]);
+});
