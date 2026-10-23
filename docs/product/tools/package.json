@@ -1,0 +1,14 @@
+{
+  "name": "hydris-product-docs",
+  "private": true,
+  "description": "Builds the Hydris product documents (Markdown + Mermaid) into branded Word files.",
+  "scripts": {
+    "check": "node check.js",
+    "build": "node build.js"
+  },
+  "dependencies": {
+    "docx": "^9.13.0",
+    "marked": "^15.0.12",
+    "mermaid": "^11.17.2"
+  }
+}

@@ -12,3 +12,6 @@ test-results
 playwright-report
 data
 .claude/
+
+# Android source package named "data" (the rule above targets local data dirs)
+!apps/android/app/src/main/java/ai/hydris/field/data/

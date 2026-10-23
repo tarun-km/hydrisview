@@ -216,10 +216,14 @@ fun AlarmDetailScreen(id: String, nav: NavController) {
     a.recommendedAction?.let { HCard(accent = Hx.Signal) { Eyebrow("Recommended action", Hx.SignalText); Spacer(Modifier.height(6.dp)); Text(it) } }
     err?.let { ErrorNote(it) }
     val next = when (a.state) { "active" -> listOf("acknowledge" to "Acknowledge"); "acknowledged" -> listOf("investigate" to "Investigate", "resolve" to "Resolve"); "investigating" -> listOf("resolve" to "Resolve"); "resolved" -> listOf("close" to "Close"); else -> emptyList() }
+    // Resolving requires a note describing what was done (the API rejects it without one).
+    var note by remember(a.state) { mutableStateOf("") }
+    if (next.any { it.first == "resolve" }) androidx.compose.material3.OutlinedTextField(note, { note = it }, Modifier.fillMaxWidth(), label = { Text("What was done (needed to resolve)") }, minLines = 2)
     next.forEachIndexed { i, (action, text) ->
-      val click: () -> Unit = { scope.launch { busy = true; err = null; runCatching { r.alarmAction(id, action) }.onFailure { err = it.message }; l.reload(); busy = false } }
-      if (i == 0) Button(click, enabled = !busy, modifier = Modifier.fillMaxWidth().height(52.dp), colors = ButtonDefaults.buttonColors(containerColor = Hx.Signal)) { Text(text) }
-      else OutlinedButton(click, enabled = !busy, modifier = Modifier.fillMaxWidth().height(52.dp)) { Text(text) }
+      val needsNote = action == "resolve" && note.isBlank()
+      val click: () -> Unit = { scope.launch { busy = true; err = null; runCatching { r.alarmAction(id, action, note.trim().ifEmpty { null }) }.onFailure { err = it.message }; l.reload(); busy = false } }
+      if (i == 0) Button(click, enabled = !busy && !needsNote, modifier = Modifier.fillMaxWidth().height(52.dp), colors = ButtonDefaults.buttonColors(containerColor = Hx.Signal)) { Text(text) }
+      else OutlinedButton(click, enabled = !busy && !needsNote, modifier = Modifier.fillMaxWidth().height(52.dp)) { Text(text) }
     }
   }
 }
