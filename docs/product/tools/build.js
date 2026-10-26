@@ -158,7 +158,7 @@ class Builder {
 
   figure(file, wPx, hPx, caption) {
     const type = /\.jpe?g$/i.test(file) ? 'jpg' : 'png';
-    const maxH = 860;
+    const maxH = +(this.meta.figMaxH || 860);
     let w = wPx, h = hPx;
     if (w > TEXT_PX) { h = (h * TEXT_PX) / w; w = TEXT_PX; }
     if (h > maxH) { w = (w * maxH) / h; h = maxH; }
@@ -181,7 +181,7 @@ class Builder {
     if (!fs.existsSync(file)) throw new Error(`${path.basename(this.file)}: image not found: ${img.href}`);
     const [pw, ph] = imageSize(file);
     // Default display width suits phone screenshots; a numeric title sets the width in px (627 = full text width).
-    const scale = img.title && /^\d+$/.test(img.title) ? Math.min(+img.title, TEXT_PX) / pw : Math.min(1, 300 / pw);
+    const scale = img.title && /^\d+$/.test(img.title) ? Math.min(+img.title * (+(this.meta.shotScale || 1)), TEXT_PX) / pw : Math.min(1, (300 * (+(this.meta.shotScale || 1))) / pw);
     return this.figure(file, pw * scale, ph * scale, decode(img.text) || null);
   }
 
@@ -399,7 +399,7 @@ async function buildOne(file) {
   const doc = new Document({
     creator: 'Hydris, Inc.', title: meta.title, subject: meta.subtitle, description: `${meta.docId} v${meta.version}`, keywords: 'Hydris, Field Glasses',
     styles: {
-      default: { document: { run: { font: FONT.body, size: 21, color: C.body }, paragraph: { spacing: { after: 120, line: 276 } } } },
+      default: { document: { run: { font: FONT.body, size: meta.compact === 'yes' ? 19 : 21, color: C.body }, paragraph: { spacing: meta.compact === 'yes' ? { after: 80, line: 252 } : { after: 120, line: 276 } } } },
       paragraphStyles: [
         { id: 'Heading1', name: 'Heading 1', basedOn: 'Normal', next: 'Normal', quickFormat: true, run: { font: FONT.head, size: 34, bold: true, color: C.navy }, paragraph: { spacing: { before: 120, after: 220 }, outlineLevel: 0, border: { bottom: { style: BorderStyle.SINGLE, size: 12, color: C.bright, space: 6 } } } },
         { id: 'Heading2', name: 'Heading 2', basedOn: 'Normal', next: 'Normal', quickFormat: true, run: { font: FONT.head, size: 26, bold: true, color: C.blue }, paragraph: { spacing: { before: 300, after: 110 }, outlineLevel: 1 } },
@@ -422,9 +422,11 @@ async function buildOne(file) {
         properties: { page: { size: { width: PAGE.w, height: PAGE.h }, margin: { top: 1300, bottom: 1150, left: PAGE.margin, right: PAGE.margin, header: 560, footer: 520 } } },
         headers: { default: header }, footers: { default: footer },
         children: [
-          sectionTitle('Document control'), infoTable(control),
-          new Paragraph({ spacing: { before: 280, after: 100 }, children: [new TextRun({ text: 'Revision history', bold: true, font: FONT.head, size: 24, color: C.blue })] }), historyTable,
-          new Paragraph({ children: [new PageBreak()] }),
+          ...(meta.control === 'no' ? [] : [
+            sectionTitle('Document control'), infoTable(control),
+            new Paragraph({ spacing: { before: 280, after: 100 }, children: [new TextRun({ text: 'Revision history', bold: true, font: FONT.head, size: 24, color: C.blue })] }), historyTable,
+            new Paragraph({ children: [new PageBreak()] }),
+          ]),
           sectionTitle('Contents'),
           new TableOfContents('Contents', { hyperlink: true, headingStyleRange: '1-2' }),
           new Paragraph({ children: [new PageBreak()] }),
