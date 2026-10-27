@@ -39,6 +39,8 @@ export interface CameraSource {
   /** Full-resolution still. */
   capture(): Promise<Blob>;
   stop(): void;
+  /** Browser camera in use (device cameras only), for the camera picker. */
+  deviceId?: string;
 }
 
 declare global {
@@ -163,26 +165,139 @@ function messageBridge(): CameraSource | null {
 }
 
 // ---- device camera ------------------------------------------------------------------------
-export async function deviceCamera(): Promise<CameraSource> {
-  if (!navigator.mediaDevices?.getUserMedia) throw new Error('No camera available in this browser');
-  const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1440 } }, audio: false });
+export type CameraErrorCode = 'insecure' | 'unsupported' | 'denied' | 'policy' | 'not_found' | 'busy' | 'overconstrained' | 'timeout' | 'unknown';
+
+/** A camera failure the UI can explain (what happened + what the user can do about it). */
+export class CameraError extends Error {
+  constructor(public code: CameraErrorCode, message: string, public help: string[] = []) {
+    super(message);
+    this.name = 'CameraError';
+  }
+}
+
+const inFrame = () => typeof window !== 'undefined' && window.parent !== window;
+
+/** Translate a getUserMedia DOMException into a CameraError with concrete next steps. */
+export function cameraError(e: unknown): CameraError {
+  if (e instanceof CameraError) return e;
+  const name = (e as { name?: string })?.name ?? '';
+  const msg = (e as { message?: string })?.message ?? String(e);
+  if (name === 'NotAllowedError' || name === 'PermissionDeniedError' || name === 'SecurityError') {
+    // Chrome reports a Permissions-Policy / iframe `allow` block as NotAllowedError mentioning the policy.
+    if (/policy|feature/i.test(msg)) return new CameraError('policy', 'The camera is blocked for this embedded page', ['Open the page directly (not inside a frame), or allow "camera" on the frame.', 'You can still upload a photo of the page instead.']);
+    return new CameraError('denied', 'Camera permission was denied', [
+      'Click the camera icon (or the lock icon) in the address bar, choose Allow, then press Retry.',
+      'On a phone: Settings → your browser → Camera → Allow.',
+      inFrame() ? 'In the simulator the prompt belongs to the outer page - allow it there.' : 'If no prompt appears, the browser remembers an earlier "Block" - reset it in the site settings.',
+      'You can still upload a photo of the page instead.',
+    ]);
+  }
+  if (name === 'NotFoundError' || name === 'DevicesNotFoundError') return new CameraError('not_found', 'No camera was found on this device', ['Connect a camera, or upload a photo of the page instead.']);
+  if (name === 'NotReadableError' || name === 'TrackStartError' || name === 'AbortError') {
+    return new CameraError('busy', 'The camera is in use by another app or tab', ['Close other apps or tabs using the camera (video calls, other scanners), then press Retry.']);
+  }
+  if (name === 'OverconstrainedError' || name === 'ConstraintNotSatisfiedError') return new CameraError('overconstrained', 'This camera does not support the requested mode', ['Press Retry, or pick another camera.']);
+  return new CameraError('unknown', msg || 'The camera could not be opened', ['Press Retry, or upload a photo of the page instead.']);
+}
+
+/** Pre-flight checks that explain the failure before the browser does (or silently does not) prompt. */
+export function cameraPreflight(): CameraError | null {
+  if (typeof window === 'undefined') return new CameraError('unsupported', 'No browser');
+  if (!window.isSecureContext) return new CameraError('insecure', 'The camera needs a secure (https) connection', [`Open ${location.href.replace(/^http:/, 'https:')}, or use http://localhost during development.`, 'You can still upload a photo of the page instead.']);
+  if (!navigator.mediaDevices?.getUserMedia) return new CameraError('unsupported', 'This browser cannot open a camera', ['Use a current Chrome, Edge, Safari or Firefox, or upload a photo instead.']);
+  return null;
+}
+
+/** 'granted' | 'denied' | 'prompt' | 'unknown' (the Permissions API is not available everywhere). */
+export async function cameraPermission(): Promise<'granted' | 'denied' | 'prompt' | 'unknown'> {
+  try {
+    return (await navigator.permissions.query({ name: 'camera' as PermissionName })).state;
+  } catch {
+    return 'unknown';
+  }
+}
+
+export interface CameraDevice { deviceId: string; label: string }
+/** Video inputs (labels are only filled in after permission has been granted once). */
+export async function listCameras(): Promise<CameraDevice[]> {
+  try {
+    const all = await navigator.mediaDevices.enumerateDevices();
+    return all.filter((d) => d.kind === 'videoinput' && d.deviceId).map((d, i) => ({ deviceId: d.deviceId, label: d.label || `Camera ${i + 1}` }));
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Constraint ladder: rear camera at a document-friendly resolution → rear camera any resolution →
+ * any camera → any camera at low resolution. Only "mode not supported / busy" failures step down;
+ * a permission denial stops immediately (asking again would not help).
+ */
+export function constraintLadder(deviceId?: string): MediaTrackConstraints[] {
+  if (deviceId) return [{ deviceId: { exact: deviceId }, width: { ideal: 1920 }, height: { ideal: 1440 } }, { deviceId: { exact: deviceId } }, {}];
+  return [
+    { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1440 } },
+    { facingMode: { ideal: 'environment' } },
+    {},
+    { width: { ideal: 640 }, height: { ideal: 480 } },
+  ];
+}
+
+async function getStream(deviceId?: string): Promise<MediaStream> {
+  let last: CameraError | null = null;
+  for (const video of constraintLadder(deviceId)) {
+    try {
+      return await navigator.mediaDevices.getUserMedia({ video: Object.keys(video).length ? video : true, audio: false });
+    } catch (e) {
+      last = cameraError(e);
+      if (last.code !== 'overconstrained' && last.code !== 'busy' && last.code !== 'unknown') throw last;
+    }
+  }
+  throw last ?? new CameraError('unknown', 'The camera could not be opened');
+}
+
+export async function deviceCamera(deviceId?: string): Promise<CameraSource> {
+  const pre = cameraPreflight();
+  if (pre) throw pre;
+  const stream = await getStream(deviceId);
   const video = document.createElement('video');
   video.muted = true;
   video.playsInline = true;
+  video.autoplay = true;
+  video.setAttribute('playsinline', '');
+  video.setAttribute('muted', '');
   video.srcObject = stream;
-  await video.play();
+  const release = () => { stream.getTracks().forEach((t) => t.stop()); video.srcObject = null; };
+  try {
+    await new Promise<void>((res, rej) => {
+      if (video.readyState >= 1) return res();
+      const t = setTimeout(() => rej(new CameraError('timeout', 'The camera opened but sent no picture', ['Press Retry, pick another camera, or upload a photo.'])), 8000);
+      video.onloadedmetadata = () => { clearTimeout(t); res(); };
+    });
+    await video.play().catch(() => {}); // muted inline video autoplays; a rejected play() is not fatal
+  } catch (e) {
+    release();
+    throw e;
+  }
+  const track = stream.getVideoTracks()[0];
+  const ready = async () => {
+    for (let i = 0; i < 50 && !video.videoWidth; i++) await new Promise((r) => setTimeout(r, 100));
+    if (!video.videoWidth) throw new CameraError('timeout', 'The camera sent no picture yet - try again');
+  };
   return {
     kind: 'device-camera',
-    label: stream.getVideoTracks()[0]?.label || 'Device camera',
+    label: track?.label || 'Device camera',
+    deviceId: track?.getSettings().deviceId,
     frame: () => (video.videoWidth ? { src: video, w: video.videoWidth, h: video.videoHeight } : null),
     capture: async () => {
+      await ready();
       const c = document.createElement('canvas');
       c.width = video.videoWidth;
       c.height = video.videoHeight;
       c.getContext('2d')!.drawImage(video, 0, 0);
       return new Promise<Blob>((res, rej) => c.toBlob((b) => (b ? res(b) : rej(new Error('Capture failed'))), 'image/jpeg', 0.92));
     },
-    stop: () => stream.getTracks().forEach((t) => t.stop()),
+    stop: release,
   };
 }
 
@@ -268,17 +383,21 @@ function track(src: CameraSource): CameraSource {
   return { ...src, frame: () => src.frame(), capture: () => src.capture(), stop: () => { if (activeCamera === src) activeCamera = null; src.stop(); } };
 }
 
-/** Ray-Ban Meta camera when bridged; otherwise the device camera; otherwise the simulation. */
-export async function openCamera(prefer?: CameraKind): Promise<CameraSource> {
-  return track(await openCameraRaw(prefer));
+/**
+ * Ray-Ban Meta camera when bridged; otherwise the device camera. A device-camera failure is thrown
+ * as a CameraError (permission denied, no camera, in use, insecure page) so the UI can explain it
+ * and offer Retry / upload, instead of silently switching to the simulation.
+ */
+export async function openCamera(prefer?: CameraKind, deviceId?: string): Promise<CameraSource> {
+  return track(await openCameraRaw(prefer, deviceId));
 }
-async function openCameraRaw(prefer?: CameraKind): Promise<CameraSource> {
+async function openCameraRaw(prefer?: CameraKind, deviceId?: string): Promise<CameraSource> {
   if (prefer === 'simulated') return simulatedCamera();
-  const bridged = nativeBridge() ?? injectedBridge() ?? messageBridge();
-  if (bridged && prefer !== 'device-camera') return bridged;
+  const bridged = prefer === 'device-camera' || deviceId ? null : nativeBridge() ?? injectedBridge() ?? messageBridge();
+  if (bridged) return bridged;
   try {
-    return await deviceCamera();
-  } catch {
-    return simulatedCamera();
+    return await deviceCamera(deviceId);
+  } catch (e) {
+    throw cameraError(e);
   }
 }

@@ -104,7 +104,7 @@ export default function SimulatorPage() {
                 <span aria-hidden className="absolute left-1/2 top-[22px] h-[10px] w-[10px] -translate-x-1/2 rounded-full bg-[#2b2e28]" />
               </>}
               <iframe ref={frame} title="Hydris glasses viewport (simulated)" src="/glasses?sim=1" width={w} height={h}
-                className="block rounded-[28px] bg-black ring-1 ring-white/10" allow="clipboard-write; camera" />
+                className="block rounded-[28px] bg-black ring-1 ring-white/10" allow="camera; microphone; clipboard-write; fullscreen" />
             </div>
           </div>
         </section>

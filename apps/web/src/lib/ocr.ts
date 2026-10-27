@@ -262,14 +262,20 @@ export async function scanPage(src: Blob | string, onProgress?: OcrProgress): Pr
     onProgress?.({ stage: 'Preparing image', progress: 0.05 });
     const prepared = await preparePage(original);
     const img = await loadImage(prepared.dataUrl);
-    onProgress?.({ stage: 'Reading text (pass 1 of 2)', progress: 0.1 });
-    const a = await read('ocr:original', img, img.width, img.height);
-    onProgress?.({ stage: 'Reading text (pass 2 of 2)', progress: 0.55 });
-    const b = await read('ocr:enhanced', enhanced(img), img.width, img.height);
-    onProgress?.({ stage: 'Locating figures and signatures', progress: 0.95 });
-    const figures = detectFigures(img, [a, b], 1);
-    onProgress?.({ stage: 'Done', progress: 1 });
-    return { ...prepared, readings: [a, b], figures };
+    try {
+      onProgress?.({ stage: 'Reading text (pass 1 of 2)', progress: 0.1 });
+      const a = await read('ocr:original', img, img.width, img.height);
+      onProgress?.({ stage: 'Reading text (pass 2 of 2)', progress: 0.55 });
+      const b = await read('ocr:enhanced', enhanced(img), img.width, img.height);
+      onProgress?.({ stage: 'Locating figures and signatures', progress: 0.95 });
+      const figures = detectFigures(img, [a, b], 1);
+      onProgress?.({ stage: 'Done', progress: 1 });
+      return { ...prepared, readings: [a, b], figures };
+    } catch {
+      // On-device OCR unavailable (engine download blocked, low memory): the server pipeline reads the page.
+      onProgress?.({ stage: 'On-device OCR unavailable - the server will read this page', progress: 1 });
+      return { ...prepared, readings: [], figures: [] };
+    }
   } finally {
     progressCb = null;
   }

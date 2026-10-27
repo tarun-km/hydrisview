@@ -6,6 +6,9 @@
   <uses-permission android:name="android.permission.INTERNET" />
   <!-- Phone-camera fallback inside the web app -->
   <uses-permission android:name="android.permission.CAMERA" />
+  <!-- Phone-microphone fallback for voice commands inside the web app (getUserMedia audio) -->
+  <uses-permission android:name="android.permission.RECORD_AUDIO" />
+  <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
   <uses-feature android:name="android.hardware.camera" android:required="false" />
 
   <application android:label="Hydris Glasses" android:allowBackup="false" android:theme="@android:style/Theme.Material.NoActionBar">

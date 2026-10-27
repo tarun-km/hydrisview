@@ -11,9 +11,9 @@ import { fmtDateTime } from '@/lib/format';
 import { BackLink, Button, Capsule, Chip, ErrorState, PageHeader, Progress, Skeleton, Timeline } from '@/ui';
 import { ConfirmDialog } from '@/ui/overlay';
 import { useToast } from '@/ui/overlay';
-import { STATUS_LABEL, engineLabel, statusTone, useBlobUrl, type AuditDocDetail } from '@/console/work/auditdocs';
+import { STATUS_LABEL, SoftcopyPreview, engineLabel, statusTone, useBlobUrl, type AuditDocDetail } from '@/console/work/auditdocs';
 
-type Tab = 'values' | 'tables' | 'text' | 'figures' | 'history';
+type Tab = 'softcopy' | 'values' | 'tables' | 'text' | 'figures' | 'history';
 const AGREE: Record<AuditField['agreement'], { label: string; tone: 'ok' | 'medium' | 'critical' | 'outline' }> = {
   match: { label: 'Engines agree', tone: 'ok' }, close: { label: 'Minor difference', tone: 'medium' }, mismatch: { label: 'Engines disagree', tone: 'critical' }, single: { label: 'Single reading', tone: 'outline' },
 };
@@ -25,7 +25,7 @@ export default function AuditDocPage() {
   const q = useApi<AuditDocDetail>(path);
   const qc = useQueryClient();
   const toast = useToast();
-  const [tab, setTab] = useState<Tab>('values');
+  const [tab, setTab] = useState<Tab>('softcopy');
   const [page, setPage] = useState(1);
   const [selected, setSelected] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -62,12 +62,14 @@ export default function AuditDocPage() {
         subtitle={`${d.pageCount} page${d.pageCount === 1 ? '' : 's'} · captured by ${d.capturedBy ?? 'unknown'} via ${d.capturedVia} · ${fmtDateTime(d.createdAt)}${d.siteName ? ` · ${d.siteName}` : ''}`}
         actions={<>
           <Chip tone={statusTone(d.status)}>{STATUS_LABEL[d.status]}</Chip>
-          <Button icon={<Download size={16} />} disabled={busy === 'pdf'} onClick={() => act('pdf', () => download(`${path}/pdf`, `${d.title.replace(/[^\w -]+/g, '').trim() || 'audit-document'}.pdf`))}>PDF</Button>
+          <Button icon={<Download size={16} />} disabled={busy === 'docx'} onClick={() => act('docx', () => download(`${path}/softcopy.docx`, `${fileBase(d.title)}.docx`))}>Download DOCX</Button>
+          <Button icon={<Download size={16} />} disabled={busy === 'clean'} onClick={() => act('clean', () => download(`${path}/softcopy.pdf`, `${fileBase(d.title)}-clean.pdf`))}>Download clean PDF</Button>
+          <Button icon={<Download size={16} />} disabled={busy === 'pdf'} onClick={() => act('pdf', () => download(`${path}/pdf`, `${fileBase(d.title)}-searchable.pdf`))}>Download searchable PDF</Button>
         </>} />
 
       <VerificationSteps d={d} busy={busy} onVerify={() => setDialog('verify')} onApprove={() => setDialog('approve')} onReject={() => setDialog('reject')}
         onBulk={() => act('bulk', () => post(`${path}/confirm-agreed`), 'Values both engines agree on were confirmed')}
-        onEnhance={() => act('enhance', () => post(`${path}/enhance`), 'Vision extraction finished')} />
+        onEnhance={() => act('enhance', () => post(`${path}/process`), 'Re-processed with all engines')} />
 
       <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,5fr)_minmax(0,6fr)]">
         <section className="card card-tight grid content-start gap-3 xl:sticky xl:top-24 xl:self-start" aria-label="Scanned page">
@@ -82,7 +84,7 @@ export default function AuditDocPage() {
 
         <section className="grid min-w-0 content-start gap-3" aria-label="Extracted content">
           <Capsule label="View" value={tab} onChange={setTab} options={[
-            { value: 'values', label: 'Values', count: x.fields.length }, { value: 'tables', label: 'Tables', count: x.tables.length },
+            { value: 'softcopy', label: 'Soft copy' }, { value: 'values', label: 'Values', count: x.fields.length }, { value: 'tables', label: 'Tables', count: x.tables.length },
             { value: 'text', label: 'Text' }, { value: 'figures', label: 'Figures', count: x.figures.length }, { value: 'history', label: 'History', count: d.events.length },
           ]} />
           {x.warnings.length > 0 && tab === 'values' && (
@@ -90,6 +92,7 @@ export default function AuditDocPage() {
               {x.warnings.map((w, i) => <p key={i} className="flex gap-2"><AlertTriangle size={14} className="mt-0.5 flex-none" aria-hidden />{w}</p>)}
             </div>
           )}
+          {tab === 'softcopy' && <SoftcopyPreview docId={d.id} revision={d.revision} engines={d.engines} stats={x.engineStats} agreement={d.agreement} />}
           {tab === 'values' && (x.fields.length ? x.fields.map((f) => (
             <FieldRow key={f.id} f={f} selected={selected === f.id} canReview={canReview} busy={busy === f.id}
               onSelect={() => { setSelected(f.id); setPage(f.page); }}
@@ -146,6 +149,7 @@ export default function AuditDocPage() {
   );
 }
 
+const fileBase = (t: string) => t.replace(/[^\w -]+/g, '').trim().replace(/\s+/g, '-') || 'audit-document';
 const hasValue = (v: unknown): v is { value: string } => !!v && typeof v === 'object' && 'value' in v;
 
 function VerificationSteps({ d, busy, onVerify, onApprove, onReject, onBulk, onEnhance }: { d: AuditDocDetail; busy: string | null; onVerify: () => void; onApprove: () => void; onReject: () => void; onBulk: () => void; onEnhance: () => void }) {
@@ -167,7 +171,7 @@ function VerificationSteps({ d, busy, onVerify, onApprove, onReject, onBulk, onE
       {step(1, 'Machine cross-check', 'done', <>
         <p className="text-[13px] text-text-2">{multi.length ? <>{multi.length - disagree} of {multi.length} values read the same by independent engines{disagree ? <> · <b className="text-[var(--color-critical)]">{disagree} disagree</b></> : null}.</> : 'Only one reading per value - review every value manually.'}</p>
         <div className="flex flex-wrap gap-1.5">{d.engines.map((e) => <Chip key={e} tone={e.startsWith('vision:') ? 'cobalt' : 'outline'}>{engineLabel(e)}</Chip>)}</div>
-        {d.aiStatus === 'pending' && d.status === 'in_review' && <Button icon={<Sparkles size={15} />} disabled={busy === 'enhance'} onClick={onEnhance}>{busy === 'enhance' ? 'Reading layout…' : 'Run vision extraction'}</Button>}
+        {d.status !== 'approved' && <Button icon={<Sparkles size={15} />} disabled={busy === 'enhance'} onClick={onEnhance}>{busy === 'enhance' ? 'Processing (clean page, OCR engines, fusion)…' : d.aiStatus === 'pending' ? 'Process document' : 'Re-process'}</Button>}
         {d.aiStatus === 'failed' && <p className="text-xs text-[var(--color-high)]">Vision engine: {d.aiError}</p>}
         {d.aiStatus === 'unavailable' && <p className="text-xs text-muted">Vision AI not configured (ANTHROPIC_API_KEY) - using on-device OCR readings.</p>}
       </>)}

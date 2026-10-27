@@ -16,10 +16,14 @@ const nextConfig: NextConfig = {
   serverExternalPackages: [
     '@node-rs/argon2', 'pg', '@electric-sql/pglite', 'fastify', '@fastify/cookie', '@fastify/helmet', '@fastify/jwt',
     '@fastify/multipart', '@fastify/rate-limit', '@vercel/blob',
+    // Audit document pipeline: native image library and the OCR worker (worker_threads + wasm).
+    'sharp', 'tesseract.js', 'tesseract.js-core',
   ],
   outputFileTracingRoot: resolve(process.cwd(), '../..'),
   // Ship the SQL migrations with the API functions (migrate-on-cold-start).
-  outputFileTracingIncludes: { '/api/**/*': ['../api/drizzle/**/*', '../../node_modules/@electric-sql/pglite/dist/**/*'] },
+  outputFileTracingIncludes: { '/api/**/*': ['../api/drizzle/**/*', '../../node_modules/@electric-sql/pglite/dist/**/*',
+    // Server OCR: tesseract.js loads its worker script and the LSTM wasm core at runtime (LSTM builds only, ~20 MB).
+    '../../node_modules/tesseract.js/src/**/*', '../../node_modules/tesseract.js-core/tesseract-core-*lstm*', '../../node_modules/tesseract.js-core/package.json', '../../node_modules/tesseract.js-core/index.js'] },
   poweredByHeader: false,
   async rewrites() {
     if (!API_URL) return [];
@@ -33,7 +37,7 @@ const nextConfig: NextConfig = {
         headers: [
           { key: 'X-Content-Type-Options', value: 'nosniff' },
           { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
-          { key: 'Permissions-Policy', value: 'camera=(self), microphone=(), geolocation=()' },
+          { key: 'Permissions-Policy', value: 'camera=(self), microphone=(self), geolocation=()' },
         ],
       },
       { source: '/((?!glasses|simulator).*)', headers: [{ key: 'X-Frame-Options', value: 'DENY' }] },

@@ -22,6 +22,8 @@ import { badRequest, conflict, forbidden, notFound } from '../core/errors';
 import { has, requirePerm, requireSite, siteAllowed, type Principal } from '../core/principal';
 import { audit } from '../core/services';
 import { buildAuditPdf } from '../core/audit-pdf';
+import { processDocument, softcopyFor } from '../core/doc-pipeline';
+import { buildSoftcopyDocx, buildSoftcopyPdf } from '../core/softcopy-render';
 import { describeVisionError, extractWithVision, visionAvailable, VISION_ENGINE, type VisionExtraction } from '../core/vision-extract';
 import { demoShared } from '../core/demo-shared';
 import { ensureGuest } from '../core/demo-guests';
@@ -38,64 +40,14 @@ const pageInput = z.object({
   data: z.string().max(Math.ceil(MAX_PAGE_BYTES * 1.37)),
   width: z.number().int().min(50).max(6000),
   height: z.number().int().min(50).max(6000),
-  readings: z.array(reading).min(1).max(3),
+  readings: z.array(reading).max(4).default([]),
   figures: z.array(z.object({ id: z.string().max(40), page: z.number().int(), bbox, kind: z.enum(['photo', 'diagram', 'chart', 'signature', 'stamp', 'logo', 'other']), caption: z.string().max(200) })).max(20).optional(),
 });
 
 type Doc = typeof auditDocuments.$inferSelect;
 
-// ------------------------------------------------------------------ vision merge
-const toBox = (b: { x: number; y: number; w: number; h: number } | null): BBox | null => (b ? [b.x, b.y, b.w, b.h] : null);
-const center = (b: BBox) => [b[0] + b[2] / 2, b[1] + b[3] / 2] as const;
-const inside = (b: BBox, outer: BBox, pad = 0.01) => {
-  const [cx, cy] = center(b);
-  return cx >= outer[0] - pad && cx <= outer[0] + outer[2] + pad && cy >= outer[1] - pad && cy <= outer[1] + outer[3] + pad;
-};
-
-/** OCR text found inside a region (an independent reading of the same value). */
-function ocrRegion(lines: OcrLine[], box: BBox, label: string): string | null {
-  const words = lines.flatMap((l) => l.words).filter((w) => inside(w.bbox, box));
-  if (!words.length) return null;
-  let text = words.sort((a, b) => a.bbox[1] - b.bbox[1] || a.bbox[0] - b.bbox[0]).map((w) => w.text).join(' ');
-  // Boxes sometimes include the label - strip it so we compare values with values.
-  const l = normalizeValue(label).toLowerCase();
-  if (text.toLowerCase().startsWith(l)) text = text.slice(l.length).replace(/^\s*[:=\-.]+\s*/, '');
-  return text.trim() || null;
-}
-
-export function mergeVision(v: VisionExtraction, readings: OcrReading[][]): AuditExtraction {
-  const fields: AuditField[] = v.fields.map((f, i) => {
-    const box = toBox(f.box);
-    const sources = [{ engine: VISION_ENGINE, value: f.value, conf: f.confidence }];
-    const pageReadings = readings[f.page - 1] ?? [];
-    for (const r of pageReadings) {
-      const value = box ? ocrRegion(r.lines, box, f.label) : null;
-      if (value) sources.push({ engine: r.engine, value: splitUnit(value).value, conf: r.conf / 100 });
-    }
-    if (sources.length === 1) {
-      // No usable region: fall back to label matching against OCR key/value lines.
-      const kv = pageReadings.flatMap((r) => keyValuesFromLines(r.lines, f.page, r.engine));
-      crossCheck([{ id: '', label: f.label, value: f.value, type: 'text', page: f.page, conf: 1, sources, agreement: 'single', status: 'pending' }], kv);
-    }
-    const value = normalizeValue(f.value);
-    return {
-      id: `p${f.page}-f${i + 1}`, label: f.label, value, unit: f.unit, type: f.type ?? inferType(value, f.label), page: f.page, bbox: box, conf: f.confidence,
-      sources, agreement: agreementOf(sources.map((s) => splitUnit(s.value).value)), status: 'pending', extracted: value,
-    };
-  });
-  applyPlausibility(fields);
-  const tables: AuditTable[] = v.tables.map((t, i) => ({
-    id: `p${t.page}-t${i + 1}`, title: t.title, page: t.page, bbox: toBox(t.box), header: t.header, rows: t.rows, conf: 0.9, engine: VISION_ENGINE, status: 'pending',
-  }));
-  checkTables(tables, fields);
-  return {
-    title: v.title, docType: v.doc_type, summary: v.summary,
-    pages: v.pages.map((p) => ({ page: p.page, text: p.markdown, engine: VISION_ENGINE })),
-    fields, tables,
-    figures: v.figures.map((f, i) => ({ id: `p${f.page}-g${i + 1}`, page: f.page, bbox: [f.box.x, f.box.y, f.box.w, f.box.h], kind: f.kind, caption: f.caption })),
-    warnings: v.warnings,
-  };
-}
+import { mergeVision } from './audit-docs-merge';
+export { mergeVision };
 
 function extractionFromOcr(readings: OcrReading[][], title: string, figures: AuditFigure[][] = []): AuditExtraction {
   const out: AuditExtraction = { title, docType: 'general', summary: '', pages: [], fields: [], tables: [], figures: [], warnings: [] };
@@ -298,7 +250,7 @@ export async function auditDocRoutes(app: FastifyInstance, ctx: Ctx) {
       extraction.title = title;
       const [d] = await tx.insert(auditDocuments).values({
         orgId: p.orgId, siteId, assetId: body.assetId ?? null, title, status: 'in_review', pageCount: body.pages.length, extraction,
-        engines: [...new Set(readings.flat().map((r) => r.engine))], aiStatus: visionAvailable() ? 'pending' : 'unavailable',
+        engines: [...new Set(readings.flat().map((r) => r.engine))], aiStatus: 'pending', // server pipeline (clean page, server OCR, vision, fusion) runs next
         capturedBy: p.userId, capturedVia: p.kind === 'device' ? 'glasses' : body.source ?? 'console', deviceId: p.deviceId ?? null,
       }).returning();
       for (const [i, pg] of body.pages.entries()) {
@@ -313,46 +265,84 @@ export async function auditDocRoutes(app: FastifyInstance, ctx: Ctx) {
     return reply.code(201).send(summary(doc));
   });
 
-  /** Vision refinement: layout-aware fields/tables/figures, cross-checked against the device OCR. */
-  app.post('/audit-docs/:id/enhance', auth, async (req) => {
+  /**
+   * Server processing (clean A4 page, server OCR, vision, fusion). Runs after every upload (the
+   * capturing client calls it; `/enhance` is the original name) and from the console "Re-process".
+   * The fused extraction replaces the current one only while no review decision has been made;
+   * afterwards only the page images / engine readings used by the soft copy are refreshed.
+   */
+  const processHandler = async (req: import('fastify').FastifyRequest) => {
     const { id } = idParam.parse(req.params);
     const p = req.principal!;
-    requirePerm(p, 'auditdoc.capture');
+    if (!has(p, 'auditdoc.capture') && !has(p, 'auditdoc.verify')) throw forbidden();
     await hydrate(p.orgId, id);
     const { d, pages } = await tenant(ctx, req, async (tx) => {
       const d = await load(tx, p, id);
       const pages = await tx.select().from(auditDocumentPages).where(eq(auditDocumentPages.documentId, id)).orderBy(asc(auditDocumentPages.pageNo));
       return { d, pages };
     });
-    if (!visionAvailable()) {
-      await tenant(ctx, req, async (tx) => { await tx.update(auditDocuments).set({ aiStatus: 'unavailable' }).where(eq(auditDocuments.id, id)); });
-      return { aiStatus: 'unavailable', message: 'Set ANTHROPIC_API_KEY to enable the vision engine. On-device OCR results are kept.' };
-    }
-    if (d.status !== 'in_review' || reviewProgress(d.extraction).done > 0) throw conflict('review_started', 'Review has started; the extraction can no longer be replaced');
-    let merged: AuditExtraction;
-    try {
-      const v = await extractWithVision(pages.map((pg) => ({ mime: pg.mime, data: pg.data })));
-      merged = mergeVision(v, pages.map((pg) => ((pg.ocr as { readings?: OcrReading[] } | null)?.readings ?? [])));
-    } catch (e) {
-      const msg = describeVisionError(e);
-      await tenant(ctx, req, async (tx) => {
-        await tx.update(auditDocuments).set({ aiStatus: 'failed', aiError: msg, revision: d.revision + 1, updatedAt: new Date() }).where(eq(auditDocuments.id, id));
-        await share(tx, id);
-      });
-      return { aiStatus: 'failed', message: msg };
-    }
+    const res = await processDocument(pages, { title: d.title, deviceEngine: d.capturedVia === 'mobile' ? 'mlkit:android' : 'ocr:device' });
+    const vision = res.report.engines.find((e) => e.engine.startsWith('vision'));
+    const aiStatus = !visionAvailable() ? 'unavailable' as const : vision?.ok ? 'done' as const : 'failed' as const;
+    const replace = d.status === 'in_review' && reviewProgress(d.extraction).done === 0 && reviewProgress(d.extraction).flagged === 0 && res.engines.length > 0;
     const out = await tenant(ctx, req, async (tx) => {
+      for (const [i, pg] of pages.entries()) await tx.update(auditDocumentPages).set({ ocr: res.pageOcr[i] }).where(and(eq(auditDocumentPages.documentId, id), eq(auditDocumentPages.pageNo, pg.pageNo)));
+      const keepTitle = !(d.title.startsWith('Audit scan') || d.title === 'Scanned audit document');
       const [u] = await tx.update(auditDocuments).set({
-        extraction: merged, title: d.title.startsWith('Audit scan') || d.title === 'Scanned audit document' ? merged.title || d.title : d.title, docType: merged.docType,
-        engines: [...new Set([...d.engines, VISION_ENGINE])], aiStatus: 'done', aiError: null, revision: d.revision + 1, updatedAt: new Date(),
+        ...(replace ? { extraction: { ...res.extraction, title: keepTitle ? d.title : res.extraction.title || d.title }, docType: res.extraction.docType, title: keepTitle ? d.title : res.extraction.title || d.title } : {}),
+        engines: [...new Set([...d.engines, ...res.engines])], aiStatus, aiError: vision && !vision.ok ? vision.message ?? null : null, revision: d.revision + 1, updatedAt: new Date(),
       }).where(and(eq(auditDocuments.id, id), eq(auditDocuments.revision, d.revision))).returning();
       if (!u) throw conflict('stale', 'The document changed while it was being processed');
-      await event(tx, p, id, 'enhanced', { after: { engine: VISION_ENGINE, fields: merged.fields.length, tables: merged.tables.length, figures: merged.figures.length, agreement: agreementScore(merged.fields) } });
+      await event(tx, p, id, 'processed', { after: { engines: res.report.engines, steps: res.report.steps, replaced: replace, fields: res.extraction.fields.length, tables: res.extraction.tables.length, agreement: agreementScore(res.extraction.fields) } });
       await share(tx, id);
       return u;
     });
     publish(out);
-    return summary(out);
+    return { ...summary(out), report: res.report, engineStats: res.extraction.engineStats, replaced: replace };
+  };
+  app.post('/audit-docs/:id/process', { ...auth, config: { rateLimit: { max: 30, timeWindow: '1 minute' } } }, processHandler);
+  app.post('/audit-docs/:id/enhance', { ...auth, config: { rateLimit: { max: 30, timeWindow: '1 minute' } } }, processHandler);
+
+  // ---- soft copy: re-typeset document model (JSON for the console preview), DOCX and clean PDF
+  async function softcopyOf(req: import('fastify').FastifyRequest) {
+    const { id } = idParam.parse(req.params);
+    const p = req.principal!;
+    requirePerm(p, 'auditdoc.read');
+    await hydrate(p.orgId, id);
+    const { d, pages } = await tenant(ctx, req, async (tx) => {
+      const d = await load(tx, p, id);
+      const pages = await tx.select().from(auditDocumentPages).where(eq(auditDocumentPages.documentId, id)).orderBy(asc(auditDocumentPages.pageNo));
+      return { d, pages };
+    });
+    const model = await softcopyFor(d, pages);
+    const name = d.title.replace(/[^A-Za-z0-9 _-]+/g, '').trim().replace(/\s+/g, '-').slice(0, 60) || 'audit-document';
+    return { model, name };
+  }
+  app.get('/audit-docs/:id/softcopy', auth, async (req) => (await softcopyOf(req)).model);
+  app.get('/audit-docs/:id/softcopy.docx', auth, async (req, reply) => {
+    const { model, name } = await softcopyOf(req);
+    const buf = await buildSoftcopyDocx(model);
+    return reply.header('content-type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document').header('content-disposition', `attachment; filename="${name}.docx"`).send(buf);
+  });
+  app.get('/audit-docs/:id/softcopy.pdf', auth, async (req, reply) => {
+    const { model, name } = await softcopyOf(req);
+    const pdf = await buildSoftcopyPdf(model);
+    return reply.header('content-type', 'application/pdf').header('content-disposition', `attachment; filename="${name}-clean.pdf"`).send(Buffer.from(pdf));
+  });
+  /** Clean (preprocessed) page image, when the server pipeline has produced one. */
+  app.get('/audit-docs/:id/pages/:pageNo/clean', auth, async (req, reply) => {
+    const { id, pageNo } = z.object({ id: z.uuid(), pageNo: z.coerce.number().int().min(1) }).parse(req.params);
+    const p = req.principal!;
+    requirePerm(p, 'auditdoc.read');
+    await hydrate(p.orgId, id);
+    const pg = await tenant(ctx, req, async (tx) => {
+      await load(tx, p, id);
+      const [r] = await tx.select().from(auditDocumentPages).where(and(eq(auditDocumentPages.documentId, id), eq(auditDocumentPages.pageNo, pageNo)));
+      return r;
+    });
+    if (!pg) throw notFound('Page');
+    const clean = (pg.ocr as { clean?: { mime: string; data: string } } | null)?.clean;
+    return reply.header('content-type', clean?.mime ?? pg.mime).header('cache-control', 'private, max-age=300').send(Buffer.from(clean?.data ?? pg.data, 'base64'));
   });
 
   // ---- human review: confirm / correct / flag one field or table

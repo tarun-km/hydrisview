@@ -5,16 +5,17 @@
  * passes, preview what was found, and send it to the console for dual verification.
  */
 import { useEffect, useRef, useState } from 'react';
-import { AlertTriangle, Camera, CheckCircle2, FileImage, FileScan, Plus, RefreshCw, ScanLine, Send, Sparkles, Trash2, WifiOff } from 'lucide-react';
+import { AlertTriangle, Camera, CameraOff, CheckCircle2, FileImage, FileScan, Plus, RefreshCw, ScanLine, Send, Sparkles, Trash2, Upload, WifiOff } from 'lucide-react';
 import { agreementScore, structureFromOcr } from '@hydris/domain';
 import { scanPage, uploadBody, warmUpOcr, type ScannedPage } from '@/lib/ocr';
 import { renderSampleAuditSheet } from '@/lib/sample-audit';
-import { hasGlassesBridge, openCamera, type CameraKind, type CameraSource } from './camera';
+import { hasGlassesBridge, openCamera, type CameraError, type CameraKind, type CameraSource } from './camera';
+import { CameraPicker, asCameraError, usePhotoPicker } from '@/lib/CameraHelp';
 import { GuidedCapture, type CapturedPage } from '@/lib/GuidedCapture';
 import type { GAuditScan, GlassesData } from './data';
 import { HudItem, HudPill, HudTitle, useHud } from './hud';
 
-type Stage = { s: 'menu' } | { s: 'camera' } | { s: 'reading'; stage: string; progress: number } | { s: 'review' } | { s: 'sending' } | { s: 'sent'; scan: GAuditScan } | { s: 'error'; message: string };
+type Stage = { s: 'menu' } | { s: 'camera' } | { s: 'reading'; stage: string; progress: number } | { s: 'review' } | { s: 'sending' } | { s: 'sent'; scan: GAuditScan } | { s: 'error'; message: string } | { s: 'camera-error'; err: CameraError };
 const MAX_PAGES = 6;
 const STATUS: Record<GAuditScan['status'], string> = { processing: 'processing', in_review: 'in review', verified: 'verified', approved: 'approved', rejected: 'rejected' };
 
@@ -60,17 +61,19 @@ export function AuditScanScreen({ data, online, flash }: { data: GlassesData; on
     cam.current = null;
     setSource(null);
   };
-  const startCamera = async (prefer?: CameraKind) => {
+  const startCamera = async (prefer?: CameraKind, deviceId?: string) => {
     try {
       closeCamera();
-      cam.current = await openCamera(prefer);
+      cam.current = await openCamera(prefer, deviceId);
       lastKind.current = cam.current.kind;
       setSource(cam.current);
       setStage({ s: 'camera' });
     } catch (e) {
-      setStage({ s: 'error', message: e instanceof Error ? e.message : 'Camera unavailable' });
+      // Explain the failure (permission, in use, no camera, insecure page) and offer retry / upload.
+      setStage({ s: 'camera-error', err: asCameraError(e) });
     }
   };
+  const photo = usePhotoPicker((files) => { closeCamera(); void read(files[0]!); });
   const onCaptured = (p: CapturedPage) => {
     closeCamera();
     void read(p.blob);
@@ -92,8 +95,9 @@ export function AuditScanScreen({ data, online, flash }: { data: GlassesData; on
 
   // ---- actions per stage (directional input: ↑↓ move, ● select)
   const actions =
-    stage.s === 'menu' ? [{ key: 'cam', onSelect: () => void startCamera() }, { key: 'sim', onSelect: () => void startCamera('simulated') }, { key: 'sample', onSelect: () => void sample() }]
-      : stage.s === 'camera' ? [{ key: 'shoot', onSelect: () => shutter.current?.capture() }, { key: 'cancel', onSelect: () => { closeCamera(); setStage({ s: pages.length ? 'review' : 'menu' }); } }]
+    stage.s === 'menu' ? [{ key: 'cam', onSelect: () => void startCamera() }, { key: 'upload', onSelect: photo.open }, { key: 'sim', onSelect: () => void startCamera('simulated') }, { key: 'sample', onSelect: () => void sample() }]
+      : stage.s === 'camera-error' ? [{ key: 'retry', onSelect: () => void startCamera(lastKind.current === 'simulated' ? undefined : lastKind.current) }, { key: 'upload', onSelect: photo.open }, { key: 'sim', onSelect: () => void startCamera('simulated') }, { key: 'back', onSelect: () => setStage({ s: pages.length ? 'review' : 'menu' }) }]
+      : stage.s === 'camera' ? [{ key: 'shoot', onSelect: () => shutter.current?.capture() }, { key: 'upload', onSelect: photo.open }, { key: 'cancel', onSelect: () => { closeCamera(); setStage({ s: pages.length ? 'review' : 'menu' }); } }]
         : stage.s === 'review' ? [
           { key: 'send', onSelect: () => void send(), disabled: !online },
           { key: 'more', onSelect: () => void startCamera(lastKind.current), disabled: pages.length >= MAX_PAGES },
@@ -114,10 +118,35 @@ export function AuditScanScreen({ data, online, flash }: { data: GlassesData; on
         <div className="min-h-0 flex-1">
           <GuidedCapture source={source} controlRef={shutter} onCaptured={onCaptured} onError={(m) => { closeCamera(); setStage({ s: 'error', message: m }); }} />
         </div>
-        <div className="grid grid-cols-[1fr_auto] gap-2">
-          <HudItem active={cursor === 0} tone="lime" onClick={() => shutter.current?.capture()}><Camera size={24} /><span className="flex-1">Capture now</span></HudItem>
-          <HudItem active={cursor === 1} onClick={() => { closeCamera(); setStage({ s: pages.length ? 'review' : 'menu' }); }}><span className="text-[19px]">Cancel</span></HudItem>
+        {source.kind === 'device-camera' && <div className="flex justify-end"><CameraPicker variant="hud" current={source.deviceId} onPick={(id) => void startCamera('device-camera', id)} /></div>}
+        <div className="grid grid-cols-[1fr_auto_auto] gap-2">
+          {/* Always works: takes the photo now even when no page outline was detected. */}
+          <HudItem active={cursor === 0} tone="lime" onClick={() => shutter.current?.capture()}><Camera size={24} /><span className="flex-1">Take photo</span></HudItem>
+          <HudItem active={cursor === 1} onClick={photo.open}><Upload size={22} /><span className="text-[19px]">Upload</span></HudItem>
+          {photo.input}
+          <HudItem active={cursor === 2} onClick={() => { closeCamera(); setStage({ s: pages.length ? 'review' : 'menu' }); }}><span className="text-[19px]">Cancel</span></HudItem>
         </div>
+      </div>
+    );
+  }
+
+  if (stage.s === 'camera-error') {
+    const err = stage.err;
+    return (
+      <div className="flex h-full flex-col gap-3">
+        <HudTitle eyebrow="Camera did not open">{err.message}</HudTitle>
+        <ol className="grid list-decimal gap-1 pl-6 text-[18px] leading-snug text-white/70" role="alert">
+          {err.help.map((h, i) => <li key={i}>{h}</li>)}
+        </ol>
+        <div className="mt-auto grid gap-2">
+          <HudItem active={cursor === 0} tone="lime" onClick={() => void startCamera(lastKind.current === 'simulated' ? undefined : lastKind.current)}><RefreshCw size={24} /><span className="flex-1">Retry camera</span></HudItem>
+          <HudItem active={cursor === 1} onClick={photo.open}><Upload size={24} /><span className="flex-1">Upload photo / choose file</span></HudItem>
+          <div className="grid grid-cols-2 gap-2">
+            <HudItem active={cursor === 2} onClick={() => void startCamera('simulated')}><ScanLine size={22} /><span className="text-[19px]">Simulated camera</span></HudItem>
+            <HudItem active={cursor === 3} onClick={() => setStage({ s: pages.length ? 'review' : 'menu' })}><CameraOff size={22} /><span className="text-[19px]">Back</span></HudItem>
+          </div>
+        </div>
+        {photo.input}
       </div>
     );
   }
@@ -176,7 +205,7 @@ export function AuditScanScreen({ data, online, flash }: { data: GlassesData; on
           <HudPill tone="line">{fields.length} value{fields.length === 1 ? "" : "s"}</HudPill>
           <HudPill tone="line">{tables} table{tables === 1 ? "" : "s"}</HudPill>
           {agree !== null && <HudPill tone={disagree ? 'high' : 'ok'}>{disagree ? `${disagree} unclear` : 'both passes agree'}</HudPill>}
-          <HudPill tone="line">{Math.round(pages[pages.length - 1]!.readings[0]!.conf)}% OCR conf</HudPill>
+          {pages[pages.length - 1]!.readings[0] ? <HudPill tone="line">{Math.round(pages[pages.length - 1]!.readings[0]!.conf)}% OCR conf</HudPill> : <HudPill tone="line">server OCR</HudPill>}
         </div>
         <ul className="grid grid-cols-[minmax(0,1fr)] min-h-0 gap-1.5 overflow-y-auto text-[19px] scrollbar-none">
           {fields.slice(0, 5).map((f) => (
@@ -206,10 +235,14 @@ export function AuditScanScreen({ data, online, flash }: { data: GlassesData; on
       <HudItem active={cursor === 0} tone="lime" onClick={() => void startCamera()}>
         <Camera size={26} /><span className="min-w-0 flex-1"><span className="block">Scan a document</span><span className="block text-[17px] text-white/55">{hasGlassesBridge() ? 'Ray-Ban Meta camera' : 'Camera'} · guided A4 framing · up to {MAX_PAGES} pages</span></span>
       </HudItem>
-      <HudItem active={cursor === 1} onClick={() => void startCamera('simulated')}>
+      <HudItem active={cursor === 1} onClick={photo.open}>
+        <Upload size={26} /><span className="min-w-0 flex-1"><span className="block">Upload photo / choose file</span><span className="block text-[17px] text-white/55">Use a photo already taken of the page</span></span>
+      </HudItem>
+      {photo.input}
+      <HudItem active={cursor === 2} onClick={() => void startCamera('simulated')}>
         <ScanLine size={26} /><span className="min-w-0 flex-1"><span className="block">Simulated glasses camera</span><span className="block text-[17px] text-white/55">Watch guided capture without hardware</span></span>
       </HudItem>
-      <HudItem active={cursor === 2} onClick={() => void sample()}>
+      <HudItem active={cursor === 3} onClick={() => void sample()}>
         <FileImage size={26} /><span className="min-w-0 flex-1"><span className="block">Use sample audit sheet</span><span className="block text-[17px] text-white/55">Try the pipeline without paper</span></span>
       </HudItem>
       <div className="mt-1 text-[17px] uppercase tracking-[0.14em] text-white/50">My recent scans</div>

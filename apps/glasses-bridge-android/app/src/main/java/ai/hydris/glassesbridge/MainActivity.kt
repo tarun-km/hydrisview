@@ -5,6 +5,7 @@ import android.Manifest.permission.BLUETOOTH_CONNECT
 import android.Manifest.permission.INTERNET
 import android.annotation.SuppressLint
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Bundle
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
@@ -92,6 +93,34 @@ class MainActivity : ComponentActivity() {
   private val androidPermissions = registerForActivityResult(RequestMultiplePermissions()) { result ->
     if (result.values.all { it }) initWearables() else emitStatus("Bluetooth permission is required to reach the glasses")
   }
+  // WebView getUserMedia: the page's request can only be granted once the app itself holds the
+  // Android runtime permission; otherwise Chromium reports NotReadableError / NotAllowedError.
+  private var pendingWebPermission: PermissionRequest? = null
+  private val webMediaPermissions = registerForActivityResult(RequestMultiplePermissions()) { result ->
+    val req = pendingWebPermission ?: return@registerForActivityResult
+    pendingWebPermission = null
+    val allowed = req.resources.filter { r -> androidPermissionFor(r)?.let { result[it] ?: hasPermission(it) } ?: false }
+    if (allowed.isEmpty()) req.deny() else req.grant(allowed.toTypedArray())
+  }
+
+  private fun hasPermission(p: String) = checkSelfPermission(p) == PackageManager.PERMISSION_GRANTED
+  private fun androidPermissionFor(resource: String): String? = when (resource) {
+    PermissionRequest.RESOURCE_VIDEO_CAPTURE -> android.Manifest.permission.CAMERA
+    PermissionRequest.RESOURCE_AUDIO_CAPTURE -> android.Manifest.permission.RECORD_AUDIO
+    else -> null
+  }
+
+  /** Grant what the app already holds; ask Android for the rest, then grant / deny the page request. */
+  private fun handleWebPermission(request: PermissionRequest) {
+    val media = request.resources.filter { androidPermissionFor(it) != null }
+    if (media.isEmpty()) { request.deny(); return }
+    val missing = media.mapNotNull { androidPermissionFor(it) }.filterNot { hasPermission(it) }
+    if (missing.isEmpty()) { request.grant(media.toTypedArray()); return }
+    pendingWebPermission?.deny()
+    pendingWebPermission = request
+    webMediaPermissions.launch(missing.distinct().toTypedArray())
+  }
+
   private var datPermissionContinuation: CancellableContinuation<PermissionStatus>? = null
   private val datPermissionLauncher = registerForActivityResult(Wearables.RequestPermissionContract()) { result ->
     datPermissionContinuation?.resume(result.getOrDefault(PermissionStatus.Denied))
@@ -124,7 +153,8 @@ class MainActivity : ComponentActivity() {
     web.webViewClient = WebViewClient()
     web.webChromeClient = object : WebChromeClient() {
       // The page's phone-camera fallback (getUserMedia) still works inside the bridge.
-      override fun onPermissionRequest(request: PermissionRequest) = request.grant(request.resources)
+      override fun onPermissionRequest(request: PermissionRequest) = runOnUiThread { handleWebPermission(request) }
+      override fun onPermissionRequestCanceled(request: PermissionRequest) { if (pendingWebPermission == request) pendingWebPermission = null }
     }
     web.addJavascriptInterface(Bridge(), "HydrisNative")
     setContentView(web)

@@ -6,7 +6,8 @@
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-export const maxDuration = 60;
+// Audit document processing (clean page + server OCR + optional vision) can take ~10-40 s per document.
+export const maxDuration = 300;
 
 type InjectMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' | 'OPTIONS' | 'HEAD';
 

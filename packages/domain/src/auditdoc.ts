@@ -67,6 +67,8 @@ export interface AuditExtraction {
   tables: AuditTable[];
   figures: AuditFigure[];
   warnings: string[];
+  /** Per-engine results from the server fusion step (fields read, mean confidence, agreement with the fused value). */
+  engineStats?: { engine: string; fields: number; tables: number; conf: number | null; agreement: number | null }[];
 }
 
 // ------------------------------------------------------------------ normalization & comparison
