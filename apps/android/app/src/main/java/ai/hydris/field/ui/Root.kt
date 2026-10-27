@@ -189,7 +189,7 @@ private fun Main(activity: MainActivity, session: Session, onSignOut: () -> Unit
       // blurred and dimmed (strongest at the screen edge, fading to clear), like the web's sticky glass header.
       val statusInset = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
       Box(
-        Modifier.fillMaxWidth().height(statusInset + 28.dp).align(Alignment.TopCenter)
+        Modifier.fillMaxWidth().height(statusInset + 6.dp).align(Alignment.TopCenter)
           .hazeEffect(hazeState) {
             blurRadius = 18.dp; noiseFactor = 0f; backgroundColor = Hx.Bg
             tints = listOf(HazeTint(Hx.Bg.copy(alpha = 0.55f)))
