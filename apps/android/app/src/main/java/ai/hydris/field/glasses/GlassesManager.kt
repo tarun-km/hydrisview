@@ -199,7 +199,7 @@ class GlassesManager(private val appContext: Context) {
     if (!ensurePermission(Permission.CAMERA)) { fail("Camera permission denied in Meta AI"); return null }
     val s = ensureSession() ?: return null
     var added: Camera? = null
-    s.addCamera(StreamConfiguration(videoQuality = VideoQuality.MEDIUM, frameRate = 24))
+    s.addCamera(StreamConfiguration(videoQuality = VideoQuality.HIGH, frameRate = 24))
       .onSuccess { added = it }
       .onFailure { e, _ -> fail("Camera unavailable: ${e.description}") }
     val c = added ?: return null
@@ -211,7 +211,7 @@ class GlassesManager(private val appContext: Context) {
         val now = System.currentTimeMillis()
         if (now - lastFrameAt < 100) return@collect
         lastFrameAt = now
-        lumaBitmap(f.buffer, f.width, f.height)?.let { _frame.value = it }
+        colorBitmap(f.buffer, f.width, f.height)?.let { _frame.value = it }
       }
     }
     c.stream.start().onFailure { e, _ -> fail("Stream failed: ${e.description}") }
@@ -277,25 +277,41 @@ class GlassesManager(private val appContext: Context) {
 
   // ------------------------------------------------------------------ image helpers
   /** DAT raw frames are 4:2:0 YUV; every such layout starts with the luma plane, which is all page detection needs. */
-  private fun lumaBitmap(buffer: ByteBuffer, w: Int, h: Int): Bitmap? {
+  /**
+   * Full-colour frame from the decoded YUV 4:2:0 stream. DAT does not document the chroma layout, so it is
+   * detected per frame: planar (I420: U plane then V plane) or semi-planar (NV21, interleaved V/U).
+   */
+  private fun colorBitmap(buffer: ByteBuffer, w: Int, h: Int): Bitmap? {
     if (w <= 0 || h <= 0) return null
     val data = buffer.duplicate().apply { rewind() }
     val total = data.remaining()
-    val stride = when {
-      total >= w * h * 3 / 2 -> max(w, (total / (h * 1.5)).roundToInt())
-      total >= w * h -> total / h
-      else -> return null
+    if (total < w * h * 3 / 2) return null
+    val stride = max(w, (total / (h * 1.5)).roundToInt())
+    val bytes = ByteArray(total).also { data.get(it) }
+    val ySize = stride * h
+    val cw = w / 2; val ch = h / 2; val cStride = stride / 2
+    // Interleaved chroma correlates at distance 2 (same channel), planar at distance 1.
+    var d1 = 0L; var d2 = 0L
+    val probe = minOf(4000, (total - ySize) - 4)
+    for (i in 0 until probe) { val a = bytes[ySize + i].toInt() and 0xFF; d1 += kotlin.math.abs(a - (bytes[ySize + i + 1].toInt() and 0xFF)); d2 += kotlin.math.abs(a - (bytes[ySize + i + 2].toInt() and 0xFF)) }
+    val interleaved = d2 < d1
+    val px = IntArray(w * h)
+    for (y in 0 until h) {
+      val yRow = y * stride; val cy = y / 2
+      for (x in 0 until w) {
+        val Y = (bytes[yRow + x].toInt() and 0xFF) - 16
+        val cx = x / 2
+        val u: Int; val v: Int
+        if (interleaved) { val o = ySize + cy * stride + cx * 2; v = (bytes[o].toInt() and 0xFF) - 128; u = (bytes[o + 1].toInt() and 0xFF) - 128 }
+        else { val o = cy * cStride + cx; u = (bytes[ySize + o].toInt() and 0xFF) - 128; v = (bytes[ySize + cStride * ch + o].toInt() and 0xFF) - 128 }
+        val yy = 1192 * maxOf(Y, 0)
+        val r = ((yy + 1634 * v) shr 10).coerceIn(0, 255)
+        val g = ((yy - 833 * v - 400 * u) shr 10).coerceIn(0, 255)
+        val b = ((yy + 2066 * u) shr 10).coerceIn(0, 255)
+        px[y * w + x] = (0xFF shl 24) or (r shl 16) or (g shl 8) or b
+      }
     }
-    val step = max(1, (w + 639) / 640)
-    val ow = w / step; val oh = h / step
-    val px = IntArray(ow * oh)
-    val row = ByteArray(stride)
-    for (y in 0 until oh) {
-      data.position(y * step * stride)
-      data.get(row, 0, minOf(stride, data.remaining()))
-      for (x in 0 until ow) { val l = row[x * step].toInt() and 0xFF; px[y * ow + x] = (0xFF shl 24) or (l shl 16) or (l shl 8) or l }
-    }
-    return Bitmap.createBitmap(px, ow, oh, Bitmap.Config.ARGB_8888)
+    return Bitmap.createBitmap(px, w, h, Bitmap.Config.ARGB_8888)
   }
 
   private fun decodePhoto(photo: PhotoData): Bitmap? = when (photo) {

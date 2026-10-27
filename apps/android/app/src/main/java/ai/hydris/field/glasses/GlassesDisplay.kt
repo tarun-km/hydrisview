@@ -45,8 +45,8 @@ import kotlinx.coroutines.withTimeoutOrNull
 class GlassesDisplay(private val scope: CoroutineScope, private val log: (String) -> Unit) {
   companion object {
     private const val TAG = "HydrisDisplay"
-    private const val IMAGE_INTERVAL_MS = 350L // ~3 fps
-    private const val PREVIEW_PX = 300
+    private const val IMAGE_INTERVAL_MS = 200L // ~5 fps
+    private const val PREVIEW_PX = 600 // full lens resolution (600x600)
   }
 
   private sealed interface View {
@@ -160,7 +160,7 @@ class GlassesDisplay(private val scope: CoroutineScope, private val log: (String
   }
 
   // ------------------------------------------------------------------ preview compositing
-  /** Small (≈300 px) copy of the camera frame with the detected page outline and ready bar drawn on it. */
+  /** Full-resolution (600 px) colour copy of the camera frame with the detected page outline and ready bar drawn on it. */
   fun renderPreview(frame: Bitmap, quad: List<Pt>?, guide: Guide, progress: Float): Bitmap {
     val s = PREVIEW_PX.toFloat() / maxOf(frame.width, frame.height)
     val w = (frame.width * s).toInt().coerceAtLeast(1); val h = (frame.height * s).toInt().coerceAtLeast(1)
@@ -172,11 +172,11 @@ class GlassesDisplay(private val scope: CoroutineScope, private val log: (String
         guide == Guide.MoveBack || guide == Guide.Straighten || guide == Guide.Level -> Color.rgb(255, 170, 40)
         else -> Color.rgb(80, 170, 255)
       }
-      val p = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = col; style = Paint.Style.STROKE; strokeWidth = 4f; strokeJoin = Paint.Join.ROUND }
+      val p = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = col; style = Paint.Style.STROKE; strokeWidth = 6f; strokeJoin = Paint.Join.ROUND }
       val path = Path().apply { q.forEachIndexed { i, pt -> if (i == 0) moveTo(pt.x * w, pt.y * h) else lineTo(pt.x * w, pt.y * h) }; close() }
       c.drawPath(path, p)
       val dot = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = col }
-      q.forEach { pt -> c.drawCircle(pt.x * w, pt.y * h, 7f, dot) }
+      q.forEach { pt -> c.drawCircle(pt.x * w, pt.y * h, 10f, dot) }
     }
     if (progress > 0f) {
       val bg = Paint().apply { color = Color.argb(140, 0, 0, 0) }
