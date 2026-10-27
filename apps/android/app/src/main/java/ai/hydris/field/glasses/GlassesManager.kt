@@ -92,6 +92,9 @@ class GlassesManager(private val appContext: Context) {
   /** Installed by MainActivity: requests a glasses permission (opens the Meta AI app). */
   var permissionRequester: (suspend (Permission) -> PermissionStatus)? = null
 
+  /** Meta Ray-Ban Display screen (no-op on glasses without one). */
+  val display = GlassesDisplay(scope) { log(it) }
+
   private var session: DeviceSession? = null
   private var sessionReady: CompletableDeferred<DeviceSession>? = null
   private var camera: Camera? = null
@@ -164,7 +167,7 @@ class GlassesManager(private val appContext: Context) {
           scope.launch {
             created.state.collect { st ->
               _state.update { it.copy(session = st.toString()) }
-              if (st == DeviceSessionState.STARTED) { if (!d.isCompleted) d.complete(created); attachInputs(created) }
+              if (st == DeviceSessionState.STARTED) { if (!d.isCompleted) d.complete(created); attachInputs(created); display.attach(created) }
               if (st == DeviceSessionState.STOPPED) {
                 // Ended before it started (glasses asleep, not worn, or no permission): fail the waiter instead of hanging.
                 if (!d.isCompleted) d.completeExceptionally(IllegalStateException(_state.value.lastError ?: "Glasses session ended"))
@@ -184,6 +187,7 @@ class GlassesManager(private val appContext: Context) {
 
   private fun reset() {
     frameJob?.cancel()
+    display.detach()
     camera = null; speechCap = null; inputs = null; session = null; sessionReady = null
     _state.update { it.copy(cameraStreaming = false, speech = "off", session = "stopped") }
   }

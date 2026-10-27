@@ -73,5 +73,6 @@ dependencies {
   implementation("com.meta.wearable:mwdat-camera:$mwdat")
   implementation("com.meta.wearable:mwdat-speech:$mwdat")
   implementation("com.meta.wearable:mwdat-inputs:$mwdat")
+  implementation("com.meta.wearable:mwdat-display:$mwdat")
   debugImplementation("com.meta.wearable:mwdat-mockdevice:$mwdat")
 }

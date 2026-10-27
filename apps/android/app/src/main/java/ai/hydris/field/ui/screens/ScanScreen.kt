@@ -98,6 +98,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
+import com.meta.wearable.dat.display.views.IconName
 
 private sealed interface Stage {
   data object Menu : Stage
@@ -144,6 +145,20 @@ fun ScanScreen(activity: MainActivity) {
           if (d.quad != null && d.coverage > 0.2f && !d.touchesEdge) DocDetect.warpToA4(src, d.quad) else src
         }
       }.onSuccess { read(it) }.onFailure { stage = Stage.Failed(it.message ?: "Could not open the photo") }
+    }
+  }
+
+  // Meta Ray-Ban Display: mirror the scan's progress after a glasses capture (idle card otherwise).
+  LaunchedEffect(stage, viaGlasses) {
+    val d = app.glasses.display
+    when (val s = stage) {
+      Stage.Menu -> d.showIdle()
+      is Stage.Camera -> Unit // GuidedCapture drives the live view
+      is Stage.Reading -> if (viaGlasses) d.showStatus("Captured · reading…", s.text, IconName.CHECKMARK_CIRCLE)
+      Stage.Review -> if (viaGlasses) d.showStatus("Page ${pages.size} read", "Send for verification on the phone", IconName.PENCIL_SQUARE)
+      Stage.Sending -> if (viaGlasses) d.showStatus("Sending…", "Structuring values and tables", IconName.PAPER_AIRPLANE)
+      is Stage.Sent -> if (viaGlasses) d.showStatus("Sent for verification", "${s.doc.fields} values · ${s.doc.tables} tables", IconName.CHECKMARK_CIRCLE)
+      is Stage.Failed -> if (viaGlasses) d.showStatus("Scan failed", s.message.take(80), IconName.EXCLAMATION_TRIANGLE)
     }
   }
 
@@ -283,7 +298,7 @@ private fun GuidedCapture(glasses: Boolean, onCaptured: (Bitmap) -> Unit, onCanc
   var busy by remember { mutableStateOf(false) }
   val imageCapture = remember { ImageCapture.Builder().setCaptureMode(ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY).build() }
   val scope = rememberCoroutineScope()
-  val state = remember { object { var last: List<Pt>? = null; var stable = 0; var readySince = 0L; var lastDetect = 0L } }
+  val state = remember { object { var last: List<Pt>? = null; var stable = 0; var readySince = 0L; var lastDetect = 0L; var shownGuide: Guide? = null; var lastShown = 0L } }
 
   fun analyse(bmp: Bitmap) {
     val now = System.currentTimeMillis()
@@ -295,6 +310,11 @@ private fun GuidedCapture(glasses: Boolean, onCaptured: (Bitmap) -> Unit, onCanc
     val g = DocDetect.guide(d, state.stable >= 4)
     frame = bmp; quad = d.quad; guide = g
     if (g.ok) { if (state.readySince == 0L) state.readySince = now; readyPct = ((now - state.readySince) / 900f).coerceAtMost(1f) } else { state.readySince = 0; readyPct = 0f }
+    // Mirror onto the Meta Ray-Ban Display: text at once on a guidance change, the composited preview ~3 fps.
+    if (glasses && !busy && app.glasses.display.available && (g != state.shownGuide || now - state.lastShown > 300)) {
+      state.shownGuide = g; state.lastShown = now
+      app.glasses.display.showScan(g, app.glasses.display.renderPreview(bmp, d.quad, g, readyPct), readyPct)
+    }
   }
 
   suspend fun takePhoto(): Bitmap = if (glasses) app.glasses.capturePhoto() else suspendCancellableCoroutine { cont ->
@@ -307,6 +327,7 @@ private fun GuidedCapture(glasses: Boolean, onCaptured: (Bitmap) -> Unit, onCanc
   fun capture() {
     if (busy) return
     busy = true
+    if (glasses) app.glasses.display.showStatus("Captured", "Reading…", IconName.CHECKMARK_CIRCLE)
     scope.launch {
       runCatching {
         val photo = takePhoto()
