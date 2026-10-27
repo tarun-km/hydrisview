@@ -1,15 +1,16 @@
 /**
  * Engine 1: Tesseract.js (WebAssembly) running in the API process on the clean page image.
  *
- * The English LSTM model (~4 MB, eng.traineddata) is fetched once from the tesseract.js data CDN
- * and cached in the OS temp dir (/tmp on Vercel), so warm functions reuse it. Set TESSDATA_PATH to a
- * directory or URL holding eng.traineddata(.gz) to avoid the download (air-gapped installs).
+ * The English LSTM model ships with the API (apps/api/tessdata/eng.traineddata.gz, ~3 MB) and is
+ * traced into the Vercel function, so no download is needed: the CDN fetch timed out on Vercel.
+ * TESSDATA_PATH overrides the location; without a bundled copy the model is fetched from the
+ * tesseract.js data CDN and cached in the OS temp dir.
  * Any failure (no network for the model, timeout) is reported and the pipeline carries on with
  * the remaining engines.
  */
-import { mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import type { OcrLine, OcrReading } from '@hydris/domain';
 
 export const SERVER_OCR_ENGINE = 'ocr:server';
@@ -17,12 +18,21 @@ export const SERVER_OCR_ENGINE = 'ocr:server';
 type Worker = Awaited<ReturnType<typeof import('tesseract.js')['createWorker']>>;
 let workerP: Promise<Worker> | null = null;
 
+/** The bundled model directory, wherever the API runs from (repo root, apps/api or apps/web on Vercel). */
+function bundledLangPath(): string | undefined {
+  if (process.env.TESSDATA_PATH) return process.env.TESSDATA_PATH;
+  const cwd = process.cwd();
+  return [resolve(cwd, 'tessdata'), resolve(cwd, 'apps/api/tessdata'), resolve(cwd, '../api/tessdata'), resolve(cwd, '../../apps/api/tessdata')]
+    .find((d) => existsSync(join(d, 'eng.traineddata.gz')));
+}
+
 async function worker(): Promise<Worker> {
   workerP ??= (async () => {
     const { createWorker } = await import('tesseract.js');
     const cachePath = join(tmpdir(), 'hydris-tessdata');
     mkdirSync(cachePath, { recursive: true });
-    return createWorker('eng', 1, { cachePath, ...(process.env.TESSDATA_PATH ? { langPath: process.env.TESSDATA_PATH } : {}) });
+    const langPath = bundledLangPath();
+    return createWorker('eng', 1, { cachePath, ...(langPath ? { langPath, cacheMethod: 'none' } : {}) });
   })().catch((e) => {
     workerP = null;
     throw e;

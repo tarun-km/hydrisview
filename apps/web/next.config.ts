@@ -23,7 +23,7 @@ const nextConfig: NextConfig = {
   // Ship the SQL migrations with the API functions (migrate-on-cold-start).
   outputFileTracingIncludes: { '/api/**/*': ['../api/drizzle/**/*', '../../node_modules/@electric-sql/pglite/dist/**/*',
     // Server OCR: tesseract.js loads its worker script and the LSTM wasm core at runtime (LSTM builds only, ~20 MB).
-    '../../node_modules/tesseract.js/src/**/*', '../../node_modules/tesseract.js-core/tesseract-core-*lstm*', '../../node_modules/tesseract.js-core/package.json', '../../node_modules/tesseract.js-core/index.js'] },
+    '../../node_modules/tesseract.js/src/**/*', '../../node_modules/tesseract.js-core/tesseract-core-*lstm*', '../../node_modules/tesseract.js-core/package.json', '../../node_modules/tesseract.js-core/index.js', '../api/tessdata/**/*'] },
   poweredByHeader: false,
   async rewrites() {
     if (!API_URL) return [];
