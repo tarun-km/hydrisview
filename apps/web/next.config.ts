@@ -23,7 +23,10 @@ const nextConfig: NextConfig = {
   // Ship the SQL migrations with the API functions (migrate-on-cold-start).
   outputFileTracingIncludes: { '/api/**/*': ['../api/drizzle/**/*', '../../node_modules/@electric-sql/pglite/dist/**/*',
     // Server OCR: tesseract.js loads its worker script and the LSTM wasm core at runtime (LSTM builds only, ~20 MB).
-    '../../node_modules/tesseract.js/src/**/*', '../../node_modules/tesseract.js-core/tesseract-core-*lstm*', '../../node_modules/tesseract.js-core/package.json', '../../node_modules/tesseract.js-core/index.js', '../api/tessdata/**/*'] },
+    '../../node_modules/tesseract.js/src/**/*', '../../node_modules/tesseract.js-core/tesseract-core-*lstm*', '../../node_modules/tesseract.js-core/package.json', '../../node_modules/tesseract.js-core/index.js', '../api/tessdata/**/*',
+    // The OCR worker runs in a worker thread, so its own requires are not traced automatically.
+    ...['is-url', 'node-fetch', 'whatwg-url', 'tr46', 'webidl-conversions', 'regenerator-runtime', 'wasm-feature-detect', 'zlibjs', 'bmp-js']
+      .map((p) => `../../node_modules/${p}/**/*`)] },
   poweredByHeader: false,
   async rewrites() {
     if (!API_URL) return [];
