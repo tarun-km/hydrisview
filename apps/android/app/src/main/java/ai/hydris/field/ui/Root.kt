@@ -72,6 +72,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import dev.chrisbanes.haze.HazeProgressive
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.HazeStyle
 import dev.chrisbanes.haze.HazeTint
@@ -184,8 +185,25 @@ private fun Main(activity: MainActivity, session: Session, onSignOut: () -> Unit
         composable("alarm/{id}", listOf(navArgument("id") { type = NavType.StringType })) { AlarmDetailScreen(it.arguments!!.getString("id")!!, nav) }
         composable("sensor/{id}", listOf(navArgument("id") { type = NavType.StringType })) { SensorScreen(it.arguments!!.getString("id")!!, nav) }
       }
-      // Status-bar scrim so content scrolling under the clock stays legible (web: sticky header bg-bg/85).
-      Box(Modifier.fillMaxWidth().windowInsetsTopHeight(WindowInsets.statusBars).background(Hx.Bg.copy(alpha = 0.85f)).align(Alignment.TopCenter))
+      // Edge blur: content scrolling under the status bar and under the floating navigation is progressively
+      // blurred and dimmed (strongest at the screen edge, fading to clear), like the web's sticky glass header.
+      val statusInset = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+      Box(
+        Modifier.fillMaxWidth().height(statusInset + 28.dp).align(Alignment.TopCenter)
+          .hazeEffect(hazeState) {
+            blurRadius = 18.dp; noiseFactor = 0f; backgroundColor = Hx.Bg
+            tints = listOf(HazeTint(Hx.Bg.copy(alpha = 0.55f)))
+            progressive = HazeProgressive.verticalGradient(startIntensity = 1f, endIntensity = 0f)
+          },
+      )
+      Box(
+        Modifier.fillMaxWidth().height(navInset + 12.dp + 60.dp + 36.dp).align(Alignment.BottomCenter)
+          .hazeEffect(hazeState) {
+            blurRadius = 18.dp; noiseFactor = 0f; backgroundColor = Hx.Bg
+            tints = listOf(HazeTint(Hx.Bg.copy(alpha = 0.6f)))
+            progressive = HazeProgressive.verticalGradient(startIntensity = 0f, endIntensity = 1f)
+          },
+      )
       val tabRoute = when {
         route == null -> "home"
         route.startsWith("alarm") || route.startsWith("sensor") -> nav.previousBackStackEntry?.destination?.route ?: "work"
