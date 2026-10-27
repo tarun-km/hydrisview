@@ -28,10 +28,11 @@ data class LiveSnapshot(
  * off silently; nothing here can affect the UI.
  */
 class LiveShare(private val api: HydrisApi) {
-  suspend fun run(route: () -> String?, frames: StateFlow<Bitmap?>) {
+  /** [enabled] is the "Share live view with the control room" preference; while off nothing is sent. */
+  suspend fun run(route: () -> String?, frames: StateFlow<Bitmap?>, enabled: () -> Boolean = { true }) {
     var failures = 0
     while (coroutineContext.isActive) {
-      if (!api.hasDevice()) { delay(5_000); continue }
+      if (!api.hasDevice() || !enabled()) { delay(2_000); continue }
       val frame = frames.value
       val tab = route()?.substringBefore('/') ?: "home"
       val body = LiveSnapshot(screen = tab, title = TITLES[tab] ?: tab.replaceFirstChar { it.uppercase() }, summary = listOf("Hydris Android app · ${TITLES[tab] ?: tab}"),

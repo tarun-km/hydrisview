@@ -42,11 +42,9 @@ import kotlinx.coroutines.withTimeoutOrNull
  * image at most [IMAGE_INTERVAL_MS]. Video is not used - DAT 1.0 plays MP4 from https URLs only, not
  * pushed frames - so the preview is a small phone-composited bitmap (luma frame + page outline + progress).
  */
-class GlassesDisplay(private val scope: CoroutineScope, private val log: (String) -> Unit) {
+class GlassesDisplay(private val scope: CoroutineScope, private val prefs: GlassesPrefs, private val log: (String) -> Unit) {
   companion object {
     private const val TAG = "HydrisDisplay"
-    private const val IMAGE_INTERVAL_MS = 200L // ~5 fps
-    private const val PREVIEW_PX = 600 // full lens resolution (600x600)
   }
 
   private sealed interface View {
@@ -54,6 +52,10 @@ class GlassesDisplay(private val scope: CoroutineScope, private val log: (String
     data class Status(val title: String, val subtitle: String?, val icon: IconName?) : View
     data object Blank : View
   }
+
+  /** Preview cadence and size follow the "Lens preview quality" preference (Sharp: 600 px / ~5 fps, Balanced: 400 px / ~2.5 fps). */
+  private val IMAGE_INTERVAL_MS get() = prefs.value.lensQuality.intervalMs
+  private val PREVIEW_PX get() = prefs.value.lensQuality.sizePx
 
   private val _state = MutableStateFlow("none")
   /** Display capability state for the Glasses screen ("none" / "unsupported" / DisplayState). */
@@ -94,7 +96,12 @@ class GlassesDisplay(private val scope: CoroutineScope, private val log: (String
 
   // ------------------------------------------------------------------ public API
   /** Live scan view: [quadPreview] is a frame already composited with [renderPreview] (or null for text only). */
-  fun showScan(guide: Guide, quadPreview: Bitmap?, progress: Float) { if (!unsupported) wanted.value = View.Scan(guide, quadPreview, progress) }
+  fun showScan(guide: Guide, quadPreview: Bitmap?, progress: Float) {
+    if (!unsupported) wanted.value = View.Scan(guide, quadPreview.takeIf { prefs.value.lensPreview }, progress)
+  }
+
+  /** Test card for the Glasses tab: confirms the lens display end to end. */
+  fun showTestCard() = showStatus("Hydris lens test", "If you can read this, the display works", IconName.CHECKMARK_CIRCLE)
 
   fun showStatus(title: String, subtitle: String? = null, icon: IconName? = null) { if (!unsupported) wanted.value = View.Status(title, subtitle, icon) }
 

@@ -5,8 +5,13 @@ import ai.hydris.field.MainActivity
 import ai.hydris.field.R
 import ai.hydris.field.data.Session
 import ai.hydris.field.ui.components.Loading
+import ai.hydris.field.ui.components.LocalNavScope
+import ai.hydris.field.ui.components.LocalSharedScope
+import androidx.compose.animation.SharedTransitionLayout
 import ai.hydris.field.ui.screens.AlarmDetailScreen
 import ai.hydris.field.ui.screens.AskScreen
+import ai.hydris.field.ui.screens.CaptureViewer
+import ai.hydris.field.ui.screens.CapturesScreen
 import ai.hydris.field.ui.screens.GlassesScreen
 import ai.hydris.field.ui.screens.HomeScreen
 import ai.hydris.field.ui.screens.LoginScreen
@@ -132,6 +137,7 @@ private val TABS = listOf(
   Tab("glasses", "Glasses", Icons.Outlined.Visibility),
 )
 
+@OptIn(androidx.compose.animation.ExperimentalSharedTransitionApi::class)
 @SuppressLint("MissingPermission")
 @Composable
 private fun Main(activity: MainActivity, session: Session, onSignOut: () -> Unit) {
@@ -143,7 +149,7 @@ private fun Main(activity: MainActivity, session: Session, onSignOut: () -> Unit
   // Live view: while these glasses are registered as a Hydris device, mirror the current tab (and the
   // glasses camera while scanning) to the control room over the device-token channel.
   val liveRoute by rememberUpdatedState(route)
-  LaunchedEffect(session.user.id) { ai.hydris.field.data.LiveShare(app.api).run({ liveRoute }, app.glasses.frame) }
+  LaunchedEffect(session.user.id) { ai.hydris.field.data.LiveShare(app.api).run({ liveRoute }, app.glasses.frame) { app.prefs.value.shareLive } }
 
   // Realtime: alarms created anywhere on the account → system notification + live refresh.
   LaunchedEffect(session.user.id) {
@@ -170,6 +176,7 @@ private fun Main(activity: MainActivity, session: Session, onSignOut: () -> Unit
   CompositionLocalProvider(LocalNavPadding provides bottomPad) {
     Box(Modifier.fillMaxSize().background(Hx.Bg)) {
       // page-enter: opacity + small rise, 360 ms --ease-out; exit is a quick fade.
+      SharedTransitionLayout { CompositionLocalProvider(LocalSharedScope provides this) {
       NavHost(
         nav, startDestination = "home", modifier = Modifier.fillMaxSize().hazeSource(hazeState),
         enterTransition = { fadeIn(tween(dur, easing = HxMotion.EaseOut)) + slideInVertically(tween(dur, easing = HxMotion.EaseOut)) { (it * 0.02f).toInt() } },
@@ -181,10 +188,15 @@ private fun Main(activity: MainActivity, session: Session, onSignOut: () -> Unit
         composable("work") { WorkScreen(nav) }
         composable("scan") { ScanScreen(activity) }
         composable("ask") { AskScreen(activity) }
-        composable("glasses") { GlassesScreen(activity) }
+        composable("glasses") { CompositionLocalProvider(LocalNavScope provides this) { GlassesScreen(activity, nav) } }
+        composable("captures") { CompositionLocalProvider(LocalNavScope provides this) { CapturesScreen(nav) } }
+        composable("capture/{id}", listOf(navArgument("id") { type = NavType.StringType })) {
+          CompositionLocalProvider(LocalNavScope provides this) { CaptureViewer(it.arguments!!.getString("id")!!, nav) }
+        }
         composable("alarm/{id}", listOf(navArgument("id") { type = NavType.StringType })) { AlarmDetailScreen(it.arguments!!.getString("id")!!, nav) }
         composable("sensor/{id}", listOf(navArgument("id") { type = NavType.StringType })) { SensorScreen(it.arguments!!.getString("id")!!, nav) }
       }
+      } }
       // Edge blur: content scrolling under the status bar and under the floating navigation is progressively
       // blurred and dimmed (strongest at the screen edge, fading to clear), like the web's sticky glass header.
       val statusInset = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
@@ -206,10 +218,12 @@ private fun Main(activity: MainActivity, session: Session, onSignOut: () -> Unit
       )
       val tabRoute = when {
         route == null -> "home"
+        route == "captures" || route.startsWith("capture/") -> "glasses"
         route.startsWith("alarm") || route.startsWith("sensor") -> nav.previousBackStackEntry?.destination?.route ?: "work"
         else -> route
       }
-      GlassNav(
+      // The full-screen capture viewer hides the navigation (immersive photo).
+      if (route?.startsWith("capture/") != true) GlassNav(
         selected = TABS.indexOfFirst { it.route == tabRoute }.coerceAtLeast(0), hazeState = hazeState,
         modifier = Modifier.align(Alignment.BottomCenter).padding(start = 12.dp, end = 12.dp, bottom = navInset + 12.dp),
       ) { t -> if (route != t.route) nav.navigate(t.route) { popUpTo("home") { saveState = true }; launchSingleTop = true; restoreState = true } }

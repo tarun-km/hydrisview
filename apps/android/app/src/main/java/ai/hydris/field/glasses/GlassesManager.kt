@@ -17,7 +17,14 @@ import com.meta.wearable.dat.core.Wearables
 import com.meta.wearable.dat.core.selectors.AutoDeviceSelector
 import com.meta.wearable.dat.core.session.DeviceSession
 import com.meta.wearable.dat.core.session.DeviceSessionState
+import com.meta.wearable.dat.core.types.ChargingState
+import com.meta.wearable.dat.core.types.Device
+import com.meta.wearable.dat.core.types.DeviceCompatibility
+import com.meta.wearable.dat.core.types.DeviceType
+import com.meta.wearable.dat.core.types.DonState
+import com.meta.wearable.dat.core.types.HingeState
 import com.meta.wearable.dat.core.types.Permission
+import com.meta.wearable.dat.core.types.ThermalLevel
 import com.meta.wearable.dat.core.types.PermissionStatus
 import com.meta.wearable.dat.core.types.RegistrationState
 import com.meta.wearable.dat.inputs.Inputs
@@ -61,6 +68,18 @@ data class GlassesState(
   val registered: Boolean = false,
   val devices: List<String> = emptyList(),
   val deviceName: String? = null,
+  /** Everything below comes from DAT `devicesMetadata` (null = not reported). */
+  val deviceModel: String? = null,
+  val linkState: String? = null,
+  val firmware: String? = null,
+  /** 0-100, null when DAT reports no level (negative / out of range). */
+  val battery: Int? = null,
+  val charging: Boolean? = null,
+  val worn: Boolean? = null,
+  val hingeOpen: Boolean? = null,
+  val thermal: String? = null,
+  val compatibility: String? = null,
+  val displayCapable: Boolean? = null,
   val session: String = "idle",
   val cameraStreaming: Boolean = false,
   val speech: String = "off",
@@ -75,7 +94,7 @@ data class GlassesState(
  * permission prompts. This app is where the operator works; DAT gives it the glasses' camera stream,
  * photo capture, capture button and on-glasses speech recognition.
  */
-class GlassesManager(private val appContext: Context) {
+class GlassesManager(private val appContext: Context, val prefs: GlassesPrefs) {
   companion object { const val META_AI_PACKAGE = "com.facebook.stella" }
   private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
   private val _state = MutableStateFlow(GlassesState())
@@ -93,7 +112,7 @@ class GlassesManager(private val appContext: Context) {
   var permissionRequester: (suspend (Permission) -> PermissionStatus)? = null
 
   /** Meta Ray-Ban Display screen (no-op on glasses without one). */
-  val display = GlassesDisplay(scope) { log(it) }
+  val display = GlassesDisplay(scope, prefs) { log(it) }
 
   private var session: DeviceSession? = null
   private var sessionReady: CompletableDeferred<DeviceSession>? = null
@@ -124,12 +143,31 @@ class GlassesManager(private val appContext: Context) {
     scope.launch {
       Wearables.devices.collect { ids ->
         _state.update { it.copy(devices = ids.map { d -> d.toString() }) }
+        if (ids.isEmpty()) { metaJob?.cancel(); _state.update { it.copy(linkState = null, battery = null, charging = null, worn = null, hingeOpen = null) } }
         ids.firstOrNull()?.let { id ->
-          scope.launch { Wearables.devicesMetadata[id]?.collect { meta -> _state.update { it.copy(deviceName = meta.name.ifEmpty { "Ray-Ban Meta" }) } } }
+          metaJob?.cancel()
+          metaJob = scope.launch { Wearables.devicesMetadata[id]?.collect { meta -> _state.update { applyMeta(it, meta) } } }
         }
       }
     }
   }
+
+  private var metaJob: Job? = null
+
+  /** Maps DAT's Device metadata onto the UI state; unknown values stay null so the UI hides them. */
+  private fun applyMeta(s: GlassesState, m: Device): GlassesState = s.copy(
+    deviceName = m.name.ifEmpty { null } ?: s.deviceName,
+    deviceModel = m.deviceType.takeIf { it != DeviceType.UNKNOWN }?.description?.ifBlank { null },
+    linkState = m.linkState.name.lowercase(),
+    firmware = m.firmwareInfo?.trim()?.ifEmpty { null },
+    battery = m.batteryLevel.takeIf { it in 0..100 },
+    charging = when (m.chargingState) { ChargingState.CHARGING -> true; ChargingState.NOT_CHARGING -> false; else -> null },
+    worn = when (m.donState) { DonState.DONNED -> true; DonState.DOFFED -> false; else -> null },
+    hingeOpen = when (m.hingeState) { HingeState.OPEN -> true; HingeState.CLOSED -> false; else -> null },
+    thermal = m.thermalLevel.takeIf { it != ThermalLevel.UNKNOWN && it != ThermalLevel.NONE }?.name?.lowercase(),
+    compatibility = m.compatibility.takeIf { it != DeviceCompatibility.UNDEFINED }?.displayString,
+    displayCapable = m.isDisplayCapable(),
+  )
 
   /** True when the Meta AI app (package com.facebook.stella) is installed - DAT registration goes through it. */
   fun metaAiInstalled(): Boolean = runCatching { appContext.packageManager.getPackageInfo(META_AI_PACKAGE, 0); true }.getOrDefault(false)
@@ -183,6 +221,21 @@ class GlassesManager(private val appContext: Context) {
     return runCatching { withTimeout(20_000) { ready.await() } }
       .onFailure { if (it is kotlinx.coroutines.TimeoutCancellationException) { fail("Glasses did not respond. Wear them (or unfold), check they show Connected in the Meta AI app, then try again."); sessionReady = null } }
       .getOrNull()
+  }
+
+  /** Starts a session if needed and waits briefly for the lens display; true when it can show content. */
+  suspend fun ensureLens(): Boolean {
+    if (display.available) return true
+    ensureSession() ?: return false
+    kotlinx.coroutines.withTimeoutOrNull(6_000) { display.state.first { it == "STARTED" || it == "unsupported" } }
+    return display.available
+  }
+
+  /** Stops the camera stream and the glasses session (used before unlinking). */
+  fun endSession() {
+    runCatching { camera?.stream?.stop() }
+    runCatching { session?.stop() }
+    reset()
   }
 
   private fun reset() {

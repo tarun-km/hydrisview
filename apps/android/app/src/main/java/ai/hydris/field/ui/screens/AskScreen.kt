@@ -92,7 +92,7 @@ fun AskScreen(activity: MainActivity) {
   val msgs = remember { mutableStateListOf<Msg>() }
   var input by remember { mutableStateOf("") }
   var heard by remember { mutableStateOf("") }
-  var wake by remember { mutableStateOf(false) }
+  var wake by remember { mutableStateOf(app.prefs.value.heyHydris) }
   var awaiting by remember { mutableStateOf(false) } // after the wake phrase / in follow-up window
   var thinking by remember { mutableStateOf(false) }
   val list = rememberLazyListState()
@@ -134,7 +134,7 @@ fun AskScreen(activity: MainActivity) {
         Text("Hydris", style = HxType.Page)
       }
       Column(horizontalAlignment = Alignment.End) {
-        Switch(wake, { wake = it }, colors = SwitchDefaults.colors(checkedTrackColor = Hx.Signal, checkedThumbColor = Color.White, uncheckedTrackColor = Hx.Surface2, uncheckedThumbColor = Hx.Muted, uncheckedBorderColor = Hx.Line2))
+        Switch(wake, { wake = it; app.prefs.update { p -> p.copy(heyHydris = it) } }, colors = SwitchDefaults.colors(checkedTrackColor = Hx.Signal, checkedThumbColor = Color.White, uncheckedTrackColor = Hx.Surface2, uncheckedThumbColor = Hx.Muted, uncheckedBorderColor = Hx.Line2))
         Row(verticalAlignment = Alignment.CenterVertically) {
           if (wake && listening) { Dot(Hx.Ok, 6.dp, pulse = true); Spacer(Modifier.width(6.dp)) }
           Text(if (!wake) "Hey Hydris off" else if (listening) "${if (source == VoiceEngine.Source.Glasses) "glasses mic" else "phone mic"}" else "starting…", color = Hx.Muted, style = MaterialTheme.typography.bodySmall)

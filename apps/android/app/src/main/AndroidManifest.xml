@@ -29,6 +29,15 @@
     <!-- ML Kit: download the Latin text model at install time -->
     <meta-data android:name="com.google.mlkit.vision.DEPENDENCIES" android:value="ocr" />
 
+    <!-- Captures gallery: share photos from app storage -->
+    <provider
+        android:name="androidx.core.content.FileProvider"
+        android:authorities="${applicationId}.captures"
+        android:exported="false"
+        android:grantUriPermissions="true">
+      <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/capture_paths" />
+    </provider>
+
     <activity
         android:name=".MainActivity"
         android:exported="true"

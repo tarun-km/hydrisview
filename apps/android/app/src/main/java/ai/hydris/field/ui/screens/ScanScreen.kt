@@ -2,6 +2,7 @@ package ai.hydris.field.ui.screens
 
 import ai.hydris.field.HydrisApp
 import ai.hydris.field.MainActivity
+import ai.hydris.field.ScanRequest
 import ai.hydris.field.data.AuditDocSummary
 import ai.hydris.field.data.OcrLine
 import ai.hydris.field.data.ScanPage
@@ -137,6 +138,8 @@ fun ScanScreen(activity: MainActivity) {
   var stage by remember { mutableStateOf<Stage>(Stage.Menu) }
   val pages = remember { mutableStateListOf<Pair<ScanPage, Bitmap>>() }
   var viaGlasses by remember { mutableStateOf(false) }
+  /** Hydris captures (glasses originals) behind the pages of this scan; linked to the audit document once sent. */
+  val captureIds = remember { mutableStateListOf<String>() }
   val scope = rememberCoroutineScope()
 
   fun read(page: Bitmap) = scope.launch {
@@ -182,6 +185,28 @@ fun ScanScreen(activity: MainActivity) {
     }
   }
 
+  // Hand-offs from the Glasses tab (scan with the glasses camera) and the captures gallery (send a photo to audit scan).
+  val request by app.scanRequest.collectAsState()
+  LaunchedEffect(request) {
+    when (val r = request) {
+      null -> Unit
+      ScanRequest.GlassesCamera -> { app.scanRequest.value = null; if (stage == Stage.Menu || stage == Stage.Review || stage is Stage.Failed) start(true) }
+      is ScanRequest.FromCapture -> {
+        app.scanRequest.value = null
+        val c = app.captures.get(r.captureId) ?: return@LaunchedEffect
+        viaGlasses = true
+        stage = Stage.Reading("Flattening the page", 0f)
+        runCatching {
+          withContext(Dispatchers.Default) {
+            val src = app.captures.full(c) ?: error("The capture could not be opened")
+            val d = DocDetect.detect(src)
+            if (d.quad != null && d.coverage > 0.2f && !d.touchesEdge) DocDetect.warpToA4(src, d.quad) else src
+          }
+        }.onSuccess { captureIds.add(c.id); read(it) }.onFailure { stage = Stage.Failed(it.message ?: "Could not open the capture") }
+      }
+    }
+  }
+
   // The glasses capture button starts a scan from the menu (the camera stage handles shooting itself).
   LaunchedEffect(Unit) { app.glasses.captureButton.collect { if (stage == Stage.Menu || stage == Stage.Review) start(true) } }
 
@@ -221,7 +246,7 @@ fun ScanScreen(activity: MainActivity) {
       }
       is Stage.Camera -> GuidedCapture(
         glasses = s.glasses,
-        onCaptured = { bmp -> read(bmp) },
+        onCaptured = { bmp, captureId -> captureId?.let { captureIds.add(it) }; read(bmp) },
         onCancel = { stage = if (pages.isEmpty()) Stage.Menu else Stage.Review },
         onError = { stage = Stage.Failed(it) },
       )
@@ -257,13 +282,13 @@ fun ScanScreen(activity: MainActivity) {
           stage = Stage.Sending
           scope.launch {
             runCatching { app.repo.uploadScan(ScanUpload(pages = pages.map { it.first }), viaGlasses) }
-              .onSuccess { pages.clear(); stage = Stage.Sent(it) }
+              .onSuccess { app.captures.linkAuditDoc(captureIds.toList(), it.id); captureIds.clear(); pages.clear(); stage = Stage.Sent(it) }
               .onFailure { stage = Stage.Failed(it.message ?: "Upload failed") }
           }
         }, modifier = Modifier.fillMaxWidth().height(52.dp)) { Text("Send for verification") }
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
           HSecondaryButton({ start(viaGlasses) }, Modifier.weight(1f), enabled = pages.size < 6) { Text("Add page") }
-          HSecondaryButton({ pages.clear(); stage = Stage.Menu }, Modifier.weight(1f)) { Text("Discard") }
+          HSecondaryButton({ pages.clear(); captureIds.clear(); stage = Stage.Menu }, Modifier.weight(1f)) { Text("Discard") }
         }
         NavSpacer()
       }
@@ -313,7 +338,7 @@ private fun labelValues(lines: List<OcrLine>): List<Pair<String, String>> = line
 
 /** Live framing with page detection, guidance and auto-capture; returns the flattened A4 page. */
 @Composable
-private fun GuidedCapture(glasses: Boolean, onCaptured: (Bitmap) -> Unit, onCancel: () -> Unit, onError: (String) -> Unit) {
+private fun GuidedCapture(glasses: Boolean, onCaptured: (Bitmap, String?) -> Unit, onCancel: () -> Unit, onError: (String) -> Unit) {
   val app = LocalContext.current.applicationContext as HydrisApp
   val ctx = LocalContext.current
   val owner = LocalLifecycleOwner.current
@@ -355,20 +380,24 @@ private fun GuidedCapture(glasses: Boolean, onCaptured: (Bitmap) -> Unit, onCanc
     busy = true
     if (glasses) app.glasses.display.showStatus("Captured", "Reading…", IconName.CHECKMARK_CIRCLE)
     scope.launch {
+      var captureId: String? = null
       runCatching {
         val photo = takePhoto()
+        // Keep the glasses' original photo in Hydris captures (linked to the audit document after upload).
+        if (glasses) captureId = runCatching { app.captures.save(photo, "scan", app.glasses.state.value.deviceName ?: app.glasses.state.value.deviceModel).id }.getOrNull()
         withContext(Dispatchers.Default) {
           val d = DocDetect.detect(photo)
           val q = if (d.quad != null && d.coverage > 0.2f && !d.touchesEdge) d.quad else state.last
           if (q != null) DocDetect.warpToA4(photo, q) else photo
         }
-      }.onSuccess { onCaptured(it) }.onFailure { onError(it.message ?: "Capture failed") }
+      }.onSuccess { onCaptured(it, captureId) }.onFailure { onError(it.message ?: "Capture failed") }
       busy = false
     }
   }
 
   // Auto-capture once aligned and steady.
-  LaunchedEffect(readyPct) { if (readyPct >= 1f && !busy) capture() }
+  val autoCapture by app.prefs.settings.collectAsState()
+  LaunchedEffect(readyPct) { if (autoCapture.autoCapture && readyPct >= 1f && !busy) capture() }
   // Glasses: preview stream + physical capture button.
   if (glasses) {
     LaunchedEffect(Unit) { if (!app.glasses.startPreview()) onError(app.glasses.state.value.lastError ?: "Glasses camera not available") }
@@ -422,7 +451,7 @@ private fun GuidedCapture(glasses: Boolean, onCaptured: (Bitmap) -> Unit, onCanc
           q.forEach { pt -> drawCircle(col, 5.dp.toPx(), Offset(ox + pt.x * w, oy + pt.y * h)) }
         }
       }
-      if (readyPct > 0f && !busy) ProgressBar(readyPct, Hx.Ok, Modifier.align(Alignment.BottomCenter).padding(horizontal = 60.dp, vertical = 14.dp))
+      if (readyPct > 0f && !busy && autoCapture.autoCapture) ProgressBar(readyPct, Hx.Ok, Modifier.align(Alignment.BottomCenter).padding(horizontal = 60.dp, vertical = 14.dp))
     }
     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
       HButton({ capture() }, Modifier.weight(1f).height(52.dp), enabled = !busy) { Text("Capture now") }
