@@ -13,6 +13,7 @@ import { ago, fmtDateTime } from '@/lib/format';
 import { Avatar, Button, Card, Chip, EmptyState, Input, KeyValues, QueryView, Select, Skeleton, Timeline, cx } from '@/ui';
 import { ConfirmDialog, Dialog } from '@/ui/overlay';
 import { DEVICE_STATE_COLOR, DeviceKindChip, DeviceStateChip, GlassesArt } from '@/console/admin/glasses';
+import { LiveViewPanel } from '@/console/admin/live';
 import { NoAccess, useSites, type DeviceRow, type MembersResponse, type MemberRow } from '@/console/admin/parts';
 
 interface Detail {
@@ -64,6 +65,8 @@ export default function DeviceDetailPage() {
                     </div>
                   </div>
                 )}
+
+                {d.status !== 'revoked' && <LiveViewPanel deviceId={d.id} />}
 
                 <div className="grid gap-4 lg:grid-cols-[1.15fr_1fr]">
                   <AssignmentCard data={data} onReassign={() => setReassign(true)} />

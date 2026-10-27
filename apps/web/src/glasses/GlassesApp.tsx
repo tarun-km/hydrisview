@@ -16,6 +16,7 @@ import { emitToHost, useHudInput, type InputKey } from './input';
 import { PlantMap, routeDistance } from './PlantMap';
 import { AuditScanScreen } from './AuditScan';
 import { VoiceAssistant } from './VoiceAssistant';
+import { useLiveShare, type LiveState } from './live';
 import { HudContext, HudItem, HudMetric, HudPill, HudTitle, SEV_HUD, useHud, useViewportLayout, type HudControl } from './hud';
 
 type Screen =
@@ -296,16 +297,21 @@ export function GlassesApp({ demoScenario, simulator, profilePreview }: { demoSc
     ? <ScreenView key={JSON.stringify(screen)} screen={screen} ctx={ctx} data={data} nav={nav} online={online} status={status} history={history.current} />
     : <NotPermitted key={JSON.stringify(screen)} nav={nav} />;
 
+  // Live view to the control room: paired glasses only, never during pairing, demo or profile preview.
+  const liveRoot = useRef<HTMLDivElement>(null);
+  const liveState = useMemo(() => describeScreen(screen, ctx), [screen, ctx]);
+  const sharing = useLiveShare(link, !demo && !profilePreview && phase === 'app' && !!ctx, liveRoot, liveState);
+
   return (
     <div className={`fixed inset-0 overflow-hidden bg-black text-white ${phone ? '' : 'grid place-items-center'}`} style={{ fontFamily: 'var(--font-outfit), system-ui, sans-serif' }}>
-      <div className={`relative ${phone ? 'origin-top-left' : 'origin-center'}`} style={{ width: vp.w, height: vp.h, transform: `scale(${vp.scale})` }} role="application" aria-label="Hydris glasses viewport" aria-roledescription={phone ? 'Hydris mobile companion' : 'smart glasses display'}>
+      <div ref={liveRoot} className={`relative ${phone ? 'origin-top-left' : 'origin-center'}`} style={{ width: vp.w, height: vp.h, transform: `scale(${vp.scale})` }} role="application" aria-label="Hydris glasses viewport" aria-roledescription={phone ? 'Hydris mobile companion' : 'smart glasses display'}>
         <ProfileCtx.Provider value={cfg}>
         <HudContext.Provider value={{ cursor, register, density: cfg.layout.density }}>
-          {phase === 'app' && ctx && <StatusBar ctx={ctx} online={online} queued={queued} stream={demo ? 'live' : stream} demo={demo} phone={phone} />}
+          {phase === 'app' && ctx && <StatusBar ctx={ctx} online={online} queued={queued} stream={demo ? 'live' : stream} demo={demo} phone={phone} sharing={sharing} />}
           <div className={phase === 'app' ? `absolute inset-x-0 overflow-hidden ${phone ? 'px-6' : 'px-8'}` : `absolute inset-0 ${phone ? 'px-6 pb-8 pt-[calc(env(safe-area-inset-top)+32px)]' : 'px-8 py-8'}`}
             style={phase === 'app' ? { top: phone ? 'calc(env(safe-area-inset-top) + 68px)' : 64, bottom: phone ? `calc(env(safe-area-inset-bottom) + ${bottomBar}px)` : bottomBar } : undefined}>
             {/* Profile text scale: zoom the content and enlarge the box inversely so it still fills the area. */}
-            <div style={{ zoom: cfg.layout.textScale, width: `${100 / cfg.layout.textScale}%`, height: `${100 / cfg.layout.textScale}%` }}>{body}</div>
+            <div data-live-content style={{ zoom: cfg.layout.textScale, width: `${100 / cfg.layout.textScale}%`, height: `${100 / cfg.layout.textScale}%` }}>{body}</div>
           </div>
           {phase === 'app' && !phone && <HintBar hand={cfg.layout.handedness} />}
           {phase === 'app' && phone && <PhoneTabBar screen={screen.name} canBack={stack.length > 1} onBack={pop} onHome={home} onPush={push} alerts={ctx?.alarms.length ?? 0} />}
@@ -326,8 +332,44 @@ export function GlassesApp({ demoScenario, simulator, profilePreview }: { demoSc
   );
 }
 
+// ---------------- live view description ----------------
+const SCREEN_TITLES: Record<Screen['name'], string> = {
+  home: 'Home', alerts: 'Alerts', alert: 'Alert', inspections: 'Inspections', inspection: 'Inspection', tasks: 'Tasks', task: 'Task', asset: 'Asset', assist: 'Assist',
+  status: 'Device status', notifications: 'Notifications', ai: 'Ask Hydris', map: 'Plant map', scan: 'Audit scan', measurements: 'Measurements', assets: 'Assets', sops: 'SOPs', sop: 'SOP',
+};
+/** Structured screen / title / summary sent to the control room (summary empty = mirror the visible text). */
+function describeScreen(screen: Screen, ctx: GContext | null): LiveState {
+  const base = SCREEN_TITLES[screen.name];
+  if (!ctx) return { screen: screen.name, title: base, summary: [] };
+  const alarm = (a: GAlarm) => `${a.severity.toUpperCase()} · ${a.assetTag ? `${a.assetTag} · ` : ''}${a.title}`;
+  switch (screen.name) {
+    case 'home': return { screen: 'home', title: `Home · ${ctx.site?.name ?? ctx.organization.name}`, summary: [`${ctx.alarms.length} open alarms`, `${ctx.inspections.length} inspections`, `${ctx.tasks.length} tasks`, ...ctx.alarms.slice(0, 3).map(alarm)] };
+    case 'alerts': return { screen: 'alerts', title: 'Alerts', summary: ctx.alarms.length ? ctx.alarms.slice(0, 12).map(alarm) : ['No open alarms'] };
+    case 'alert': {
+      const a = ctx.alarms.find((x) => x.id === screen.id);
+      return { screen: 'alert', title: a ? `Alert · ${a.title}` : base, summary: a ? [alarm(a), a.triggerValue !== null ? `Value ${a.triggerValue} ${a.unit ?? ''}`.trim() : '', a.recommendedAction ?? ''].filter(Boolean) : [] };
+    }
+    case 'inspections': return { screen: 'inspections', title: 'Inspections', summary: ctx.inspections.length ? ctx.inspections.slice(0, 12).map((i) => `${i.assetTag ? `${i.assetTag} · ` : ''}${i.title} (${i.status.replace('_', ' ')})`) : ['No assigned inspections'] };
+    case 'inspection': {
+      const i = ctx.inspections.find((x) => x.id === screen.id);
+      return { screen: 'inspection', title: i ? `Inspection · ${i.title}` : base, summary: [] };
+    }
+    case 'tasks': return { screen: 'tasks', title: 'Tasks', summary: ctx.tasks.length ? ctx.tasks.slice(0, 12).map((t) => `${t.assetTag ? `${t.assetTag} · ` : ''}${t.title}`) : ['No open tasks'] };
+    case 'task': {
+      const t = ctx.tasks.find((x) => x.id === screen.id);
+      return { screen: 'task', title: t ? `Task · ${t.title}` : base, summary: t ? t.checklist.slice(0, 12).map((c) => `${c.done ? '[x]' : '[ ]'} ${c.label}`) : [] };
+    }
+    case 'asset': {
+      const a = ctx.assets?.find((x) => x.id === screen.id);
+      return { screen: 'asset', title: a ? `Asset · ${a.tag} ${a.name}` : base, summary: [] };
+    }
+    case 'assist': return { screen: 'assist', title: `Assist · ${screen.q}`.slice(0, 120), summary: [] };
+    default: return { screen: screen.name, title: base, summary: [] };
+  }
+}
+
 // ---------------- chrome ----------------
-function StatusBar({ ctx, online, queued, stream, demo, phone }: { ctx: GContext; online: boolean; queued: number; stream: string; demo: boolean; phone?: boolean }) {
+function StatusBar({ ctx, online, queued, stream, demo, phone, sharing }: { ctx: GContext; online: boolean; queued: number; stream: string; demo: boolean; phone?: boolean; sharing?: boolean }) {
   const [now, setNow] = useState(() => new Date());
   useEffect(() => { const t = setInterval(() => setNow(new Date()), 15000); return () => clearInterval(t); }, []);
   return (
@@ -336,7 +378,13 @@ function StatusBar({ ctx, online, queued, stream, demo, phone }: { ctx: GContext
       <span className="truncate text-white/50">{ctx.site?.code ?? ''}</span>
       {demo && <span className="flex-none whitespace-nowrap rounded-full border border-dashed border-lime/60 px-2.5 text-[15px] text-lime">demo</span>}
       <span className="ml-auto flex min-w-0 items-center gap-3">
-        <span id="hud-voice-slot" className="flex items-center" />
+        {sharing && (
+          <span role="status" title="This screen and the camera are shared live with the control room" className="flex min-w-0 items-center gap-1.5 rounded-full border border-[#ff5a4e]/50 px-2.5 text-[14px] text-[#ff8a80]">
+            <span className="h-[8px] w-[8px] flex-none animate-pulse rounded-full bg-[#ff5a4e]" aria-hidden />
+            <span className="truncate">Live to control room</span>
+          </span>
+        )}
+        <span id="hud-voice-slot" className="flex flex-none items-center" />
         {queued > 0 && <span className="num rounded-full bg-[#f26414] px-2.5 text-[15px] font-semibold text-black">{queued} queued</span>}
         {online ? (stream === 'live' ? <Signal size={22} className="text-lime" aria-label="Connected" /> : <Wifi size={22} className="text-white/60" aria-label="Connecting" />) : <SignalZero size={22} className="text-[#ff9a5c]" aria-label="Offline" />}
         <span className="grid h-[38px] w-[38px] flex-none place-items-center rounded-full bg-white/10 text-[15px]">{ctx.operator.name.split(' ').map((p) => p[0]).slice(0, 2).join('')}</span>

@@ -22,6 +22,9 @@ import { effectiveProfile } from './ui-profiles';
 import { ensureGuest } from '../core/demo-guests';
 import { demoShared } from '../core/demo-shared';
 
+/** Upper bound for each live-view JPEG (screen mirror, camera frame). */
+const MAX_LIVE_IMAGE_BYTES = 120 * 1024;
+
 const deviceInfoSchema = z.object({
   kind: z.enum(['hardware', 'simulator']), model: z.string().max(80).optional(), appVersion: z.string().max(40).optional(), firmwareVersion: z.string().max(40).optional(),
   display: z.object({ width: z.number().int().min(100).max(4000), height: z.number().int().min(100).max(4000) }).optional(), name: z.string().max(60).optional(),
@@ -400,6 +403,98 @@ export async function deviceRoutes(app: FastifyInstance, ctx: Ctx, opts: { relax
       serverTime: new Date().toISOString(),
     };
   }));
+
+  // =================== Live view (glasses -> control room) ===================
+  // Only the latest snapshot per device is kept, ephemerally, in the shared store so every
+  // serverless instance (demo mode) and every API process sees the same picture.
+  const LIVE_TTL_S = 60;
+  const LIVE_FRESH_MS = 10_000;
+  const liveKey = (orgId: string, deviceId: string) => `live:${orgId}:${deviceId}`;
+  const liveIdxKey = (orgId: string) => `live:idx:${orgId}`;
+  const jpegDataUrl = z.string().max(170_000).refine((v) => {
+    const m = /^data:image\/jpe?g;base64,([A-Za-z0-9+/=]+)$/.exec(v);
+    if (!m) return false;
+    const b = Buffer.from(m[1]!, 'base64');
+    return b.length > 3 && b.length <= MAX_LIVE_IMAGE_BYTES && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff;
+  }, { message: `Must be a JPEG data URL of at most ${MAX_LIVE_IMAGE_BYTES / 1024} KB` });
+  const liveSchema = z.object({
+    screen: z.string().trim().min(1).max(40), title: z.string().trim().max(120),
+    summary: z.array(z.string().max(160)).max(12).optional(),
+    view: jpegDataUrl.optional(), camera: jpegDataUrl.optional(), cameraActive: z.boolean().default(false),
+  });
+  interface LiveSnapshot extends Omit<z.infer<typeof liveSchema>, 'summary'> {
+    orgId: string; deviceId: string; deviceName: string; operator: { id: string; name: string } | null; summary: string[]; updatedAt: string;
+  }
+
+  app.post('/device/live', {
+    ...auth,
+    // ~1 call per second per device (keyed by the device's bearer token, not the shared IP).
+    config: { rateLimit: { max: opts.relaxedLimits ? 10_000 : 75, timeWindow: '1 minute', keyGenerator: (r: FastifyRequest) => `live:${sha256(String(r.headers.authorization ?? r.ip))}` } },
+  }, async (req, reply) => {
+    const body = liveSchema.parse(req.body);
+    const snap = await tenant(ctx, req, async (tx, p) => {
+      if (p.kind !== 'device') throw forbidden('Device session required');
+      const [d] = await tx.select({ name: devices.name, siteId: devices.siteId }).from(devices).where(eq(devices.id, p.deviceId!));
+      const [op] = await tx.select({ id: users.id, name: users.name }).from(users).where(eq(users.id, p.userId));
+      const s: LiveSnapshot = {
+        ...body, summary: body.summary ?? [], orgId: p.orgId, deviceId: p.deviceId!, deviceName: d?.name ?? 'Field glasses',
+        operator: op ? { id: op.id, name: op.name } : null, updatedAt: new Date().toISOString(),
+      };
+      return { s, siteId: d?.siteId ?? null };
+    });
+    const store = demoShared();
+    const prev = await store.get<LiveSnapshot>(liveKey(snap.s.orgId, snap.s.deviceId));
+    await store.set(liveKey(snap.s.orgId, snap.s.deviceId), snap.s, LIVE_TTL_S);
+    const idx = (await store.get<string[]>(liveIdxKey(snap.s.orgId))) ?? [];
+    if (!idx.includes(snap.s.deviceId)) await store.set(liveIdxKey(snap.s.orgId), [snap.s.deviceId, ...idx].slice(0, 100), 24 * 3600);
+    // Metadata only: images are fetched on demand by authorised viewers.
+    if (!prev || prev.screen !== snap.s.screen || Date.parse(snap.s.updatedAt) - Date.parse(prev.updatedAt) > 5_000) {
+      ctx.bus.publish({ type: 'device.live', orgId: snap.s.orgId, siteId: snap.siteId, permission: 'device.read', payload: { deviceId: snap.s.deviceId, screen: snap.s.screen, updatedAt: snap.s.updatedAt } });
+    }
+    return reply.code(202).send({ ok: true });
+  });
+
+  const liveView = (s: LiveSnapshot | null, deviceId: string, deviceName: string, operator: { id: string; name: string } | null) => ({
+    deviceId, deviceName, operator: operator ?? s?.operator ?? null,
+    screen: s?.screen ?? null, title: s?.title ?? null, summary: s?.summary ?? [], view: s?.view ?? null, camera: s?.cameraActive ? (s.camera ?? null) : null,
+    cameraActive: s?.cameraActive ?? false, updatedAt: s?.updatedAt ?? null, live: !!s && Date.now() - Date.parse(s.updatedAt) < LIVE_FRESH_MS,
+  });
+
+  /** Latest live snapshot of one device (images included). */
+  app.get('/devices/:id/live', auth, async (req) => {
+    const { id } = z.object({ id: z.uuid() }).parse(req.params);
+    const p = req.principal!;
+    requirePerm(p, 'device.read');
+    const s = await demoShared().get<LiveSnapshot>(liveKey(p.orgId, id));
+    return tenant(ctx, req, async (tx) => {
+      const [d] = await deviceRows(tx, p, eq(devices.id, id));
+      // Demo mode: the device may have been paired on another instance; the org-scoped snapshot is authoritative.
+      if (!d && !(ctx.config.demoMode && s && s.orgId === p.orgId)) throw notFound('Device');
+      if (s?.operator && ctx.config.demoMode) await ensureGuest(tx, s.operator.id);
+      const operator = d?.assignee ? { id: d.assignee.id, name: d.assignee.name ?? s?.operator?.name ?? 'Operator' } : null;
+      return liveView(s && s.orgId === p.orgId ? s : null, id, d?.name ?? s!.deviceName, operator);
+    });
+  });
+
+  /** Live state of every streaming device in the org (no camera frames; small screen thumbnail only). */
+  app.get('/devices/live', auth, async (req) => {
+    const p = req.principal!;
+    requirePerm(p, 'device.read');
+    const store = demoShared();
+    const ids = (await store.get<string[]>(liveIdxKey(p.orgId))) ?? [];
+    const snaps = (await Promise.all(ids.map((id) => store.get<LiveSnapshot>(liveKey(p.orgId, id))))).filter((s): s is LiveSnapshot => !!s && s.orgId === p.orgId);
+    return tenant(ctx, req, async (tx) => {
+      const visible = snaps.length ? await deviceRows(tx, p, inArray(devices.id, snaps.map((s) => s.deviceId)) as ReturnType<typeof eq>) : [];
+      const byId = new Map(visible.map((d) => [d.id, d]));
+      return {
+        live: snaps.filter((s) => byId.has(s.deviceId) || ctx.config.demoMode).map((s) => {
+          const d = byId.get(s.deviceId);
+          const v = liveView(s, s.deviceId, d?.name ?? s.deviceName, d?.assignee ? { id: d.assignee.id, name: d.assignee.name ?? s.operator?.name ?? 'Operator' } : null);
+          return { ...v, camera: undefined };
+        }),
+      };
+    });
+  });
 
   // =================== Fleet management (console) ===================
   async function deviceRows(tx: Tx, p: Principal, where?: ReturnType<typeof eq>) {

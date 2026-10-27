@@ -38,6 +38,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -91,6 +92,11 @@ private fun Main(activity: MainActivity, session: Session, onSignOut: () -> Unit
   val nav = rememberNavController()
   val current by nav.currentBackStackEntryAsState()
   val route = current?.destination?.route
+
+  // Live view: while these glasses are registered as a Hydris device, mirror the current tab (and the
+  // glasses camera while scanning) to the control room over the device-token channel.
+  val liveRoute by rememberUpdatedState(route)
+  LaunchedEffect(session.user.id) { ai.hydris.field.data.LiveShare(app.api).run({ liveRoute }, app.glasses.frame) }
 
   // Realtime: alarms created anywhere on the account → system notification + live refresh.
   LaunchedEffect(session.user.id) {

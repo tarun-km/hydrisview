@@ -6,8 +6,9 @@ import { Glasses, MapPin, MonitorSmartphone, Plus, Radio } from 'lucide-react';
 import { useApi } from '@/lib/query';
 import { useCan } from '@/lib/session';
 import { ago } from '@/lib/format';
-import { Avatar, ButtonLink, Capsule, EmptyState, KpiCard, PageHeader, QueryView, Skeleton } from '@/ui';
+import { Avatar, ButtonLink, Capsule, EmptyState, KpiCard, PageHeader, QueryView, Skeleton, cx } from '@/ui';
 import { DeviceKindChip, DeviceStateChip, GlassesArt } from '@/console/admin/glasses';
+import { LiveBadge, useFleetLive, type LiveView } from '@/console/admin/live';
 import { NoAccess, type DeviceRow } from '@/console/admin/parts';
 import { Donut, type Datum } from '@/ui/charts';
 
@@ -27,6 +28,7 @@ export default function DevicesPage() {
   const allowed = can('device.read');
   const q = useApi<{ devices: DeviceRow[] }>(allowed ? '/devices' : null, { refetchInterval: 20_000 });
   const [filter, setFilter] = useState<Filter>('all');
+  const live = useFleetLive(allowed);
 
   const counts = useMemo(() => {
     const out = {} as Record<Filter, number>;
@@ -69,7 +71,7 @@ export default function DevicesPage() {
                   <EmptyState title="No glasses in this state" body="Choose another filter to see the rest of the fleet." />
                 ) : (
                   <ul className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-                    {shown.map((d) => <li key={d.id}><DeviceCard d={d} /></li>)}
+                    {shown.map((d) => <li key={d.id}><DeviceCard d={d} live={live.get(d.id)} /></li>)}
                   </ul>
                 )}
               </div>
@@ -81,16 +83,24 @@ export default function DevicesPage() {
   );
 }
 
-function DeviceCard({ d }: { d: DeviceRow }) {
+function DeviceCard({ d, live }: { d: DeviceRow; live?: LiveView }) {
   const off = d.state === 'revoked' || d.state === 'suspended';
+  const streaming = !off && !!live?.live;
   return (
     <Link href={`/console/devices/${d.id}`} className="card group relative flex h-full flex-col gap-4 overflow-hidden transition-colors hover:border-line-2 hover:bg-surface-2/60">
       <div className="flex items-center justify-between gap-2">
         <DeviceKindChip kind={d.kind} />
         <DeviceStateChip state={d.state} />
       </div>
-      <div className={off ? 'opacity-60 grayscale' : undefined}>
-        <GlassesArt state={d.state} className="mx-auto h-28 w-full max-w-[300px] transition-transform duration-500 group-hover:scale-[1.03]" />
+      <div className={cx('relative', off && 'opacity-60 grayscale')}>
+        {streaming && live?.view ? (
+          // Live thumbnail of what the wearer sees right now.
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={live.view} alt={`Live glasses screen: ${live.title ?? ''}`} className="mx-auto h-28 w-28 rounded-[18px] border border-line bg-black object-contain" />
+        ) : (
+          <GlassesArt state={d.state} className="mx-auto h-28 w-full max-w-[300px] transition-transform duration-500 group-hover:scale-[1.03]" />
+        )}
+        {streaming && <LiveBadge live className="absolute right-0 top-0" />}
       </div>
       <div className="min-w-0">
         <div className="truncate text-[26px] leading-tight tracking-[-0.03em]">{d.name}</div>
@@ -99,8 +109,9 @@ function DeviceCard({ d }: { d: DeviceRow }) {
       <div className="mt-auto grid gap-2.5 border-t border-line pt-4 text-sm">
         <div className="flex items-center gap-2.5">
           {d.assignee ? <Avatar name={d.assignee.name ?? '?'} size={28} tone="cobalt" /> : <span className="grid h-7 w-7 place-items-center rounded-full border border-dashed border-line-2 text-muted" aria-hidden>–</span>}
-          <span className="min-w-0 flex-1 truncate">{d.assignee?.name ?? <span className="text-muted">No operator assigned</span>}</span>
+          <span className="min-w-0 flex-1 truncate">{d.assignee?.name ? <><span className="text-text-2">Worn by </span>{d.assignee.name}</> : <span className="text-muted">No operator assigned</span>}</span>
         </div>
+        {streaming && live?.title && <div className="truncate text-[13px] text-text-2" title={live.title}>Looking at <span className="text-text">{live.title}</span></div>}
         <div className="flex items-center justify-between gap-3 text-[13px] text-text-2">
           <span className="flex min-w-0 items-center gap-1.5"><MapPin size={14} className="flex-none text-muted" aria-hidden /><span className="truncate">{d.siteName ?? 'No site'}</span></span>
           <span className="flex flex-none items-center gap-1.5 num" title={d.lastSeenAt ? new Date(d.lastSeenAt).toLocaleString() : 'Never connected'}>

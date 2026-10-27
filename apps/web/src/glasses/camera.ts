@@ -260,8 +260,19 @@ export async function simulatedCamera(): Promise<CameraSource> {
 
 export const hasGlassesBridge = () => typeof window !== 'undefined' && (!!window.HydrisNative || !!window.HydrisWearables || !!announced);
 
+// The camera currently framing a shot (read by the live view to mirror frames to the control room).
+let activeCamera: CameraSource | null = null;
+export const activeCameraSource = () => activeCamera;
+function track(src: CameraSource): CameraSource {
+  activeCamera = src;
+  return { ...src, frame: () => src.frame(), capture: () => src.capture(), stop: () => { if (activeCamera === src) activeCamera = null; src.stop(); } };
+}
+
 /** Ray-Ban Meta camera when bridged; otherwise the device camera; otherwise the simulation. */
 export async function openCamera(prefer?: CameraKind): Promise<CameraSource> {
+  return track(await openCameraRaw(prefer));
+}
+async function openCameraRaw(prefer?: CameraKind): Promise<CameraSource> {
   if (prefer === 'simulated') return simulatedCamera();
   const bridged = nativeBridge() ?? injectedBridge() ?? messageBridge();
   if (bridged && prefer !== 'device-camera') return bridged;

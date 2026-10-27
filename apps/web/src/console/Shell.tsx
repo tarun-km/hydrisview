@@ -52,6 +52,7 @@ const EVENT_PATHS: Record<string, string[]> = {
   'maintenance.updated': ['/maintenance', '/overview', '/assets/'],
   'device.updated': ['/devices', '/overview'],
   'device.paired': ['/devices', '/overview'],
+  'device.live': ['/devices/live'],
   'asset.updated': ['/assets', '/hierarchy', '/overview', '/sites'],
   'notification.created': ['/notifications'],
   'simulation.step': ['/simulation'],
@@ -89,6 +90,7 @@ export function ConsoleShell({ children }: { children: ReactNode }) {
         if (e.type === 'alarm.created' && (e.data.severity === 'critical' || e.data.severity === 'high')) {
           toast({ title: `${String(e.data.severity).toUpperCase()} · ${String(e.data.title)}`, body: e.data.synthetic ? 'Synthetic (simulator)' : String(e.data.description ?? ''), tone: 'critical' });
         }
+        if (e.type === 'device.live') window.dispatchEvent(new CustomEvent('hydris:device-live', { detail: e.data }));
         if (e.type === 'pairing.completed') toast({ title: 'Glasses paired', tone: 'ok' });
       },
     });
