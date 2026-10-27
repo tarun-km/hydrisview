@@ -17,6 +17,8 @@ export const SERVER_OCR_ENGINE = 'ocr:server';
 
 type Worker = Awaited<ReturnType<typeof import('tesseract.js')['createWorker']>>;
 let workerP: Promise<Worker> | null = null;
+/** Last progress or error reported by the OCR worker; included in timeout messages for diagnosis. */
+let lastLog = '';
 
 /** The bundled model directory, wherever the API runs from (repo root, apps/api or apps/web on Vercel). */
 function bundledLangPath(): string | undefined {
@@ -32,7 +34,12 @@ async function worker(): Promise<Worker> {
     const cachePath = join(tmpdir(), 'hydris-tessdata');
     mkdirSync(cachePath, { recursive: true });
     const langPath = bundledLangPath();
-    return createWorker('eng', 1, { cachePath, ...(langPath ? { langPath, cacheMethod: 'none' } : {}) });
+    lastLog = `start (langPath ${langPath ?? 'cdn'})`;
+    return createWorker('eng', 1, {
+      cachePath, ...(langPath ? { langPath, cacheMethod: 'none' } : {}),
+      logger: (m: { status?: string; progress?: number }) => { lastLog = `${m.status ?? ''} ${Math.round((m.progress ?? 0) * 100)}%`; },
+      errorHandler: (e: unknown) => { lastLog = `worker error: ${String((e as Error)?.message ?? e)}`; },
+    });
   })().catch((e) => {
     workerP = null;
     throw e;
@@ -47,7 +54,7 @@ type TBox = { x0: number; y0: number; x1: number; y1: number };
 
 /** OCR one page image (JPEG/PNG buffer of known size). */
 export async function serverOcr(image: Buffer, W: number, H: number, timeoutMs = 45_000): Promise<OcrReading> {
-  const w = await withTimeout(worker(), timeoutMs, 'Loading the server OCR model');
+  const w = await withTimeout(worker(), timeoutMs, 'Loading the server OCR model').catch((e: Error) => { throw new Error(`${e.message} (last step: ${lastLog || 'none'})`); });
   const { data } = await withTimeout(w.recognize(image, {}, { blocks: true, text: true }), timeoutMs, 'Server OCR');
   const norm = (b: TBox): [number, number, number, number] => [b.x0 / W, b.y0 / H, (b.x1 - b.x0) / W, (b.y1 - b.y0) / H];
   const lines: OcrLine[] = [];
