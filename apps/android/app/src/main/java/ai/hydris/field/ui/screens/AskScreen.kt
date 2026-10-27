@@ -5,6 +5,25 @@ import ai.hydris.field.MainActivity
 import ai.hydris.field.data.Answer
 import ai.hydris.field.data.Turn
 import ai.hydris.field.ui.components.Chip
+import ai.hydris.field.ui.LocalNavPadding
+import ai.hydris.field.ui.components.Dot
+import ai.hydris.field.ui.components.EmptyState
+import ai.hydris.field.ui.components.HIconButton
+import ai.hydris.field.ui.components.appear
+import ai.hydris.field.ui.components.fieldColors
+import ai.hydris.field.ui.components.pressable
+import ai.hydris.field.ui.theme.HxShape
+import ai.hydris.field.ui.theme.HxType
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.width
+import androidx.compose.material.icons.outlined.AutoAwesome
+import androidx.compose.material3.SwitchDefaults
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.sp
+
 import ai.hydris.field.ui.components.Eyebrow
 import ai.hydris.field.ui.theme.Hx
 import ai.hydris.field.voice.VoiceEngine
@@ -105,27 +124,34 @@ fun AskScreen(activity: MainActivity) {
     }
   }
 
-  Column(Modifier.fillMaxSize().statusBarsPadding().imePadding().padding(horizontal = 16.dp)) {
-    Row(Modifier.fillMaxWidth().padding(top = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+  val navPad = LocalNavPadding.current
+  val ime = WindowInsets.ime.asPaddingValues().calculateBottomPadding()
+  Column(Modifier.fillMaxSize().statusBarsPadding().padding(horizontal = 16.dp).padding(bottom = maxOf(navPad, ime + 8.dp))) {
+    Row(Modifier.fillMaxWidth().padding(top = 12.dp, bottom = 8.dp).appear(), verticalAlignment = Alignment.CenterVertically) {
       Column(Modifier.weight(1f)) {
-        Eyebrow("Answers from your live plant data", Hx.Insight)
-        Text("Hydris", style = MaterialTheme.typography.headlineSmall)
+        Eyebrow("Answers from your live plant data")
+        Spacer(Modifier.height(10.dp))
+        Text("Hydris", style = HxType.Page)
       }
       Column(horizontalAlignment = Alignment.End) {
-        Switch(wake, { wake = it })
-        Text(if (!wake) "Hey Hydris off" else if (listening) "listening · ${if (source == VoiceEngine.Source.Glasses) "glasses mic" else "phone mic"}" else "starting…", color = Hx.Muted, style = MaterialTheme.typography.bodySmall)
+        Switch(wake, { wake = it }, colors = SwitchDefaults.colors(checkedTrackColor = Hx.Signal, checkedThumbColor = Color.White, uncheckedTrackColor = Hx.Surface2, uncheckedThumbColor = Hx.Muted, uncheckedBorderColor = Hx.Line2))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+          if (wake && listening) { Dot(Hx.Ok, 6.dp, pulse = true); Spacer(Modifier.width(6.dp)) }
+          Text(if (!wake) "Hey Hydris off" else if (listening) "${if (source == VoiceEngine.Source.Glasses) "glasses mic" else "phone mic"}" else "starting…", color = Hx.Muted, style = MaterialTheme.typography.bodySmall)
+        }
       }
     }
     LazyColumn(Modifier.weight(1f).fillMaxWidth(), state = list, verticalArrangement = Arrangement.spacedBy(10.dp)) {
       if (msgs.isEmpty()) item {
-        Column(Modifier.padding(vertical = 24.dp)) {
-          Text("Ask about readings, alarms, your work or an asset. Turn on “Hey Hydris” to talk hands-free - through the glasses microphone when they're connected.", color = Hx.Text2)
+        Column(Modifier.padding(vertical = 12.dp)) {
+          EmptyState("Ask Hydris", "Ask about readings, alarms, your work or an asset. Turn on “Hey Hydris” to talk hands-free - through the glasses microphone when they're connected.", Icons.Outlined.AutoAwesome)
         }
       }
       items(msgs) { m ->
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = if (m.mine) Arrangement.End else Arrangement.Start) {
-          Column(Modifier.widthIn(max = 320.dp).clip(RoundedCornerShape(20.dp)).background(if (m.mine) Hx.Signal else Hx.Surface).padding(14.dp)) {
-            Text(m.text, color = if (m.mine) androidx.compose.ui.graphics.Color.White else Hx.Text)
+        Row(Modifier.fillMaxWidth().appear(), horizontalArrangement = if (m.mine) Arrangement.End else Arrangement.Start) {
+          val shape = if (m.mine) RoundedCornerShape(20.dp, 20.dp, 6.dp, 20.dp) else RoundedCornerShape(20.dp, 20.dp, 20.dp, 6.dp)
+          Column(Modifier.widthIn(max = 320.dp).clip(shape).background(if (m.mine) Hx.Signal else Hx.Surface).border(1.dp, if (m.mine) Color.Transparent else Hx.Line, shape).padding(14.dp)) {
+            Text(m.text, color = if (m.mine) Color.White else Hx.Text, fontSize = 15.sp, lineHeight = 21.sp)
             m.answer?.takeIf { it.facts.isNotEmpty() }?.let { a ->
               Spacer(Modifier.height(8.dp))
               a.facts.take(4).forEach { f -> Text("${f.value}${f.unit?.takeIf { it != "pH" }?.let { " $it" } ?: ""} · ${f.label}", color = Hx.Text2, style = MaterialTheme.typography.bodySmall) }
@@ -134,21 +160,21 @@ fun AskScreen(activity: MainActivity) {
           }
         }
       }
-      if (thinking) item { Text("Checking your plant data…", color = Hx.Muted, modifier = Modifier.padding(8.dp)) }
-      if (awaiting && heard.isNotBlank()) item { Text("“$heard”", color = Hx.SignalText, modifier = Modifier.padding(8.dp)) }
+      if (thinking) item { Row(Modifier.padding(8.dp), verticalAlignment = Alignment.CenterVertically) { Dot(Hx.Purple, 8.dp, pulse = true); Text("  Checking your plant data…", color = Hx.Muted) } }
+      if (awaiting && heard.isNotBlank()) item { Text("“$heard”", color = Hx.Accent, modifier = Modifier.padding(8.dp)) }
     }
     LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(vertical = 8.dp)) {
       items(listOf("What is the current pH?", "Any open alarms?", "What are my tasks?", "Dissolved oxygen", "Status of P-101")) { q ->
-        Box(Modifier.clip(RoundedCornerShape(50)).clickable { ask(q) }) { Chip(q, Hx.SignalText) }
+        Chip(q, Hx.Text2, modifier = Modifier.pressable { ask(q) })
       }
     }
-    Row(Modifier.padding(bottom = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-      OutlinedTextField(input, { input = it }, Modifier.weight(1f), placeholder = { Text("Ask Hydris…") }, singleLine = true, shape = RoundedCornerShape(26.dp),
-        colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Hx.Signal, unfocusedBorderColor = Hx.Line, focusedContainerColor = Hx.Surface, unfocusedContainerColor = Hx.Surface))
-      IconButton({ val q = input; input = ""; ask(q) }, Modifier.padding(start = 6.dp).size(52.dp).clip(CircleShape).background(Hx.Signal)) { Icon(Icons.AutoMirrored.Outlined.Send, "Send", tint = androidx.compose.ui.graphics.Color.White) }
-      IconButton({ if (!wake) wake = true; awaiting = true; heard = "" }, Modifier.padding(start = 6.dp).size(52.dp).clip(CircleShape).background(Hx.Surface2)) {
-        Icon(if (wake) Icons.Outlined.Mic else Icons.Outlined.MicOff, "Talk", tint = if (wake) Hx.SignalText else Hx.Muted)
-      }
+    Row(Modifier.padding(bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+      OutlinedTextField(input, { input = it }, Modifier.weight(1f), placeholder = { Text("Ask Hydris…", fontSize = 15.sp) }, singleLine = true, shape = HxShape.Pill, colors = fieldColors(),
+        textStyle = MaterialTheme.typography.bodyLarge)
+      Spacer(Modifier.width(8.dp))
+      HIconButton(Icons.AutoMirrored.Outlined.Send, "Send", { val q = input; input = ""; ask(q) }, size = 52.dp, variant = "brand")
+      Spacer(Modifier.width(8.dp))
+      HIconButton(if (wake) Icons.Outlined.Mic else Icons.Outlined.MicOff, "Talk", { if (!wake) wake = true; awaiting = true; heard = "" }, size = 52.dp, tint = if (wake) Hx.Accent else Hx.Muted)
     }
   }
 }

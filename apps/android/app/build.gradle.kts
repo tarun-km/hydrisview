@@ -55,6 +55,8 @@ dependencies {
   implementation("androidx.lifecycle:lifecycle-runtime-compose:2.10.0")
   implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.10.0")
   implementation("androidx.core:core-ktx:1.17.0")
+  // Glass navigation: real backdrop blur (RenderEffect on API 31+)
+  implementation("dev.chrisbanes.haze:haze:1.7.2")
   // Data
   implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.9.0")
   implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")

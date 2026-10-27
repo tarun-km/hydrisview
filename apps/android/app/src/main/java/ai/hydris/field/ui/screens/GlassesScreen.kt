@@ -3,6 +3,23 @@ package ai.hydris.field.ui.screens
 import ai.hydris.field.HydrisApp
 import ai.hydris.field.MainActivity
 import ai.hydris.field.ui.components.Chip
+import ai.hydris.field.ui.components.BrandCard
+import ai.hydris.field.ui.components.HButton
+import ai.hydris.field.ui.components.HSecondaryButton
+import ai.hydris.field.ui.components.NavSpacer
+import ai.hydris.field.ui.components.PageHeader
+import ai.hydris.field.ui.components.appear
+import ai.hydris.field.ui.theme.HxType
+import androidx.compose.foundation.border
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.Box
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Check
+import androidx.compose.material.icons.outlined.Visibility
+import androidx.compose.material3.Icon
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.sp
+
 import ai.hydris.field.ui.components.Dot
 import ai.hydris.field.ui.components.ErrorNote
 import ai.hydris.field.ui.components.Eyebrow
@@ -64,71 +81,83 @@ fun GlassesScreen(activity: MainActivity) {
     busy = null
   }
 
-  Column(Modifier.fillMaxSize().statusBarsPadding().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-    Eyebrow("Ray-Ban Meta · Meta Wearables Device Access Toolkit", Hx.SignalText)
-    Text("Glasses", style = MaterialTheme.typography.headlineSmall)
-    HCard(accent = if (g.registered) Hx.OkSoft else null) {
+  Column(Modifier.fillMaxSize().statusBarsPadding().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp).padding(top = 12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    PageHeader("People & devices · Ray-Ban Meta", "Field glasses", "Connect, test and register.")
+    BrandCard(Modifier.fillMaxWidth().appear(1)) {
       Row(verticalAlignment = Alignment.CenterVertically) {
-        Dot(if (g.registered && g.devices.isNotEmpty()) Hx.Ok else if (g.registered) Hx.Medium else Hx.Muted, 12.dp)
-        Column(Modifier.padding(start = 12.dp).weight(1f)) {
-          Text(g.deviceName ?: if (g.registered) "Waiting for glasses" else "Not connected", style = MaterialTheme.typography.titleLarge)
-          Text("Meta link: ${g.registration.lowercase()} · session: ${g.session.lowercase()}", color = Hx.Muted, style = MaterialTheme.typography.bodySmall)
+        Box(Modifier.size(52.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.16f)), contentAlignment = Alignment.Center) {
+          Icon(Icons.Outlined.Visibility, null, tint = Color.White, modifier = Modifier.size(24.dp))
+        }
+        Column(Modifier.padding(start = 14.dp).weight(1f)) {
+          Text(g.deviceName ?: if (g.registered) "Waiting for glasses" else "Not connected", style = HxType.Section, color = Color.White)
+          Row(verticalAlignment = Alignment.CenterVertically) {
+            Dot(if (g.registered && g.devices.isNotEmpty()) Hx.Ok else if (g.registered) Hx.Medium else Color.White.copy(alpha = 0.6f), 8.dp, pulse = g.registered && g.devices.isNotEmpty())
+            Text("  Meta link: ${g.registration.lowercase()} · session: ${g.session.lowercase()}", color = Color.White.copy(alpha = 0.84f), fontSize = 13.sp)
+          }
         }
       }
-      Spacer(Modifier.height(10.dp))
-      Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Chip(if (g.cameraStreaming) "camera live" else "camera idle", if (g.cameraStreaming) Hx.OkSoft else Hx.Text2)
-        Chip("mic ${g.speech}", if (g.speech == "listening") Hx.OkSoft else Hx.Text2)
-        Chip(if (registered) "in Hydris console" else "not registered", if (registered) Hx.SignalText else Hx.Text2)
+      Spacer(Modifier.height(16.dp))
+      Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
+        Chip(if (g.cameraStreaming) "Camera live" else "Camera idle", Color.White, filled = true)
+        Chip("Mic ${g.speech}", Color.White, filled = true)
+        Chip(if (registered) "In Hydris console" else "Not registered", Color.White, filled = true)
       }
     }
 
-    note?.let { Text(it, color = Hx.OkSoft) }
+    note?.let { Text(it, color = Hx.OkText) }
     (err ?: g.lastError)?.let { ErrorNote(it) }
     Step(1, "Link with the Meta AI app", if (g.registered) "Linked. Hydris can reach your glasses." else "Opens the Meta AI app to approve Hydris. Keep the Meta AI app installed - it manages glasses pairing and updates.", g.registered) {
-      if (!g.registered) Button({ if (!g.initialized) app.glasses.initialize(); app.glasses.connect(activity) }, colors = ButtonDefaults.buttonColors(containerColor = Hx.Signal)) { Text("Connect glasses") }
-      else OutlinedButton({ app.glasses.disconnect(activity) }) { Text("Disconnect") }
+      if (!g.registered) HButton({ if (!g.initialized) app.glasses.initialize(); app.glasses.connect(activity) }) { Text("Connect glasses") }
+      else HSecondaryButton({ app.glasses.disconnect(activity) }) { Text("Disconnect") }
     }
     Step(2, "Allow camera and microphone", "Approved in the Meta AI app the first time you scan or say “Hey Hydris”. Test them here.", g.cameraStreaming || g.speech == "listening") {
       Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        OutlinedButton({ act("camera") { if (app.glasses.startPreview()) note = "Glasses camera is streaming." else err = app.glasses.state.value.lastError; app.glasses.stopPreview() } }, enabled = g.registered && busy == null) { Text(if (busy == "camera") "Testing…" else "Test camera") }
-        OutlinedButton({ act("mic") { if (app.glasses.startSpeech()) note = "Glasses microphone is listening." else err = app.glasses.state.value.lastError; app.glasses.stopSpeech() } }, enabled = g.registered && busy == null) { Text(if (busy == "mic") "Testing…" else "Test microphone") }
+        HSecondaryButton({ act("camera") { if (app.glasses.startPreview()) note = "Glasses camera is streaming." else err = app.glasses.state.value.lastError; app.glasses.stopPreview() } }, enabled = g.registered && busy == null) { Text(if (busy == "camera") "Testing…" else "Test camera") }
+        HSecondaryButton({ act("mic") { if (app.glasses.startSpeech()) note = "Glasses microphone is listening." else err = app.glasses.state.value.lastError; app.glasses.stopSpeech() } }, enabled = g.registered && busy == null) { Text(if (busy == "mic") "Testing…" else "Test microphone") }
       }
     }
     Step(3, "Register in the Hydris console", if (registered) "Registered as “${app.api.deviceName ?: "Ray-Ban Meta"}”. Supervisors see it under Field glasses; scans are attributed to it." else "Adds these glasses to your organization so the console shows them and attributes their scans.", registered) {
-      if (!registered) Button({
+      if (!registered) HButton({
         act("register") {
           val hw = app.glasses.hardwareId() ?: throw IllegalStateException("Connect the glasses first (step 1)")
           app.repo.registerGlasses(hw, g.deviceName ?: "Ray-Ban Meta", "Ray-Ban Meta")
           registered = true; note = "Registered - your glasses now appear in the console."
         }
-      }, enabled = g.registered && busy == null, colors = ButtonDefaults.buttonColors(containerColor = Hx.Signal)) { Text(if (busy == "register") "Registering…" else "Register glasses") }
-      else OutlinedButton({ act("unregister") { app.repo.unregisterGlasses(); registered = false } }, enabled = busy == null) { Text("Unregister") }
+      }, enabled = g.registered && busy == null) { Text(if (busy == "register") "Registering…" else "Register glasses") }
+      else HSecondaryButton({ act("unregister") { app.repo.unregisterGlasses(); registered = false } }, enabled = busy == null) { Text("Unregister") }
     }
 
-    HCard {
+    HCard(Modifier.fillMaxWidth()) {
       Eyebrow("What the glasses do in Hydris")
-      Spacer(Modifier.height(6.dp))
+      Spacer(Modifier.height(10.dp))
       listOf(
         "Audit scan: look at an A4 record - guided framing, auto-capture, on-phone OCR.",
         "Capture button: a short press takes the page photo.",
         "Hey Hydris: ask for readings, alarms or tasks; answers play on the glasses speakers.",
         "Alarms: critical alarms on your sites notify this phone in real time.",
-      ).forEach { Text("•  $it", color = Hx.Text2, modifier = Modifier.padding(vertical = 3.dp)) }
+      ).forEach {
+        Row(Modifier.padding(vertical = 5.dp), verticalAlignment = Alignment.Top) {
+          Box(Modifier.padding(top = 7.dp).size(6.dp).clip(CircleShape).background(Hx.Signal))
+          Text(it, color = Hx.Text2, fontSize = 14.sp, lineHeight = 20.sp, modifier = Modifier.padding(start = 12.dp))
+        }
+      }
     }
-    if (g.log.isNotEmpty()) HCard { Eyebrow("Connection log"); g.log.take(8).forEach { Text(it, color = Hx.Muted, style = MaterialTheme.typography.bodySmall) } }
+    if (g.log.isNotEmpty()) HCard(Modifier.fillMaxWidth()) { Eyebrow("Connection log"); Spacer(Modifier.height(8.dp)); g.log.take(8).forEach { Text(it, color = Hx.Muted, style = MaterialTheme.typography.bodySmall) } }
+    NavSpacer()
   }
 }
 
 @Composable
 private fun Step(n: Int, title: String, body: String, done: Boolean, actions: @Composable () -> Unit) {
-  HCard {
+  HCard(Modifier.fillMaxWidth().appear(n + 1), accent = if (done) Hx.OkFill else null) {
     Row(verticalAlignment = Alignment.CenterVertically) {
-      Text("$n", fontWeight = FontWeight.SemiBold, color = if (done) Hx.Midnight else Hx.Text,
-        modifier = Modifier.size(28.dp).clip(CircleShape).background(if (done) Hx.Ok else Hx.Surface2).padding(top = 4.dp), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
-      Text(title, style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(start = 12.dp))
+      Box(Modifier.size(32.dp).clip(CircleShape).background(if (done) Hx.Signal else Hx.Surface2).border(1.dp, if (done) Color.Transparent else Hx.Line, CircleShape), contentAlignment = Alignment.Center) {
+        if (done) Icon(Icons.Outlined.Check, null, tint = Color.White, modifier = Modifier.size(17.dp))
+        else Text("$n", fontWeight = FontWeight.SemiBold, color = Hx.Text, fontSize = 14.sp)
+      }
+      Text(title, style = HxType.Card, modifier = Modifier.padding(start = 12.dp))
     }
-    Text(body, color = Hx.Text2, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(vertical = 10.dp))
+    Text(body, color = Hx.Text2, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 10.dp, bottom = 14.dp))
     actions()
   }
 }

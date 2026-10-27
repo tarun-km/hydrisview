@@ -1,6 +1,13 @@
 package ai.hydris.field.ui.screens
 
 import ai.hydris.field.ui.components.Dot
+import ai.hydris.field.ui.components.BackButton
+import ai.hydris.field.ui.components.Capsule
+import ai.hydris.field.ui.components.NavSpacer
+import ai.hydris.field.ui.components.PaperCard
+import ai.hydris.field.ui.theme.HxType
+import androidx.compose.runtime.key
+
 import ai.hydris.field.ui.components.ErrorNote
 import ai.hydris.field.ui.components.Eyebrow
 import ai.hydris.field.ui.components.HCard
@@ -43,32 +50,38 @@ import androidx.navigation.NavController
 fun SensorScreen(id: String, nav: NavController) {
   var hours by rememberSaveable { mutableIntStateOf(24) }
   val l = rememberLoad(id, hours, refreshMs = 15_000) { history(id, hours) }
-  Column(Modifier.fillMaxSize().statusBarsPadding().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-    IconButton({ nav.popBackStack() }) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Back") }
+  Column(Modifier.fillMaxSize().statusBarsPadding().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    BackButton { nav.popBackStack() }
     val h = l.data.value ?: run { if (l.error.value != null) ErrorNote(l.error.value!!) else Loading(); return@Column }
     val s = h.sensor
     Eyebrow("${s.tag} · ${s.label}")
-    Text(s.name, style = MaterialTheme.typography.headlineSmall)
-    Row(verticalAlignment = Alignment.Bottom) {
-      Text(fmt(s.lastValue, s.decimals), fontSize = 44.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-1).sp)
-      Text("  ${if (s.unit == "pH") "pH" else s.unit}", color = Hx.Muted, modifier = Modifier.padding(bottom = 10.dp))
+    Text(s.name, style = HxType.Page)
+    PaperCard(Modifier.fillMaxWidth()) {
+      Text("Latest reading", fontSize = 13.5.sp, color = Hx.Ink.copy(alpha = 0.75f))
+      Spacer(Modifier.height(12.dp))
+      Row(verticalAlignment = Alignment.Bottom) {
+        Text(fmt(s.lastValue, s.decimals), style = HxType.Kpi, color = Hx.Ink)
+        Text("  ${if (s.unit == "pH") "pH" else s.unit}", fontSize = 15.sp, color = Hx.Ink.copy(alpha = 0.6f), modifier = Modifier.padding(bottom = 4.dp))
+      }
+      Spacer(Modifier.height(10.dp))
+      Row(verticalAlignment = Alignment.CenterVertically) { Dot(if (s.freshness == "live") Hx.OkOnPaper else Hx.freshness(s.freshness), pulse = s.freshness == "live"); Text("  ${s.freshness} · ${h.totalReadings} readings", color = Hx.Ink.copy(alpha = 0.7f), fontSize = 13.sp) }
     }
-    Row(verticalAlignment = Alignment.CenterVertically) { Dot(Hx.freshness(s.freshness)); Text("  ${s.freshness} · ${h.totalReadings} readings", color = Hx.Muted, style = MaterialTheme.typography.bodySmall) }
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-      listOf(6 to "6 h", 24 to "24 h", 168 to "7 d").forEach { (hh, t) -> FilterChip(selected = hours == hh, onClick = { hours = hh }, label = { Text(t) }) }
-    }
-    HCard {
+    Capsule(listOf(6 to "6 h", 24 to "24 h", 168 to "7 d"), hours, { hours = it })
+    HCard(Modifier.fillMaxWidth()) {
+      Text("Trend", style = HxType.Section)
+      Spacer(Modifier.height(14.dp))
       val vals = h.points.map { it.v }
       val typical = s.typicalRange?.takeIf { it.size == 2 }?.let { it[0] to it[1] }
-      LineChart(vals, Hx.Signal, typical, Modifier.fillMaxWidth().height(220.dp))
+      key(hours) { LineChart(vals, Hx.Accent, typical, Modifier.fillMaxWidth().height(220.dp)) }
       Spacer(Modifier.height(8.dp))
       Row {
         Text("min ${fmt(vals.minOrNull(), s.decimals)}", color = Hx.Muted, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
-        typical?.let { Text("typical ${fmt(it.first, s.decimals)}–${fmt(it.second, s.decimals)}", color = Hx.OkSoft, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f)) }
+        typical?.let { Text("typical ${fmt(it.first, s.decimals)}–${fmt(it.second, s.decimals)}", color = Hx.OkText, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f)) }
         Text("max ${fmt(vals.maxOrNull(), s.decimals)}", color = Hx.Muted, style = MaterialTheme.typography.bodySmall)
       }
       Text("${ago(h.from)} → now", color = Hx.Muted, style = MaterialTheme.typography.bodySmall)
     }
-    s.explanation?.let { HCard { Eyebrow("What this measures"); Spacer(Modifier.height(6.dp)); Text(it, color = Hx.Text2) } }
+    s.explanation?.let { HCard(Modifier.fillMaxWidth()) { Eyebrow("What this measures"); Spacer(Modifier.height(10.dp)); Text(it, color = Hx.Text2, fontSize = 15.sp, lineHeight = 22.sp) } }
+    NavSpacer()
   }
 }

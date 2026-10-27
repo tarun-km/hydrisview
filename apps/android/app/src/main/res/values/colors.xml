@@ -2,4 +2,6 @@
 <resources>
   <color name="midnight">#FF081116</color>
   <color name="signal_blue">#FF1954F1</color>
+  <!-- Hydris Core Blue, sampled from the website favicon -->
+  <color name="ic_launcher_background">#FF1746E4</color>
 </resources>

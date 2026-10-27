@@ -14,6 +14,26 @@ import ai.hydris.field.ui.components.Chip
 import ai.hydris.field.ui.components.ErrorNote
 import ai.hydris.field.ui.components.Eyebrow
 import ai.hydris.field.ui.components.HCard
+import ai.hydris.field.ui.LocalNavPadding
+import ai.hydris.field.ui.components.BrandCard
+import ai.hydris.field.ui.components.CountUp
+import ai.hydris.field.ui.components.Dot
+import ai.hydris.field.ui.components.HButton
+import ai.hydris.field.ui.components.HSecondaryButton
+import ai.hydris.field.ui.components.NavSpacer
+import ai.hydris.field.ui.components.PageHeader
+import ai.hydris.field.ui.components.PaperCard
+import ai.hydris.field.ui.components.SectionTitle
+import ai.hydris.field.ui.components.appear
+import ai.hydris.field.ui.components.label
+import ai.hydris.field.ui.theme.HxShape
+import ai.hydris.field.ui.theme.HxType
+import androidx.compose.foundation.border
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.automirrored.outlined.CallMade
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.sp
+
 import ai.hydris.field.ui.components.ProgressBar
 import ai.hydris.field.ui.theme.Hx
 import android.Manifest
@@ -165,45 +185,39 @@ fun ScanScreen(activity: MainActivity) {
   // The glasses capture button starts a scan from the menu (the camera stage handles shooting itself).
   LaunchedEffect(Unit) { app.glasses.captureButton.collect { if (stage == Stage.Menu || stage == Stage.Review) start(true) } }
 
+  val navPad = LocalNavPadding.current
   Column(Modifier.fillMaxSize().statusBarsPadding().padding(horizontal = 16.dp)) {
     when (val s = stage) {
       Stage.Menu -> Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Spacer(Modifier.height(12.dp))
-        Eyebrow("Paper record → verified digital audit", Hx.SignalText)
-        Text("Audit scan", style = MaterialTheme.typography.headlineSmall)
-        Text("Frame an A4 page; it captures automatically when aligned, flattens the page and reads it twice on this phone. Reviewers verify every value in the console.", color = Hx.Text2)
-        HCard(onClick = { start(true) }, accent = Hx.Signal) {
+        Spacer(Modifier.height(4.dp))
+        PageHeader("Paper record → verified digital audit", "Audit scan")
+        Text("Frame an A4 page; it captures automatically when aligned, flattens the page and reads it twice on this phone. Reviewers verify every value in the console.", color = Hx.Text2, fontSize = 15.sp, lineHeight = 22.sp, modifier = Modifier.padding(bottom = 6.dp))
+        BrandCard(Modifier.fillMaxWidth().appear(1), onClick = { start(true) }) {
           Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(Icons.Outlined.Visibility, null, tint = Hx.SignalText, modifier = Modifier.size(28.dp))
+            Box(Modifier.size(52.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.16f)), contentAlignment = Alignment.Center) { Icon(Icons.Outlined.Visibility, null, tint = Color.White, modifier = Modifier.size(24.dp)) }
             Column(Modifier.padding(start = 14.dp).weight(1f)) {
-              Text("Scan with glasses camera", style = MaterialTheme.typography.titleMedium)
-              Text(if (glasses.registered) "${glasses.deviceName ?: "Ray-Ban Meta"} · or press the capture button" else "Connect your glasses first (Glasses tab)", color = Hx.Muted, style = MaterialTheme.typography.bodySmall)
+              Text("Scan with glasses camera", style = HxType.Card, color = Color.White)
+              Text(if (glasses.registered) "${glasses.deviceName ?: "Ray-Ban Meta"} · or press the capture button" else "Connect your glasses first (Glasses tab)", color = Color.White.copy(alpha = 0.84f), fontSize = 13.sp)
             }
+            Box(Modifier.size(36.dp).clip(CircleShape).background(Color.White), contentAlignment = Alignment.Center) { Icon(Icons.AutoMirrored.Outlined.CallMade, null, tint = Hx.Brand, modifier = Modifier.size(16.dp)) }
           }
         }
-        HCard(onClick = { start(false) }) {
-          Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(Icons.Outlined.PhotoCamera, null, tint = Hx.Text2, modifier = Modifier.size(28.dp))
-            Column(Modifier.padding(start = 14.dp).weight(1f)) {
-              Text("Scan with phone camera", style = MaterialTheme.typography.titleMedium)
-              Text("Guided A4 framing on this phone", color = Hx.Muted, style = MaterialTheme.typography.bodySmall)
-            }
-          }
-        }
-        HCard(onClick = { picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }) {
-          Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(Icons.Outlined.Image, null, tint = Hx.Text2, modifier = Modifier.size(28.dp))
-            Column(Modifier.padding(start = 14.dp).weight(1f)) {
-              Text("Import a photo", style = MaterialTheme.typography.titleMedium)
-              Text("A picture of the page already on this phone", color = Hx.Muted, style = MaterialTheme.typography.bodySmall)
-            }
-          }
-        }
+        ScanOption(Icons.Outlined.PhotoCamera, "Scan with phone camera", "Guided A4 framing on this phone", 2) { start(false) }
+        ScanOption(Icons.Outlined.Image, "Import a photo", "A picture of the page already on this phone", 3) { picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }
         val recent = rememberLoad { auditDocs().take(4) }
         recent.data.value?.takeIf { it.isNotEmpty() }?.let { docs ->
-          Eyebrow("Recent scans")
-          docs.forEach { d -> Row(Modifier.fillMaxWidth().padding(vertical = 4.dp)) { Text(d.title, Modifier.weight(1f), maxLines = 1); Chip(d.status.replace('_', ' ')) } }
+          SectionTitle("Recent scans")
+          HCard(Modifier.fillMaxWidth(), padding = 8.dp) {
+            docs.forEachIndexed { i, d ->
+              Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(d.title, Modifier.weight(1f).padding(end = 8.dp), maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 14.5.sp)
+                Chip(label(d.status), when (d.status) { "approved" -> Hx.OkFill; "rejected" -> Hx.Critical; "verified" -> Hx.Signal; else -> Hx.Medium })
+              }
+              if (i < docs.lastIndex) Box(Modifier.fillMaxWidth().height(1.dp).background(Hx.Line))
+            }
+          }
         }
+        NavSpacer()
       }
       is Stage.Camera -> GuidedCapture(
         glasses = s.glasses,
@@ -211,64 +225,76 @@ fun ScanScreen(activity: MainActivity) {
         onCancel = { stage = if (pages.isEmpty()) Stage.Menu else Stage.Review },
         onError = { stage = Stage.Failed(it) },
       )
-      is Stage.Reading -> Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
-        Text("Reading the page", style = MaterialTheme.typography.headlineSmall)
-        Text(s.text, color = Hx.Text2, modifier = Modifier.padding(vertical = 12.dp))
+      is Stage.Reading -> Column(Modifier.fillMaxSize().padding(bottom = navPad), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
+        Eyebrow("On-device OCR · pass ${if (s.progress < 0.5f) 1 else 2} of 2")
+        Spacer(Modifier.height(10.dp))
+        Text("Reading the page", style = HxType.Page)
+        Text(s.text, color = Hx.Text2, modifier = Modifier.padding(vertical = 14.dp))
         ProgressBar(s.progress, Hx.Signal, Modifier.padding(horizontal = 32.dp))
       }
       Stage.Review -> Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Spacer(Modifier.height(12.dp))
-        Eyebrow("${pages.size} page${if (pages.size == 1) "" else "s"} read on this phone")
-        Text("Check the capture", style = MaterialTheme.typography.headlineSmall)
+        Spacer(Modifier.height(4.dp))
+        PageHeader("${pages.size} page${if (pages.size == 1) "" else "s"} read on this phone", "Check the capture")
         LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
           itemsIndexed(pages) { i, (p, bmp) ->
             Column {
-              Image(bmp.asImageBitmap(), "Page ${i + 1}", Modifier.size(120.dp, 170.dp).clip(RoundedCornerShape(12.dp)), contentScale = ContentScale.Crop)
-              Text("p${i + 1} · ${p.readings.first().conf.toInt()}% conf", color = Hx.Muted, style = MaterialTheme.typography.bodySmall)
+              Image(bmp.asImageBitmap(), "Page ${i + 1}", Modifier.size(120.dp, 170.dp).clip(HxShape.Lg).border(1.dp, Hx.Line2, HxShape.Lg), contentScale = ContentScale.Crop)
+              Text("p${i + 1} · ${p.readings.first().conf.toInt()}% conf", color = Hx.Muted, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 6.dp))
             }
           }
         }
         val first = pages.last().first.readings.first()
-        HCard {
+        HCard(Modifier.fillMaxWidth()) {
           Eyebrow("Lines read (pass 1)")
+          Spacer(Modifier.height(8.dp))
           val pairs = labelValues(first.lines)
           pairs.take(8).forEach { (k, v) ->
-            Row(Modifier.padding(vertical = 3.dp)) { Text(k, color = Hx.Muted, modifier = Modifier.weight(1f), maxLines = 1); Text(v, fontWeight = FontWeight.Medium, maxLines = 1) }
+            Row(Modifier.padding(vertical = 5.dp)) { Text(k, color = Hx.Muted, modifier = Modifier.weight(1f), maxLines = 1, fontSize = 14.sp); Text(v, fontWeight = FontWeight.Medium, maxLines = 1, style = HxType.Num, fontSize = 14.sp) }
           }
           if (pairs.isEmpty()) Text("${first.lines.size} lines of text found.", color = Hx.Text2)
         }
-        Button({
+        HButton({
           stage = Stage.Sending
           scope.launch {
             runCatching { app.repo.uploadScan(ScanUpload(pages = pages.map { it.first }), viaGlasses) }
               .onSuccess { pages.clear(); stage = Stage.Sent(it) }
               .onFailure { stage = Stage.Failed(it.message ?: "Upload failed") }
           }
-        }, modifier = Modifier.fillMaxWidth().height(54.dp), colors = ButtonDefaults.buttonColors(containerColor = Hx.Signal)) { Text("Send for verification") }
+        }, modifier = Modifier.fillMaxWidth().height(52.dp)) { Text("Send for verification") }
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-          OutlinedButton({ start(viaGlasses) }, Modifier.weight(1f), enabled = pages.size < 6) { Text("Add page") }
-          OutlinedButton({ pages.clear(); stage = Stage.Menu }, Modifier.weight(1f)) { Text("Discard") }
+          HSecondaryButton({ start(viaGlasses) }, Modifier.weight(1f), enabled = pages.size < 6) { Text("Add page") }
+          HSecondaryButton({ pages.clear(); stage = Stage.Menu }, Modifier.weight(1f)) { Text("Discard") }
         }
+        NavSpacer()
       }
-      Stage.Sending -> Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
-        Text("Sending for verification", style = MaterialTheme.typography.headlineSmall)
+      Stage.Sending -> Column(Modifier.fillMaxSize().padding(bottom = navPad), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
+        Dot(Hx.Signal, 12.dp, pulse = true)
+        Spacer(Modifier.height(16.dp))
+        Text("Sending for verification", style = HxType.Page.copy(fontSize = 24.sp))
         Text("Structuring values, tables and figures…", color = Hx.Text2, modifier = Modifier.padding(12.dp))
       }
-      is Stage.Sent -> Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Spacer(Modifier.height(12.dp))
-        Eyebrow("Sent · awaiting dual verification", Hx.OkSoft)
-        Text(s.doc.title, style = MaterialTheme.typography.headlineSmall)
+      is Stage.Sent -> Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Spacer(Modifier.height(4.dp))
+        PageHeader("Sent · awaiting dual verification", s.doc.title)
+        PaperCard(Modifier.fillMaxWidth().appear(1)) {
+          Text("Values captured", fontSize = 13.5.sp, color = Hx.Ink.copy(alpha = 0.75f))
+          Spacer(Modifier.height(12.dp))
+          CountUp("${s.doc.fields}", HxType.Kpi, Hx.Ink)
+          Spacer(Modifier.height(8.dp))
+          Text("${s.doc.tables} tables${s.doc.agreement?.let { " · ${(it * 100).toInt()}% engines agree" } ?: ""}", fontSize = 13.sp, color = Hx.Ink.copy(alpha = 0.7f))
+        }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-          Chip("${s.doc.fields} values", Hx.OkSoft); Chip("${s.doc.tables} tables"); s.doc.agreement?.let { Chip("${(it * 100).toInt()}% engines agree", Hx.SignalText) }
+          Chip("Sent", Hx.OkFill)
           if (s.doc.attention > 0) Chip("${s.doc.attention} to check", Hx.High)
         }
-        Text("Captured via ${s.doc.capturedVia}. A reviewer confirms each value against the paper in the console (Work → Audit documents), then a second person approves and the searchable PDF is produced.", color = Hx.Text2)
-        Button({ stage = Stage.Menu }, Modifier.fillMaxWidth().height(52.dp), colors = ButtonDefaults.buttonColors(containerColor = Hx.Signal)) { Text("Scan another document") }
+        Text("Captured via ${s.doc.capturedVia}. A reviewer confirms each value against the paper in the console (Work → Audit documents), then a second person approves and the searchable PDF is produced.", color = Hx.Text2, fontSize = 15.sp, lineHeight = 22.sp)
+        HButton({ stage = Stage.Menu }, Modifier.fillMaxWidth().height(52.dp)) { Text("Scan another document") }
+        NavSpacer()
       }
-      is Stage.Failed -> Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.Center) {
+      is Stage.Failed -> Column(Modifier.fillMaxSize().padding(bottom = navPad), verticalArrangement = Arrangement.Center) {
         ErrorNote(s.message)
         Spacer(Modifier.height(12.dp))
-        OutlinedButton({ stage = if (pages.isEmpty()) Stage.Menu else Stage.Review }, Modifier.fillMaxWidth()) { Text("Back") }
+        HSecondaryButton({ stage = if (pages.isEmpty()) Stage.Menu else Stage.Review }, Modifier.fillMaxWidth()) { Text("Back") }
       }
     }
   }
@@ -351,13 +377,13 @@ private fun GuidedCapture(glasses: Boolean, onCaptured: (Bitmap) -> Unit, onCanc
     DisposableEffect(Unit) { onDispose { app.glasses.stopPreview() } }
   }
 
-  Column(Modifier.fillMaxSize().padding(vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Hx.Surface).padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-      Box(Modifier.size(10.dp).clip(RoundedCornerShape(50)).background(if (guide.ok) Hx.Ok else if (guide == Guide.NoDocument) Hx.Muted else Hx.High))
-      Text(if (busy) "Capturing and flattening the page…" else guide.message, Modifier.padding(start = 10.dp).weight(1f), style = MaterialTheme.typography.titleMedium)
-      Chip(if (glasses) "Ray-Ban Meta" else "phone")
+  Column(Modifier.fillMaxSize().padding(top = 8.dp, bottom = LocalNavPadding.current), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    Row(Modifier.fillMaxWidth().clip(HxShape.Pill).background(Hx.Surface).border(1.dp, Hx.Line, HxShape.Pill).padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+      Dot(if (guide.ok) Hx.Ok else if (guide == Guide.NoDocument) Hx.Muted else Hx.High, 10.dp, pulse = guide.ok)
+      Text(if (busy) "Capturing and flattening the page…" else guide.message, Modifier.padding(start = 10.dp).weight(1f), style = HxType.Card.copy(fontSize = 15.sp))
+      Chip(if (glasses) "Ray-Ban Meta" else "Phone")
     }
-    BoxWithConstraints(Modifier.fillMaxWidth().weight(1f).clip(RoundedCornerShape(22.dp)).background(Color.Black)) {
+    BoxWithConstraints(Modifier.fillMaxWidth().weight(1f).clip(HxShape.Xl).background(Color.Black).border(1.dp, Hx.Line2, HxShape.Xl)) {
       if (glasses) {
         frame?.let { Image(it.asImageBitmap(), null, Modifier.fillMaxSize(), contentScale = ContentScale.Fit) }
       } else {
@@ -399,8 +425,22 @@ private fun GuidedCapture(glasses: Boolean, onCaptured: (Bitmap) -> Unit, onCanc
       if (readyPct > 0f && !busy) ProgressBar(readyPct, Hx.Ok, Modifier.align(Alignment.BottomCenter).padding(horizontal = 60.dp, vertical = 14.dp))
     }
     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-      Button({ capture() }, Modifier.weight(1f).height(54.dp), enabled = !busy, colors = ButtonDefaults.buttonColors(containerColor = Hx.Signal)) { Text("Capture now") }
-      OutlinedButton(onCancel, Modifier.height(54.dp)) { Text("Cancel") }
+      HButton({ capture() }, Modifier.weight(1f).height(52.dp), enabled = !busy) { Text("Capture now") }
+      HSecondaryButton(onCancel, Modifier.height(52.dp)) { Text("Cancel") }
+    }
+  }
+}
+
+@Composable
+private fun ScanOption(icon: androidx.compose.ui.graphics.vector.ImageVector, title: String, sub: String, index: Int, onClick: () -> Unit) {
+  HCard(Modifier.fillMaxWidth().appear(index), onClick = onClick) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+      Box(Modifier.size(52.dp).clip(CircleShape).background(Hx.Surface2).border(1.dp, Hx.Line, CircleShape), contentAlignment = Alignment.Center) { Icon(icon, null, tint = Hx.Text, modifier = Modifier.size(22.dp)) }
+      Column(Modifier.padding(start = 14.dp).weight(1f)) {
+        Text(title, style = HxType.Card)
+        Text(sub, color = Hx.Muted, style = HxType.Label)
+      }
+      Box(Modifier.size(36.dp).clip(CircleShape).border(1.dp, Hx.Line2, CircleShape), contentAlignment = Alignment.Center) { Icon(Icons.AutoMirrored.Outlined.CallMade, null, tint = Hx.Text, modifier = Modifier.size(16.dp)) }
     }
   }
 }

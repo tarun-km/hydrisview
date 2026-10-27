@@ -2,6 +2,24 @@ package ai.hydris.field.ui.screens
 
 import ai.hydris.field.data.Alarm
 import ai.hydris.field.ui.components.Chip
+import ai.hydris.field.ui.components.BackButton
+import ai.hydris.field.ui.components.BrandCard
+import ai.hydris.field.ui.components.Capsule
+import ai.hydris.field.ui.components.EmptyState
+import ai.hydris.field.ui.components.HButton
+import ai.hydris.field.ui.components.HField
+import ai.hydris.field.ui.components.HSecondaryButton
+import ai.hydris.field.ui.components.NavSpacer
+import ai.hydris.field.ui.components.PageHeader
+import ai.hydris.field.ui.components.PaperCard
+import ai.hydris.field.ui.components.SeverityChip
+import ai.hydris.field.ui.components.appear
+import ai.hydris.field.ui.theme.HxType
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.ui.graphics.Color
+
 import ai.hydris.field.ui.components.Dot
 import ai.hydris.field.ui.components.ErrorNote
 import ai.hydris.field.ui.components.Eyebrow
@@ -62,10 +80,9 @@ private val TABS = listOf("Alarms", "Inspections", "Maintenance", "Sensors", "Au
 fun WorkScreen(nav: NavController) {
   var tab by rememberSaveable { mutableIntStateOf(0) }
   Column(Modifier.fillMaxSize().statusBarsPadding()) {
-    Text("Work", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(start = 16.dp, top = 12.dp))
-    PrimaryScrollableTabRow(selectedTabIndex = tab, containerColor = Hx.Midnight, contentColor = Hx.SignalText, edgePadding = 12.dp) {
-      TABS.forEachIndexed { i, t -> Tab(selected = tab == i, onClick = { tab = i }, text = { Text(t) }, unselectedContentColor = Hx.Muted) }
-    }
+    PageHeader("Operate · field work", "Work", modifier = Modifier.padding(horizontal = 16.dp).padding(top = 12.dp))
+    Capsule(TABS.indices.map { it to TABS[it] }, tab, { tab = it }, Modifier.padding(horizontal = 16.dp).horizontalScroll(rememberScrollState()))
+    Spacer(Modifier.height(12.dp))
     when (tab) {
       0 -> AlarmsTab(nav)
       1 -> InspectionsTab()
@@ -82,11 +99,11 @@ private fun <T> ListOf(l: Loadable<List<T>>, empty: String, row: @Composable (T)
   when {
     data == null && l.error.value != null -> ErrorNote(l.error.value!!, Modifier.padding(16.dp))
     data == null -> Loading()
-    data.isEmpty() -> Text(empty, color = Hx.Muted, modifier = Modifier.padding(24.dp))
-    else -> LazyColumn(Modifier.fillMaxSize().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    data.isEmpty() -> EmptyState(empty, modifier = Modifier.padding(16.dp))
+    else -> LazyColumn(Modifier.fillMaxSize().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
       item { Spacer(Modifier.height(4.dp)) }
-      items(data) { row(it) }
-      item { Spacer(Modifier.height(16.dp)) }
+      itemsIndexed(data) { i, it -> Box(Modifier.appear(i)) { row(it) } }
+      item { NavSpacer() }
     }
   }
 }
@@ -99,14 +116,14 @@ private fun AlarmsTab(nav: NavController) {
 
 @Composable
 fun AlarmRow(a: Alarm, onClick: () -> Unit) {
-  HCard(onClick = onClick, accent = if (a.severity == "critical" && a.state == "active") Hx.Alert else null, padding = 14.dp) {
+  HCard(Modifier.fillMaxWidth(), onClick = onClick, accent = if (a.severity == "critical" && a.state == "active") Hx.Alert else null, padding = 14.dp) {
     Row(verticalAlignment = Alignment.CenterVertically) {
       Dot(Hx.severity(a.severity), 10.dp)
       Column(Modifier.weight(1f).padding(start = 12.dp)) {
         Text(a.title, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
         Text("${label(a.state)} · ${ago(a.triggeredAt)}${a.assigneeName?.let { " · $it" } ?: ""}", color = Hx.Muted, style = MaterialTheme.typography.bodySmall)
       }
-      Chip(a.severity, Hx.severity(a.severity))
+      SeverityChip(a.severity)
     }
   }
 }
@@ -115,7 +132,7 @@ fun AlarmRow(a: Alarm, onClick: () -> Unit) {
 private fun InspectionsTab() {
   val l = rememberLoad { inspections() }
   ListOf(l, "No inspections.") { i ->
-    HCard(padding = 14.dp) {
+    HCard(Modifier.fillMaxWidth(), padding = 16.dp) {
       Row(verticalAlignment = Alignment.CenterVertically) {
         Text(i.title, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f), maxLines = 2, overflow = TextOverflow.Ellipsis)
         Chip(label(i.status), if (i.status == "submitted" || i.status == "approved") Hx.OkSoft else Hx.SignalText)
@@ -135,10 +152,10 @@ private fun MaintenanceTab() {
   val scope = rememberCoroutineScope()
   ListOf(l, "No open maintenance tasks.") { t ->
     var expanded by remember(t.id) { mutableStateOf(false) }
-    HCard(onClick = { expanded = !expanded }, accent = if (t.priority == "urgent") Hx.Alert else null, padding = 14.dp) {
+    HCard(Modifier.fillMaxWidth(), onClick = { expanded = !expanded }, accent = if (t.priority == "urgent") Hx.Alert else null, padding = 16.dp) {
       Row(verticalAlignment = Alignment.CenterVertically) {
         Text(t.title, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f), maxLines = if (expanded) 4 else 2, overflow = TextOverflow.Ellipsis)
-        Chip(t.priority, if (t.priority == "urgent" || t.priority == "high") Hx.High else Hx.Text2)
+        Chip(label(t.priority), when (t.priority) { "urgent" -> Hx.Critical; "high" -> Hx.High; else -> Hx.Text2 })
       }
       val done = t.checklist.count { it.done }
       Text("${label(t.status)} · ${t.assigneeName ?: "Unassigned"} · $done/${t.checklist.size} checks", color = Hx.Muted, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(vertical = 6.dp))
@@ -162,13 +179,13 @@ private fun MaintenanceTab() {
 private fun SensorsTab(nav: NavController) {
   val l = rememberLoad(refreshMs = 10_000) { sensors() }
   ListOf(l, "No sensors.") { s ->
-    HCard(onClick = { nav.navigate("sensor/${s.id}") }, padding = 14.dp) {
+    HCard(Modifier.fillMaxWidth(), onClick = { nav.navigate("sensor/${s.id}") }, padding = 16.dp) {
       Row(verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
           Text("${s.name}", style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
           Row(verticalAlignment = Alignment.CenterVertically) { Dot(Hx.freshness(s.freshness), 7.dp); Text("  ${s.tag} · ${ago(s.lastTs)}${if (s.openAlarms > 0) " · ${s.openAlarms} alarm" else ""}", color = Hx.Muted, style = MaterialTheme.typography.bodySmall) }
         }
-        Text(fmt(s.lastValue), fontSize = 22.sp, fontWeight = FontWeight.SemiBold, color = if (s.openAlarms > 0) Hx.High else Hx.Text)
+        Text(fmt(s.lastValue), style = HxType.KpiSm, color = if (s.openAlarms > 0) Hx.HighText else Hx.Text)
         Text(" ${if (s.unit == "pH") "" else s.unit}", color = Hx.Muted, style = MaterialTheme.typography.bodySmall)
       }
     }
@@ -179,7 +196,7 @@ private fun SensorsTab(nav: NavController) {
 private fun AuditDocsTab() {
   val l = rememberLoad(refreshMs = 20_000) { auditDocs() }
   ListOf(l, "No audit documents yet - scan one from the Scan tab.") { d ->
-    HCard(padding = 14.dp) {
+    HCard(Modifier.fillMaxWidth(), padding = 16.dp) {
       Row(verticalAlignment = Alignment.CenterVertically) {
         Text(d.title, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f), maxLines = 2, overflow = TextOverflow.Ellipsis)
         Chip(label(d.status), when (d.status) { "approved" -> Hx.OkSoft; "rejected" -> Hx.Alert; "verified" -> Hx.SignalText; else -> Hx.Medium })
@@ -199,31 +216,36 @@ fun AlarmDetailScreen(id: String, nav: NavController) {
   val scope = rememberCoroutineScope()
   var busy by remember { mutableStateOf(false) }
   var err by remember { mutableStateOf<String?>(null) }
-  Column(Modifier.fillMaxSize().statusBarsPadding().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-    IconButton({ nav.popBackStack() }) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Back") }
+  Column(Modifier.fillMaxSize().statusBarsPadding().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    BackButton { nav.popBackStack() }
     val a = l.data.value ?: run { if (l.error.value != null) ErrorNote(l.error.value!!) else Loading(); return@Column }
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { Chip(a.severity, Hx.severity(a.severity), filled = true); Chip(label(a.state)); if (a.synthetic) Chip("synthetic", Hx.Insight) }
-    Text(a.title, style = MaterialTheme.typography.headlineSmall)
-    a.description?.let { Text(it, color = Hx.Text2) }
-    HCard {
-      Eyebrow("Reading")
+    Eyebrow("Alarm · ${a.assetTag ?: a.sensorTag ?: "plant"}")
+    Text(a.title, style = HxType.Page)
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { SeverityChip(a.severity); Chip(label(a.state)); if (a.synthetic) Chip("Synthetic", Hx.Purple) }
+    a.description?.let { Text(it, color = Hx.Text2, fontSize = 15.sp, lineHeight = 22.sp) }
+    PaperCard(Modifier.fillMaxWidth()) {
+      Text("Reading at trigger", fontSize = 13.5.sp, color = Hx.Ink.copy(alpha = 0.75f))
+      Spacer(Modifier.height(12.dp))
       Row(verticalAlignment = Alignment.Bottom) {
-        Text(fmt(a.triggerValue), fontSize = 36.sp, fontWeight = FontWeight.SemiBold, color = Hx.severity(a.severity))
-        Text("  ${a.unit ?: ""} · limit ${fmt(a.threshold)} · peak ${fmt(a.peakValue)}", color = Hx.Muted, modifier = Modifier.padding(bottom = 8.dp))
+        Text(fmt(a.triggerValue), style = HxType.Kpi, color = when (a.severity) { "critical" -> Hx.CriticalOnPaper; "high" -> Hx.HighOnPaper; else -> Hx.Ink })
+        Text("  ${a.unit ?: ""}", fontSize = 15.sp, color = Hx.Ink.copy(alpha = 0.6f), modifier = Modifier.padding(bottom = 4.dp))
       }
-      Text("${a.assetTag ?: ""} ${a.assetName ?: ""} · sensor ${a.sensorTag ?: "—"} · raised ${ago(a.triggeredAt)}", color = Hx.Muted, style = MaterialTheme.typography.bodySmall)
+      Spacer(Modifier.height(10.dp))
+      Text("Limit ${fmt(a.threshold)} · peak ${fmt(a.peakValue)}", fontSize = 13.sp, color = Hx.Ink.copy(alpha = 0.7f))
+      Text("${a.assetTag ?: ""} ${a.assetName ?: ""} · sensor ${a.sensorTag ?: "—"} · raised ${ago(a.triggeredAt)}", color = Hx.Ink2, style = MaterialTheme.typography.bodySmall)
     }
-    a.recommendedAction?.let { HCard(accent = Hx.Signal) { Eyebrow("Recommended action", Hx.SignalText); Spacer(Modifier.height(6.dp)); Text(it) } }
+    a.recommendedAction?.let { BrandCard(Modifier.fillMaxWidth()) { Eyebrow("Recommended action", Color.White.copy(alpha = 0.85f)); Spacer(Modifier.height(8.dp)); Text(it, color = Color.White, fontSize = 15.sp, lineHeight = 22.sp) } }
     err?.let { ErrorNote(it) }
     val next = when (a.state) { "active" -> listOf("acknowledge" to "Acknowledge"); "acknowledged" -> listOf("investigate" to "Investigate", "resolve" to "Resolve"); "investigating" -> listOf("resolve" to "Resolve"); "resolved" -> listOf("close" to "Close"); else -> emptyList() }
     // Resolving requires a note describing what was done (the API rejects it without one).
     var note by remember(a.state) { mutableStateOf("") }
-    if (next.any { it.first == "resolve" }) androidx.compose.material3.OutlinedTextField(note, { note = it }, Modifier.fillMaxWidth(), label = { Text("What was done (needed to resolve)") }, minLines = 2)
+    if (next.any { it.first == "resolve" }) HField("What was done (needed to resolve)", note, { note = it }, Modifier.fillMaxWidth(), singleLine = false, minLines = 2)
     next.forEachIndexed { i, (action, text) ->
       val needsNote = action == "resolve" && note.isBlank()
       val click: () -> Unit = { scope.launch { busy = true; err = null; runCatching { r.alarmAction(id, action, note.trim().ifEmpty { null }) }.onFailure { err = it.message }; l.reload(); busy = false } }
-      if (i == 0) Button(click, enabled = !busy && !needsNote, modifier = Modifier.fillMaxWidth().height(52.dp), colors = ButtonDefaults.buttonColors(containerColor = Hx.Signal)) { Text(text) }
-      else OutlinedButton(click, enabled = !busy && !needsNote, modifier = Modifier.fillMaxWidth().height(52.dp)) { Text(text) }
+      if (i == 0) HButton(click, enabled = !busy && !needsNote, modifier = Modifier.fillMaxWidth().height(52.dp)) { Text(text) }
+      else HSecondaryButton(click, enabled = !busy && !needsNote, modifier = Modifier.fillMaxWidth().height(52.dp)) { Text(text) }
     }
+    NavSpacer()
   }
 }
