@@ -35,6 +35,7 @@ import java.security.MessageDigest
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.max
 import kotlin.math.roundToInt
+import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -164,7 +165,11 @@ class GlassesManager(private val appContext: Context) {
             created.state.collect { st ->
               _state.update { it.copy(session = st.toString()) }
               if (st == DeviceSessionState.STARTED) { if (!d.isCompleted) d.complete(created); attachInputs(created) }
-              if (st == DeviceSessionState.STOPPED) reset()
+              if (st == DeviceSessionState.STOPPED) {
+                // Ended before it started (glasses asleep, not worn, or no permission): fail the waiter instead of hanging.
+                if (!d.isCompleted) d.completeExceptionally(IllegalStateException(_state.value.lastError ?: "Glasses session ended"))
+                reset()
+              }
             }
           }
           scope.launch { created.errors.collect { e -> fail("Session: ${e.description}") } }
@@ -172,7 +177,9 @@ class GlassesManager(private val appContext: Context) {
         }
         .onFailure { e, _ -> fail("No glasses session: ${e.description}"); d.completeExceptionally(IllegalStateException(e.description)); sessionReady = null }
     }
-    return runCatching { ready.await() }.getOrNull()
+    return runCatching { withTimeout(20_000) { ready.await() } }
+      .onFailure { if (it is kotlinx.coroutines.TimeoutCancellationException) { fail("Glasses did not respond. Wear them (or unfold), check they show Connected in the Meta AI app, then try again."); sessionReady = null } }
+      .getOrNull()
   }
 
   private fun reset() {
@@ -184,8 +191,9 @@ class GlassesManager(private val appContext: Context) {
   // ------------------------------------------------------------------ camera
   private suspend fun ensureCamera(): Camera? = cameraMutex.withLock {
     camera?.let { c -> if (c.stream.state.value != StreamState.STOPPED && c.stream.state.value != StreamState.CLOSED) return c }
-    val s = ensureSession() ?: return null
+    // Permission first (as in Meta's samples): a session without camera permission reports no eligible device.
     if (!ensurePermission(Permission.CAMERA)) { fail("Camera permission denied in Meta AI"); return null }
+    val s = ensureSession() ?: return null
     var added: Camera? = null
     s.addCamera(StreamConfiguration(videoQuality = VideoQuality.MEDIUM, frameRate = 24))
       .onSuccess { added = it }
