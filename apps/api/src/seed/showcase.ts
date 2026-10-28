@@ -204,7 +204,7 @@ export async function seedDemoShowcase(db: Db, opts: ShowcaseOptions = {}): Prom
   // Owner account: platform admin + org admin of the demo org.
   await withSystem(db, async (tx) => {
     await tx.insert(users).values({ id: DEMO_OWNER_ID, email: DEMO_OWNER.email, name: DEMO_OWNER.name, passwordHash: pwHash, isPlatformAdmin: true, emailVerifiedAt: at(24 * 30), defaultOrgId: DEMO_ORG_ID, lastLoginAt: at(20) });
-    await tx.insert(memberships).values({ id: demoId('membership', 'tarun'), orgId: DEMO_ORG_ID, userId: DEMO_OWNER_ID, role: 'org_admin', title: DEMO_OWNER.title });
+    await tx.insert(memberships).values({ id: demoId('membership', 'tarun'), orgId: DEMO_ORG_ID, userId: DEMO_OWNER_ID, role: 'admin', title: DEMO_OWNER.title });
     await tx.update(users).set({ lastLoginAt: at(3) }).where(sql`${users.email} like '%@demo.hydris.local'`);
   });
 
@@ -607,8 +607,8 @@ async function seedUiProfiles(tx: Tx) {
   }
   await tx.insert(uiProfileAssignments).values([
     { id: demoId('ui-assign', 'org'), orgId: DEMO_ORG_ID, profileId: demoId('ui-profile', 'plant'), scope: 'org', createdBy: U('admin') },
-    { id: demoId('ui-assign', 'role-op'), orgId: DEMO_ORG_ID, profileId: demoId('ui-profile', 'operator'), scope: 'role', role: 'field_operator', createdBy: U('admin') },
-    { id: demoId('ui-assign', 'role-viewer'), orgId: DEMO_ORG_ID, profileId: demoId('ui-profile', 'viewer'), scope: 'role', role: 'viewer', createdBy: U('admin') },
+    { id: demoId('ui-assign', 'role-op'), orgId: DEMO_ORG_ID, profileId: demoId('ui-profile', 'operator'), scope: 'role', role: 'operator', createdBy: U('admin') },
+    { id: demoId('ui-assign', 'user-viewer'), orgId: DEMO_ORG_ID, profileId: demoId('ui-profile', 'viewer'), scope: 'user', userId: U('viewer'), createdBy: U('admin') },
   ]);
 }
 

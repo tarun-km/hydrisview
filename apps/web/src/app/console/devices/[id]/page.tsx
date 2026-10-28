@@ -246,7 +246,7 @@ function ReassignDialog({ device, onClose }: { device: DeviceRow; onClose: () =>
     invalidate: ['/devices', '/members', '/overview'], success: 'Glasses reassigned', onSuccess: onClose,
   });
   const list = useMemo(() => (members.data?.members ?? [])
-    .filter((m) => m.status === 'active' && m.role !== 'viewer')
+    .filter((m) => m.status === 'active')
     .filter((m) => !query.trim() || `${m.name} ${m.email}`.toLowerCase().includes(query.trim().toLowerCase())), [members.data, query]);
   const hasSite = (m: MemberRow) => m.allSites || !device.siteId || m.siteIds.includes(device.siteId);
   const chosen = list.find((m) => m.userId === pick);

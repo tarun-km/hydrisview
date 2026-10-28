@@ -112,5 +112,5 @@ export const DOCUMENT_KIND_LABELS: Record<DocumentKind, string> = {
 export const DOCUMENT_STATUSES = ['draft', 'approved', 'archived'] as const;
 export type DocumentStatus = (typeof DOCUMENT_STATUSES)[number];
 
-export const MEMBERSHIP_STATUSES = ['invited', 'active', 'deactivated'] as const;
+export const MEMBERSHIP_STATUSES = ['invited', 'active', 'suspended', 'removed'] as const;
 export type MembershipStatus = (typeof MEMBERSHIP_STATUSES)[number];

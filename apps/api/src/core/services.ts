@@ -33,9 +33,18 @@ export async function audit(tx: Conn, actor: Principal | { userId?: string | nul
   });
 }
 
-/** Mail transport adapter. Development records messages in mail_outbox. */
-export async function sendMail(tx: Conn, to: string, subject: string, bodyText: string) {
-  await tx.insert(mailOutbox).values({ to, subject, bodyText });
+/**
+ * Queue an email in mail_outbox (inside the caller's transaction). With BREVO_API_KEY set the
+ * outbox is delivered through Brevo after the request (core/mailer.ts); otherwise the outbox
+ * itself is the transport (development, tests, demo).
+ */
+export async function sendMail(tx: Conn, to: string, subject: string, bodyText: string, bodyHtml?: string | null) {
+  await tx.insert(mailOutbox).values({ to, subject, bodyText, bodyHtml: bodyHtml ?? null });
+}
+
+/** Queue a branded template (subject + text + HTML). */
+export async function sendTemplate(tx: Conn, to: string, mail: { subject: string; text: string; html: string }) {
+  await sendMail(tx, to, mail.subject, mail.text, mail.html);
 }
 
 export async function notify(

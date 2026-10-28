@@ -9,6 +9,8 @@ import type { Principal } from './core/principal';
 import type { EventBus } from './core/events';
 import type { Storage } from './core/services';
 import type { Role } from '@hydris/domain';
+import type { SupabaseAuth } from './core/supabase';
+import type { BrevoMailer } from './core/mailer';
 import { ensureDemoDevice } from './core/demo-auth';
 import { ensureGuest } from './core/demo-guests';
 
@@ -17,6 +19,10 @@ export interface Ctx {
   bus: EventBus;
   config: Config;
   storage: Storage;
+  /** Supabase Auth adapter when configured (config.supabaseEnabled); null = built-in auth. */
+  supabase: SupabaseAuth | null;
+  /** Brevo mail delivery when BREVO_API_KEY is set; null = outbox only. */
+  mailer: BrevoMailer | null;
   /** Device ids with an open realtime stream (connectivity state). */
   liveDevices: Map<string, number>;
   /** Called on API activity (requests, realtime polls). Demo mode uses it to advance live data lazily. */

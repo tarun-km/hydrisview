@@ -202,7 +202,7 @@ export interface Member {
   name: string;
   email: string;
   role: string;
-  status: 'invited' | 'active' | 'deactivated';
+  status: 'invited' | 'active' | 'suspended' | 'removed';
   allSites: boolean;
   siteIds: string[];
   openInspections: number;

@@ -6,6 +6,9 @@ import {
   SCENARIO_KEYS,
   SIM_PLANT,
   assignableRoles,
+  isAllowedSignupEmail,
+  mapLegacyRole,
+  parseSignupDomains,
   can,
   canTransitionAlarm,
   canTransitionInspection,
@@ -24,20 +27,47 @@ import {
   stepOutcome,
 } from '../src/index.js';
 
-test('permission matrix: least privilege', () => {
-  assert.ok(can('org_admin', 'member.manage'));
-  assert.ok(!can('field_operator', 'alarm.close'));
-  assert.ok(can('field_operator', 'alarm.acknowledge'));
-  assert.ok(!can('viewer', 'alarm.acknowledge'));
-  assert.ok(!can('maintenance_engineer', 'device.manage'));
-  assert.ok(can('supervisor', 'inspection.review'));
+test('permission matrix: two account types, least privilege', () => {
+  assert.deepEqual([...ROLES], ['admin', 'operator']);
+  assert.ok(can('admin', 'member.manage'));
+  assert.ok(can('admin', 'console.access'));
+  assert.ok(!can('operator', 'console.access'));
+  assert.ok(!can('operator', 'member.read'));
+  assert.ok(!can('operator', 'alarm.close'));
+  assert.ok(can('operator', 'alarm.acknowledge'));
+  assert.ok(can('operator', 'inspection.execute'));
+  assert.ok(can('operator', 'maintenance.execute'));
+  assert.ok(can('operator', 'device.pair'));
+  assert.ok(can('operator', 'auditdoc.capture'));
+  assert.ok(!can('operator', 'device.manage'));
+  assert.ok(!can('operator', 'audit.read'));
   for (const r of ROLES) assert.ok(can(r, 'site.read'), `${r} can read sites`);
 });
 
-test('role assignment never escalates', () => {
-  assert.deepEqual(assignableRoles('field_operator'), []);
-  assert.ok(!assignableRoles('factory_manager').includes('org_admin'));
-  assert.ok(!assignableRoles('factory_manager').includes('factory_manager'));
+test('role assignment: only administrators manage people', () => {
+  assert.deepEqual(assignableRoles('operator'), []);
+  assert.deepEqual(assignableRoles('admin'), ['admin', 'operator']);
+});
+
+test('legacy role migration mapping', () => {
+  assert.equal(mapLegacyRole('org_admin'), 'admin');
+  assert.equal(mapLegacyRole('factory_manager'), 'admin');
+  assert.equal(mapLegacyRole('supervisor'), 'admin');
+  assert.equal(mapLegacyRole('field_operator'), 'operator');
+  assert.equal(mapLegacyRole('maintenance_engineer'), 'operator');
+  assert.equal(mapLegacyRole('viewer'), 'operator');
+});
+
+test('admin sign-up domain rule', () => {
+  const d = parseSignupDomains(undefined);
+  assert.deepEqual(d, ['hydris.ai']);
+  assert.ok(isAllowedSignupEmail('tarun@hydris.ai', d));
+  assert.ok(isAllowedSignupEmail('Tarun@Hydris.AI', d));
+  assert.ok(!isAllowedSignupEmail('someone@gmail.com', d));
+  assert.ok(!isAllowedSignupEmail('x@evil-hydris.ai', d));
+  assert.ok(!isAllowedSignupEmail('x@sub.hydris.ai', d));
+  assert.ok(!isAllowedSignupEmail('x@hydris.ai.evil.com', d));
+  assert.deepEqual(parseSignupDomains(' @Hydris.ai, acme.com '), ['hydris.ai', 'acme.com']);
 });
 
 test('unit normalization converts and validates', () => {

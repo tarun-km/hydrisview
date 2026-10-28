@@ -5,14 +5,14 @@ import { DEFAULT_UI_PROFILE_CONFIG, applyMeasurementProfile, diffUiProfileConfig
 test('ui profile: precedence device > user > role > org, unusable profiles fall through', () => {
   const as = [
     { scope: 'org' as const, profileId: 'O' },
-    { scope: 'role' as const, profileId: 'R', role: 'field_operator' as const },
+    { scope: 'role' as const, profileId: 'R', role: 'operator' as const },
     { scope: 'user' as const, profileId: 'U', userId: 'u1' },
     { scope: 'device' as const, profileId: 'D', deviceId: 'd1' },
   ];
-  assert.equal(resolveUiAssignment(as, { deviceId: 'd1', userId: 'u1', role: 'field_operator' })?.profileId, 'D');
-  assert.equal(resolveUiAssignment(as, { deviceId: 'd2', userId: 'u1', role: 'field_operator' })?.profileId, 'U');
-  assert.equal(resolveUiAssignment(as, { userId: 'u2', role: 'field_operator' })?.profileId, 'R');
-  assert.equal(resolveUiAssignment(as, { userId: 'u2', role: 'supervisor' })?.profileId, 'O');
+  assert.equal(resolveUiAssignment(as, { deviceId: 'd1', userId: 'u1', role: 'operator' })?.profileId, 'D');
+  assert.equal(resolveUiAssignment(as, { deviceId: 'd2', userId: 'u1', role: 'operator' })?.profileId, 'U');
+  assert.equal(resolveUiAssignment(as, { userId: 'u2', role: 'operator' })?.profileId, 'R');
+  assert.equal(resolveUiAssignment(as, { userId: 'u2', role: 'admin' })?.profileId, 'O');
   assert.equal(resolveUiAssignment(as, { deviceId: 'd1' }, (id) => id !== 'D')?.profileId, 'O');
   assert.equal(resolveUiAssignment([], { deviceId: 'd1' }), null);
 });

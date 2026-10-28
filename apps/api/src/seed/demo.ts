@@ -11,13 +11,15 @@ import { demoId } from './ids';
 
 export const DEMO_DOMAIN = 'demo.hydris.local';
 export const DEMO_USERS: { key: string; name: string; role: Role; title: string }[] = [
-  { key: 'admin', name: 'Asha Raman', role: 'org_admin', title: 'Head of Operations' },
-  { key: 'manager', name: 'Vikram Iyer', role: 'factory_manager', title: 'Plant Manager' },
-  { key: 'supervisor', name: 'Meera Pillai', role: 'supervisor', title: 'Shift Supervisor' },
-  { key: 'operator', name: 'Karthik Selvam', role: 'field_operator', title: 'Field Operator' },
-  { key: 'operator2', name: 'Divya Nair', role: 'field_operator', title: 'Field Operator' },
-  { key: 'engineer', name: 'Rahul Menon', role: 'maintenance_engineer', title: 'Maintenance Engineer' },
-  { key: 'viewer', name: 'Sanjay Kapoor', role: 'viewer', title: 'Compliance Analyst' },
+  // Administrators (web console; may also use glasses).
+  { key: 'admin', name: 'Asha Raman', role: 'admin', title: 'Head of Operations' },
+  { key: 'manager', name: 'Vikram Iyer', role: 'admin', title: 'Plant Manager' },
+  { key: 'supervisor', name: 'Meera Pillai', role: 'admin', title: 'Shift Supervisor' },
+  // Field Operators (Android app + glasses), invite-only.
+  { key: 'operator', name: 'Karthik Selvam', role: 'operator', title: 'Field Operator' },
+  { key: 'operator2', name: 'Divya Nair', role: 'operator', title: 'Field Operator' },
+  { key: 'engineer', name: 'Rahul Menon', role: 'operator', title: 'Maintenance Engineer' },
+  { key: 'viewer', name: 'Sanjay Kapoor', role: 'operator', title: 'Compliance Analyst' },
 ];
 export const demoEmail = (key: string) => `${key}@${DEMO_DOMAIN}`;
 
@@ -87,11 +89,14 @@ export async function seedDemo(db: Db, password: string, opts: { historyHours?: 
 
   const userIds: Record<string, string> = {};
   const orgId = await withSystem(db, async (tx) => {
-    const [org] = await tx.insert(organizations).values({ id: demoId('org', 'riverbend'), name: 'Riverbend Process Industries (Demo)', slug: 'riverbend-demo', isDemo: true, region: 'Tamil Nadu, IN', timezone: 'Asia/Kolkata' }).returning();
+    const [org] = await tx.insert(organizations).values({ id: demoId('org', 'riverbend'), name: 'Riverbend Process Industries (Demo)', slug: 'riverbend-demo', isDemo: true, region: 'Tamil Nadu, IN', timezone: 'Asia/Kolkata', setupCompletedAt: new Date() }).returning();
+    let n = 0;
     for (const u of DEMO_USERS) {
+      n++;
       const [row] = await tx.insert(users).values({ id: demoId('user', u.key), email: demoEmail(u.key), name: u.name, passwordHash: hash, emailVerifiedAt: new Date(), defaultOrgId: org!.id }).returning();
       userIds[u.key] = row!.id;
-      await tx.insert(memberships).values({ id: demoId('membership', u.key), orgId: org!.id, userId: row!.id, role: u.role, title: u.title });
+      await tx.insert(memberships).values({ id: demoId('membership', u.key), orgId: org!.id, userId: row!.id, role: u.role, title: u.title,
+        ...(u.role === 'operator' ? { employeeId: `RPI-${String(100 + n).padStart(4, '0')}`, phone: `+91 98400 ${String(10000 + n * 137).slice(-5)}`, shiftLabel: n % 2 ? 'A shift (06:00-14:00)' : 'B shift (14:00-22:00)' } : {}) });
     }
     return org!.id;
   });

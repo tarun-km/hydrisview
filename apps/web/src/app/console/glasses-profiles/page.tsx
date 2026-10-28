@@ -30,7 +30,7 @@ export default function Page() {
 
 function GlassesProfiles() {
   const s = useSession();
-  const canRead = s.role === 'org_admin' || s.role === 'factory_manager';
+  const canRead = s.role === 'admin';
   const sp = useSearchParams();
   const [tab, setTab] = useState<'profiles' | 'assignments'>(sp.get('tab') === 'assignments' ? 'assignments' : 'profiles');
   const list = useApi<ListResp>(canRead ? '/ui-profiles' : null);

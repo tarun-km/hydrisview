@@ -1,26 +1,37 @@
 /**
- * Role-based access control. This matrix is the single source of truth: the API
+ * Account types and permissions. This matrix is the single source of truth: the API
  * enforces it on every request and clients only use it to decide what to show.
+ *
+ * Hydris has exactly two account types:
+ * - `admin`    (Administrator): runs the organization in the web console; may also use glasses.
+ * - `operator` (Field Operator): uses the Android app, the glasses and the web glasses app.
+ *   Operators never get the console (no `console.access`, no org-level permissions).
+ *
+ * The database column is still called `role` (enum `role`) for continuity.
  */
 
-export const ROLES = [
-  'org_admin',
-  'factory_manager',
-  'supervisor',
-  'field_operator',
-  'maintenance_engineer',
-  'viewer',
-] as const;
+export const ROLES = ['admin', 'operator'] as const;
 export type Role = (typeof ROLES)[number];
+/** Alias used by the identity surface. */
+export type AccountType = Role;
+export const ACCOUNT_TYPES = ROLES;
 
 export const ROLE_LABELS: Record<Role, string> = {
-  org_admin: 'Organization administrator',
-  factory_manager: 'Factory manager',
-  supervisor: 'Supervisor',
-  field_operator: 'Field operator',
-  maintenance_engineer: 'Maintenance engineer',
-  viewer: 'Read-only viewer',
+  admin: 'Administrator',
+  operator: 'Field Operator',
 };
+
+/** Mapping applied by migration 0009 to the six legacy roles. */
+export const LEGACY_ROLE_MAP = {
+  org_admin: 'admin',
+  factory_manager: 'admin',
+  supervisor: 'admin',
+  field_operator: 'operator',
+  maintenance_engineer: 'operator',
+  viewer: 'operator',
+} as const satisfies Record<string, Role>;
+export type LegacyRole = keyof typeof LEGACY_ROLE_MAP;
+export const mapLegacyRole = (r: string): Role => (r in LEGACY_ROLE_MAP ? LEGACY_ROLE_MAP[r as LegacyRole] : r === 'operator' ? 'operator' : r === 'admin' ? 'admin' : 'operator');
 
 export const PERMISSIONS = [
   'org.manage',
@@ -61,121 +72,76 @@ export const PERMISSIONS = [
   'auditdoc.capture',
   'auditdoc.verify',
   'auditdoc.approve',
+  /** Use the web console (organization management, dashboards, reports). Administrators only. */
+  'console.access',
 ] as const;
 export type Permission = (typeof PERMISSIONS)[number];
 
-const READ_BASE: Permission[] = [
+/**
+ * Field Operator: the former field-operator set plus what operators need in the field:
+ * glasses (pairing), scans (audit-document capture), their own work (execute inspections and
+ * maintenance checklists, raise requests), alarm acknowledgement and the assistant (which
+ * only needs read access). No org-level management and no console.
+ */
+const OPERATOR: Permission[] = [
   'site.read',
   'asset.read',
   'telemetry.read',
   'alarm.read',
+  'alarm.acknowledge',
+  'alarm.investigate',
+  'alarm.resolve',
   'inspection.read',
+  'inspection.execute',
   'maintenance.read',
+  'maintenance.request',
+  'maintenance.execute',
   'document.read',
+  'device.pair',
   'auditdoc.read',
+  'auditdoc.capture',
 ];
 
 export const ROLE_PERMISSIONS: Record<Role, ReadonlySet<Permission>> = {
-  org_admin: new Set(PERMISSIONS),
-  factory_manager: new Set<Permission>([
-    ...READ_BASE,
-    'site.manage',
-    'asset.manage',
-    'sensor.manage',
-    'gateway.manage',
-    'alarm.acknowledge',
-    'alarm.assign',
-    'alarm.investigate',
-    'alarm.resolve',
-    'alarm.close',
-    'alarm_rule.manage',
-    'inspection.manage',
-    'inspection.review',
-    'maintenance.request',
-    'maintenance.manage',
-    'member.read',
-    'member.manage',
-    'device.read',
-    'device.pair',
-    'device.manage',
-    'document.manage',
-    'report.read',
-    'report.export',
-    'audit.read',
-    'simulation.control',
-    'auditdoc.capture',
-    'auditdoc.verify',
-    'auditdoc.approve',
-  ]),
-  supervisor: new Set<Permission>([
-    ...READ_BASE,
-    'alarm.acknowledge',
-    'alarm.assign',
-    'alarm.investigate',
-    'alarm.resolve',
-    'alarm.close',
-    'inspection.manage',
-    'inspection.review',
-    'inspection.execute',
-    'maintenance.request',
-    'maintenance.manage',
-    'member.read',
-    'device.read',
-    'device.pair',
-    'report.read',
-    'report.export',
-    'auditdoc.capture',
-    'auditdoc.verify',
-  ]),
-  field_operator: new Set<Permission>([
-    ...READ_BASE,
-    'alarm.acknowledge',
-    'inspection.execute',
-    'maintenance.request',
-    'device.pair',
-    'auditdoc.capture',
-  ]),
-  maintenance_engineer: new Set<Permission>([
-    ...READ_BASE,
-    'alarm.acknowledge',
-    'alarm.investigate',
-    'alarm.resolve',
-    'inspection.execute',
-    'maintenance.request',
-    'maintenance.execute',
-    'device.pair',
-    'auditdoc.capture',
-  ]),
-  viewer: new Set<Permission>([...READ_BASE, 'report.read']),
+  admin: new Set(PERMISSIONS),
+  operator: new Set<Permission>(OPERATOR),
 };
 
 export function can(role: Role, permission: Permission): boolean {
-  return ROLE_PERMISSIONS[role].has(permission);
+  return ROLE_PERMISSIONS[role]?.has(permission) ?? false;
 }
 
 export function permissionsFor(role: Role): Permission[] {
-  return [...ROLE_PERMISSIONS[role]];
+  return [...(ROLE_PERMISSIONS[role] ?? [])];
 }
 
-/** Roles a member holding `actor` may invite or assign. Never allows escalation above self. */
+/** Account types a member of type `actor` may invite or assign. Only administrators manage people. */
 export function assignableRoles(actor: Role): Role[] {
-  switch (actor) {
-    case 'org_admin':
-      return [...ROLES];
-    case 'factory_manager':
-      return ['supervisor', 'field_operator', 'maintenance_engineer', 'viewer'];
-    default:
-      return [];
-  }
+  return actor === 'admin' ? [...ROLES] : [];
 }
 
-/** Roles whose permissions are always limited to the sites listed on their membership. */
-export const SITE_SCOPED_BY_DEFAULT: ReadonlySet<Role> = new Set([
-  'factory_manager',
-  'supervisor',
-  'field_operator',
-  'maintenance_engineer',
-  'viewer',
-]);
+/** Account types whose access is limited to the sites listed on their membership by default. */
+export const SITE_SCOPED_BY_DEFAULT: ReadonlySet<Role> = new Set(['operator']);
 
 export const isRole = (v: unknown): v is Role => typeof v === 'string' && (ROLES as readonly string[]).includes(v);
+
+/** Membership lifecycle. `removed` memberships are kept for the audit trail but grant nothing. */
+export const MEMBER_STATUSES = ['invited', 'active', 'suspended', 'removed'] as const;
+export type MemberStatus = (typeof MEMBER_STATUSES)[number];
+
+/** Domains allowed to self-register an administrator account (comma-separated env, default hydris.ai). */
+export function parseSignupDomains(raw: string | undefined | null): string[] {
+  const list = (raw ?? 'hydris.ai').split(',').map((d) => d.trim().toLowerCase().replace(/^@/, '')).filter(Boolean);
+  return list.length ? list : ['hydris.ai'];
+}
+
+export function emailDomain(email: string): string {
+  const at = email.lastIndexOf('@');
+  return at < 0 ? '' : email.slice(at + 1).trim().toLowerCase();
+}
+
+/** Exact domain match only (sub-domains and look-alikes are rejected). */
+export function isAllowedSignupEmail(email: string, domains: readonly string[]): boolean {
+  const d = emailDomain(email);
+  return !!d && domains.includes(d);
+}

@@ -360,7 +360,7 @@ export async function plantRoutes(app: FastifyInstance, ctx: Ctx) {
       .where(and(
         or(isNull(documents.siteId), siteScope(p, documents.siteId) ?? sql`true`),
         q.kind ? eq(documents.kind, q.kind) : undefined, q.assetId ? eq(documents.assetId, q.assetId) : undefined,
-        q.status ? eq(documents.status, q.status) : p.role === 'field_operator' || p.role === 'viewer' || p.kind === 'device' ? eq(documents.status, 'approved') : undefined,
+        q.status ? eq(documents.status, q.status) : p.role === 'operator' || p.kind === 'device' ? eq(documents.status, 'approved') : undefined,
         q.q ? or(ilike(documents.title, `%${q.q}%`), sql`to_tsvector('english', ${documents.body}) @@ websearch_to_tsquery('english', ${q.q})`) : undefined,
       )).orderBy(desc(documents.updatedAt));
     return { documents: rows };
@@ -371,7 +371,7 @@ export async function plantRoutes(app: FastifyInstance, ctx: Ctx) {
     const { id } = idParam.parse(req.params);
     const [d] = await tx.select().from(documents).where(eq(documents.id, id));
     if (!d || (d.siteId && !p.allSites && !p.siteIds.includes(d.siteId))) throw notFound('Document');
-    if (d.status !== 'approved' && (p.role === 'field_operator' || p.role === 'viewer' || p.kind === 'device')) throw notFound('Document');
+    if (d.status !== 'approved' && (p.role === 'operator' || p.kind === 'device')) throw notFound('Document');
     return { document: d };
   }));
 

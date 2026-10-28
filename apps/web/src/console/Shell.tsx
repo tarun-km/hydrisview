@@ -13,7 +13,7 @@ import {
   Settings, ShieldCheck, Siren, Sun, UserRound, Users, Wrench, X, ScanLine,
 } from 'lucide-react';
 import { ROLE_LABELS, type Permission } from '@hydris/domain';
-import { getAccessToken, refreshSession } from '@/lib/api';
+import { getAccessToken, refreshSession, setAccessToken } from '@/lib/api';
 import { useSession, useSessionCtx } from '@/lib/session';
 import { openStream, type StreamStatus } from '@/lib/realtime';
 import { invalidatePaths, useApi } from '@/lib/query';
@@ -92,6 +92,10 @@ export function ConsoleShell({ children }: { children: ReactNode }) {
         }
         if (e.type === 'device.live') window.dispatchEvent(new CustomEvent('hydris:device-live', { detail: e.data }));
         if (e.type === 'pairing.completed') toast({ title: 'Glasses paired', tone: 'ok' });
+        if (e.type === 'account.ended') {
+          setAccessToken(null);
+          window.location.assign(`/login?ended=${encodeURIComponent(String(e.data.code ?? 'account_suspended'))}`);
+        }
       },
     });
     return () => {

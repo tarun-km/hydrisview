@@ -21,7 +21,7 @@ type SensorRow = typeof sensors.$inferSelect;
 async function alarmAudience(tx: Tx, orgId: string, siteId: string): Promise<string[]> {
   const members = await tx.select({ userId: memberships.userId, role: memberships.role, allSites: memberships.allSites, id: memberships.id })
     .from(memberships).where(and(eq(memberships.orgId, orgId), eq(memberships.status, 'active'),
-      inArray(memberships.role, ['org_admin', 'factory_manager', 'supervisor', 'field_operator', 'maintenance_engineer'])));
+      inArray(memberships.role, ['admin', 'operator'])));
   const scoped = await rows<{ membership_id: string }>(tx, sql`select membership_id from membership_sites where site_id = ${siteId}`);
   const allowed = new Set(scoped.map((r) => r.membership_id));
   return members.filter((r) => r.allSites || allowed.has(r.id)).map((r) => r.userId);

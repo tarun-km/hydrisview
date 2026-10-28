@@ -14,6 +14,8 @@ export default function ConsoleLayout({ children }: { children: ReactNode }) {
   const noOrg = state.status === 'authed' && !state.session.org;
   const platformAdmin = state.status === 'authed' && state.session.user.isPlatformAdmin;
   const mustRedirectToPlatform = noOrg && platformAdmin && !pathname.startsWith('/console/platform');
+  // Field Operators never get the console (the API refuses console endpoints for them too).
+  const operatorOnly = state.status === 'authed' && !!state.session.org && !state.session.permissions.includes('console.access');
 
   useEffect(() => {
     if (state.status === 'anon') router.replace(`/login?next=${encodeURIComponent(pathname)}`);
@@ -22,8 +24,11 @@ export default function ConsoleLayout({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (mustRedirectToPlatform) router.replace('/console/platform');
   }, [mustRedirectToPlatform, router]);
+  useEffect(() => {
+    if (operatorOnly) router.replace('/operator');
+  }, [operatorOnly, router]);
 
-  if (state.status !== 'authed' || mustRedirectToPlatform) {
+  if (state.status !== 'authed' || mustRedirectToPlatform || operatorOnly) {
     return (
       <div className="grid min-h-dvh place-items-center" role="status" aria-label="Checking session">
         <div className="grid place-items-center gap-5">

@@ -3,7 +3,7 @@
 import { useRouter } from 'next/navigation';
 import { useMemo, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { Mail, Search, ShieldCheck, ShieldOff, UserPlus, X } from 'lucide-react';
+import { FileUp, Mail, Search, ShieldCheck, ShieldOff, UserPlus, X } from 'lucide-react';
 import { ROLE_LABELS, type Role } from '@hydris/domain';
 import { del, post } from '@/lib/api';
 import { invalidatePaths, useAction, useApi } from '@/lib/query';
@@ -13,7 +13,7 @@ import { Avatar, Button, Capsule, Card, Chip, DataTable, EmptyState, IconButton,
 import { ConfirmDialog, Dialog } from '@/ui/overlay';
 import { CopyField, MemberStatusChip, NoAccess, SiteAccessPicker, useSites, type InvitationRow, type MemberRow, type MembersResponse, type Site } from '@/console/admin/parts';
 
-type StatusFilter = 'active' | 'deactivated' | 'all';
+type StatusFilter = 'active' | 'suspended' | 'removed' | 'all';
 
 export default function OperatorsPage() {
   const can = useCan();
@@ -22,6 +22,7 @@ export default function OperatorsPage() {
   const sites = useSites();
   const router = useRouter();
   const [inviteOpen, setInviteOpen] = useState(false);
+  const [bulkOpen, setBulkOpen] = useState(false);
   const [status, setStatus] = useState<StatusFilter>('active');
   const [query, setQuery] = useState('');
   const [revoke, setRevoke] = useState<InvitationRow | null>(null);
@@ -32,15 +33,15 @@ export default function OperatorsPage() {
   const columns: Column<MemberRow>[] = [
     { key: 'name', header: 'Person', cell: (m) => (
       <span className="flex min-w-[200px] items-center gap-3">
-        <span className={m.status === 'deactivated' ? 'opacity-50' : undefined}><Avatar name={m.name} size={34} /></span>
+        <span className={m.status !== 'active' ? 'opacity-50' : undefined}><Avatar name={m.name} size={34} /></span>
         <span className="min-w-0">
           <span className="block truncate">{m.name}</span>
-          <span className="block truncate text-xs text-muted">{m.title ?? m.email}</span>
+          <span className="block truncate text-xs text-muted">{[m.title ?? m.email, m.employeeId, m.shiftLabel].filter(Boolean).join(' · ')}</span>
         </span>
       </span>
     ) },
     { key: 'email', header: 'Email', className: 'hidden xl:table-cell', cell: (m) => <span className="text-text-2">{m.email}</span> },
-    { key: 'role', header: 'Role', cell: (m) => <Chip tone={m.role === 'org_admin' ? 'lime' : 'default'}>{ROLE_LABELS[m.role]}</Chip> },
+    { key: 'role', header: 'Account', cell: (m) => <Chip tone={m.role === 'admin' ? 'lime' : 'default'}>{ROLE_LABELS[m.role]}</Chip> },
     { key: 'status', header: 'Status', cell: (m) => <MemberStatusChip status={m.status} /> },
     { key: 'sites', header: 'Site scope', cell: (m) => m.allSites ? <span className="text-text-2">All sites</span> : (
       <span className="text-text-2" title={m.siteIds.map((s) => siteName.get(s) ?? s).join(', ')}>
@@ -59,14 +60,17 @@ export default function OperatorsPage() {
   return (
     <>
       <PageHeader eyebrow="People & devices" title="Operators"
-        subtitle="Everyone with access to this organization: their role, which sites they can see and what they are working on."
-        actions={canInvite ? <Button variant="primary" icon={<UserPlus size={16} aria-hidden />} onClick={() => setInviteOpen(true)}>Invite people</Button> : undefined} />
+        subtitle="Administrators run the console; Field Operators use the Hydris Field app and glasses. Operators join by invitation only."
+        actions={canInvite ? <div className="flex flex-wrap gap-2">
+          <Button variant="secondary" icon={<FileUp size={16} aria-hidden />} onClick={() => setBulkOpen(true)}>Invite from CSV</Button>
+          <Button variant="primary" icon={<UserPlus size={16} aria-hidden />} onClick={() => setInviteOpen(true)}>Invite people</Button>
+        </div> : undefined} />
       {!allowed ? <NoAccess what="members" /> : (
         <QueryView q={q} loading={<Skeleton className="h-[420px] rounded-[24px]" />}>
           {(data) => {
             const needle = query.trim().toLowerCase();
             const rows = data.members
-              .filter((m) => status === 'all' || (status === 'active' ? m.status !== 'deactivated' : m.status === 'deactivated'))
+              .filter((m) => status === 'all' || (status === 'active' ? m.status === 'active' || m.status === 'invited' : m.status === status))
               .filter((m) => !needle || `${m.name} ${m.email} ${ROLE_LABELS[m.role]}`.toLowerCase().includes(needle));
             const active = data.members.filter((m) => m.status === 'active');
             return (
@@ -80,8 +84,9 @@ export default function OperatorsPage() {
                 <Card>
                   <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
                     <Capsule label="Member status" value={status} onChange={setStatus} options={[
-                      { value: 'active', label: 'Current', count: data.members.filter((m) => m.status !== 'deactivated').length },
-                      { value: 'deactivated', label: 'Deactivated', count: data.members.filter((m) => m.status === 'deactivated').length },
+                      { value: 'active', label: 'Current', count: data.members.filter((m) => m.status === 'active' || m.status === 'invited').length },
+                      { value: 'suspended', label: 'Suspended', count: data.members.filter((m) => m.status === 'suspended').length },
+                      { value: 'removed', label: 'Removed', count: data.members.filter((m) => m.status === 'removed').length },
                       { value: 'all', label: 'All' },
                     ]} />
                     <div className="relative w-full sm:w-72">
@@ -104,7 +109,7 @@ export default function OperatorsPage() {
                               <span className="grid h-9 w-9 flex-none place-items-center rounded-full border border-dashed border-line-2 text-muted"><Mail size={15} aria-hidden /></span>
                               <span className="min-w-0 flex-1">
                                 <span className="block truncate text-sm">{i.name ? `${i.name} · ` : ''}{i.email}</span>
-                                <span className="block text-xs text-muted num">{ROLE_LABELS[i.role]} · invited {fmtDate(i.createdAt)} · {expired ? <span className="text-high-text">expired</span> : `expires ${fmtDateTime(i.expiresAt)}`}</span>
+                                <span className="block text-xs text-muted num">{ROLE_LABELS[i.role]}{i.employeeId ? ` · ${i.employeeId}` : ''} · invited {fmtDate(i.createdAt)} · {expired ? <span className="text-high-text">expired</span> : `expires ${fmtDateTime(i.expiresAt)}`}</span>
                               </span>
                               {can('member.manage') && <IconButton label={`Revoke invitation for ${i.email}`} size="sm" tone="ghost" onClick={() => setRevoke(i)}><X size={16} aria-hidden /></IconButton>}
                             </li>
@@ -114,6 +119,7 @@ export default function OperatorsPage() {
                     ) : <p className="text-sm text-muted">No open invitations. Invited people appear here until they accept.</p>}
                   </Card>
                 )}
+                {bulkOpen && <BulkInviteDialog onClose={() => setBulkOpen(false)} />}
                 {inviteOpen && <InviteDialog roles={data.assignableRoles} sites={sites.data?.sites ?? []} onClose={() => setInviteOpen(false)} />}
                 <ConfirmDialog open={!!revoke} onOpenChange={(v) => !v && setRevoke(null)} title="Revoke invitation?" destructive
                   body={<>The link sent to {revoke?.email} stops working immediately. You can invite them again later.</>}
@@ -141,35 +147,42 @@ function InviteDialog({ roles, sites, onClose }: { roles: Role[]; sites: Site[];
   const orgWide = s.siteScope === 'all';
   const [email, setEmail] = useState('');
   const [name, setName] = useState('');
-  const [role, setRole] = useState<Role>(roles.includes('field_operator') ? 'field_operator' : roles[0]!);
+  const [role, setRole] = useState<Role>(roles.includes('operator') ? 'operator' : roles[0]!);
+  const [employeeId, setEmployeeId] = useState('');
+  const [phone, setPhone] = useState('');
+  const [shiftLabel, setShiftLabel] = useState('');
   const [access, setAccess] = useState<{ allSites: boolean; siteIds: string[] }>({ allSites: orgWide, siteIds: [] });
   const [link, setLink] = useState<string | null>(null);
   const [touched, setTouched] = useState(false);
-  const act = useAction((v: { email: string; name?: string; role: Role; allSites: boolean; siteIds: string[] }) => post<{ invitationLink: string }>('/invitations', v), {
-    invalidate: ['/members'], success: 'Invitation created', onSuccess: (r) => setLink(r.invitationLink),
+  const [sentBySupabase, setSentBySupabase] = useState(false);
+  const act = useAction((v: { email: string; name?: string; role: Role; allSites: boolean; siteIds: string[]; employeeId?: string; phone?: string; shiftLabel?: string }) => post<{ invitationLink: string | null; delivery: 'supabase' | 'outbox' }>('/invitations', v), {
+    invalidate: ['/members'], success: 'Invitation sent', onSuccess: (r) => { setSentBySupabase(r.delivery === 'supabase'); setLink(r.invitationLink ?? ''); },
   });
   const emailErr = !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()) ? 'Enter a valid email address' : null;
   const sitesErr = !access.allSites && !access.siteIds.length;
   const submit = () => {
     setTouched(true);
     if (emailErr || sitesErr) return;
-    act.mutate({ email: email.trim(), name: name.trim() || undefined, role, allSites: access.allSites, siteIds: access.allSites ? [] : access.siteIds });
+    act.mutate({
+      email: email.trim(), name: name.trim() || undefined, role, allSites: access.allSites, siteIds: access.allSites ? [] : access.siteIds,
+      ...(role === 'operator' ? { employeeId: employeeId.trim() || undefined, phone: phone.trim() || undefined, shiftLabel: shiftLabel.trim() || undefined } : {}),
+    });
   };
-  const reset = () => { setLink(null); setEmail(''); setName(''); setTouched(false); };
+  const reset = () => { setLink(null); setEmail(''); setName(''); setEmployeeId(''); setPhone(''); setShiftLabel(''); setTouched(false); };
 
   return (
     <Dialog open onOpenChange={(v) => !v && onClose()} title={link ? 'Invitation ready' : 'Invite people'} wide
-      description={link ? `${email} has been emailed an invitation. You can also share this link directly; it is single-use and expires in 7 days.` : 'Invited people choose their own password when they accept. Their role and site access apply from the first sign-in.'}
-      footer={link ? <>
+      description={link !== null ? (sentBySupabase ? `${email} has been emailed an invitation. It expires in 7 days.` : `${email} has been emailed an invitation. You can also share this link directly; it is single-use and expires in 7 days.`) : 'Invited people set their own password when they accept. Field Operators are then guided to install the Hydris Field app.'}
+      footer={link !== null ? <>
         <Button variant="ghost" onClick={reset}>Invite someone else</Button>
         <Button variant="primary" onClick={onClose}>Done</Button>
       </> : <>
         <Button variant="ghost" onClick={onClose}>Cancel</Button>
         <Button variant="primary" busy={act.isPending} onClick={submit}>Send invitation</Button>
       </>}>
-      {link ? (
+      {link !== null ? (
         <div className="grid gap-3">
-          <CopyField label="Invitation link" value={link} mono />
+          {link ? <CopyField label="Invitation link" value={link} mono /> : <p className="text-sm text-text-2">Delivered by email. The person sets a password from the link, then gets the app.</p>}
           <p className="text-xs text-muted">Treat this link like a password: anyone who opens it can join as {ROLE_LABELS[role]}. Revoke it from Pending invitations if it was shared by mistake.</p>
         </div>
       ) : (
@@ -178,11 +191,56 @@ function InviteDialog({ roles, sites, onClose }: { roles: Role[]; sites: Site[];
             <Input label="Email" type="email" autoComplete="off" value={email} onChange={(e) => setEmail(e.target.value)} error={touched ? emailErr : null} autoFocus required />
             <Input label="Name (optional)" value={name} onChange={(e) => setName(e.target.value)} maxLength={120} />
           </div>
-          <Select label="Role" value={role} onChange={(e) => setRole(e.target.value as Role)} options={roles.map((r) => ({ value: r, label: ROLE_LABELS[r] }))}
-            hint={roles.length < 6 ? 'You can only grant roles below your own.' : undefined} />
+          <Select label="Account type" value={role} onChange={(e) => setRole(e.target.value as Role)} options={roles.map((r) => ({ value: r, label: ROLE_LABELS[r] }))}
+            hint={role === 'operator' ? 'Uses the Hydris Field app and glasses. No console access.' : 'Full console access for this organization; may also use glasses.'} />
+          {role === 'operator' && (
+            <div className="grid gap-4 sm:grid-cols-3">
+              <Input label="Employee ID (optional)" value={employeeId} onChange={(e) => setEmployeeId(e.target.value)} maxLength={40} />
+              <Input label="Phone (optional)" type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} maxLength={30} />
+              <Input label="Shift (optional)" value={shiftLabel} onChange={(e) => setShiftLabel(e.target.value)} maxLength={60} placeholder="A shift (06:00-14:00)" />
+            </div>
+          )}
           <SiteAccessPicker sites={sites} allSites={access.allSites} siteIds={access.siteIds} onChange={setAccess} allowAllSites={orgWide} />
           {touched && sitesErr && <p className="field-error" role="alert">Select at least one site.</p>}
         </form>
+      )}
+    </Dialog>
+  );
+}
+
+interface BulkResult { invited: number; failed: number; results: { row: number; email: string; ok: boolean; error?: string }[] }
+
+const CSV_PLACEHOLDER = 'email,name,employee_id,phone,shift,sites\npriya@plant.example,Priya,EMP-42,+91 90000 00042,A shift,ETP-01';
+
+/** Bulk operator invitations from a CSV file (email, name, employee_id, phone, shift, sites). */
+function BulkInviteDialog({ onClose }: { onClose: () => void }) {
+  const [csv, setCsv] = useState('');
+  const [result, setResult] = useState<BulkResult | null>(null);
+  const act = useAction((v: { csv: string }) => post<BulkResult>('/invitations/bulk', v), {
+    invalidate: ['/members'], onSuccess: (r) => setResult(r),
+  });
+  const onFile = async (f: File | undefined) => { if (f) setCsv(await f.text()); };
+  return (
+    <Dialog open onOpenChange={(v) => !v && onClose()} title={result ? 'Invitations sent' : 'Invite Field Operators from CSV'} wide
+      description={result ? `${result.invited} invited · ${result.failed} skipped` : 'One operator per row. Columns: email (required), name, employee_id, phone, shift, sites (site codes separated by ";"; empty means all sites).'}
+      footer={result ? <Button variant="primary" onClick={onClose}>Done</Button> : <>
+        <Button variant="ghost" onClick={onClose}>Cancel</Button>
+        <Button variant="primary" busy={act.isPending} disabled={!csv.trim()} onClick={() => act.mutate({ csv })}>Send invitations</Button>
+      </>}>
+      {result ? (
+        <ul className="grid max-h-[50vh] gap-1.5 overflow-auto text-sm">
+          {result.results.map((r) => (
+            <li key={r.row} className="card-inset flex items-center justify-between gap-3 px-3 py-2">
+              <span className="min-w-0 truncate"><span className="num text-muted">Row {r.row}</span> · {r.email || '(no email)'}</span>
+              {r.ok ? <Chip tone="ok">Invited</Chip> : <span className="text-right text-xs text-high-text">{r.error}</span>}
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <div className="grid gap-3">
+          <input type="file" accept=".csv,text/csv" aria-label="CSV file" className="text-sm" onChange={(e) => void onFile(e.target.files?.[0])} />
+          <textarea className="input min-h-[180px] font-mono text-[13px]" aria-label="CSV content" placeholder={CSV_PLACEHOLDER} value={csv} onChange={(e) => setCsv(e.target.value)} />
+        </div>
       )}
     </Dialog>
   );

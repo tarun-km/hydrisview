@@ -32,7 +32,7 @@ test('login, refresh rotation, reuse detection, logout invalidates access immedi
 
   const c = await as(h.app, 'admin');
   const me = (await c.req('GET', '/api/auth/me')).json();
-  assert.equal(me.role, 'org_admin');
+  assert.equal(me.role, 'admin');
   assert.ok(me.permissions.includes('member.manage'));
 
   const first = c.cookie;
@@ -82,7 +82,7 @@ test('API tenant isolation and invitation onboarding of a second organization', 
   assert.equal(created.statusCode, 201);
   const token = linkToken(created.json().adminInvitationLink, '/invite/');
   const preview = (await new Client(h.app).req('GET', `/api/auth/invitations/${token}`)).json();
-  assert.equal(preview.role, 'org_admin');
+  assert.equal(preview.role, 'admin');
   const nora = new Client(h.app);
   const acc = await nora.req('POST', '/api/auth/invitations/accept', { token, name: 'Nora Admin', password: 'another-strong-pass' });
   assert.equal(acc.statusCode, 200);
@@ -105,8 +105,10 @@ test('role-based access is enforced by the API, including privilege escalation a
   const mgr = await as(h.app, 'manager');
   const alarms = (await mgr.req('GET', '/api/alarms')).json().alarms;
   assert.equal((await op.req('POST', '/api/assets', { facilityId: '00000000-0000-0000-0000-000000000000', tag: 'Z-1', name: 'Nope', type: 'pump' })).statusCode, 403);
-  assert.equal((await viewer.req('POST', '/api/maintenance', { title: 'Viewer request', siteId: h.demo.siteId })).statusCode, 403);
-  assert.equal((await mgr.req('POST', '/api/invitations', { email: 'boss@x.test', role: 'org_admin' })).statusCode, 403, 'manager cannot mint admins');
+  assert.equal((await viewer.req('POST', '/api/maintenance', { title: 'Operator request', siteId: h.demo.siteId })).statusCode, 201, 'operators raise maintenance requests');
+  assert.equal((await op.req('POST', '/api/invitations', { email: 'boss@x.test', role: 'admin' })).statusCode, 403, 'operators cannot mint admins');
+  assert.equal((await op.req('PATCH', `/api/members/${h.demo.users.admin}`, { role: 'operator' })).statusCode, 403, 'operators cannot change roles');
+  assert.equal((await mgr.req('POST', '/api/invitations', { email: 'legacy@x.test', role: 'org_admin' })).statusCode, 400, 'legacy role names are rejected');
   assert.equal((await op.req('GET', '/api/members')).statusCode, 403);
   assert.equal((await op.req('GET', '/api/audit')).statusCode, 403);
   void alarms;
@@ -165,14 +167,16 @@ test('alarm lifecycle: acknowledgement is separate from resolution and permissio
   const viewer = await as(h.app, 'viewer');
   const alarm = (await mgr.req('GET', '/api/alarms?state=open')).json().alarms.find((a: { sensorTag: string }) => a.sensorTag === 'VT-101');
   assert.ok(alarm, 'vibration alarm exists');
-  assert.equal((await viewer.req('POST', `/api/alarms/${alarm.id}/acknowledge`)).statusCode, 403);
+  assert.equal((await viewer.req('POST', `/api/alarms/${alarm.id}/assign`, { userId: h.demo.users.engineer })).statusCode, 403, 'operators cannot assign');
   assert.equal((await op.req('POST', `/api/alarms/${alarm.id}/close`)).statusCode, 403);
   assert.equal((await op.req('POST', `/api/alarms/${alarm.id}/acknowledge`)).statusCode, 200);
   assert.equal((await op.req('POST', `/api/alarms/${alarm.id}/acknowledge`)).statusCode, 409, 'cannot acknowledge twice');
   assert.equal((await sup.req('POST', `/api/alarms/${alarm.id}/assign`, { userId: h.demo.users.engineer })).statusCode, 200);
+  // Field operators acknowledge, investigate and resolve in the field (with a note); only administrators close.
   assert.equal((await eng.req('POST', `/api/alarms/${alarm.id}/investigate`)).statusCode, 200);
   assert.equal((await eng.req('POST', `/api/alarms/${alarm.id}/resolve`, {})).statusCode, 400, 'resolution requires a note');
   assert.equal((await eng.req('POST', `/api/alarms/${alarm.id}/resolve`, { note: 'Realigned coupling, vibration 2.1 mm/s' })).statusCode, 200);
+  assert.equal((await eng.req('POST', `/api/alarms/${alarm.id}/close`)).statusCode, 403, 'operators cannot close');
   assert.equal((await sup.req('POST', `/api/alarms/${alarm.id}/close`)).statusCode, 200);
   const detail = (await mgr.req('GET', `/api/alarms/${alarm.id}`)).json();
   assert.equal(detail.alarm.state, 'closed');
@@ -193,8 +197,7 @@ test('glasses pairing, inspection on glasses, sync to console, review, revocatio
   assert.equal((await poll()).json().status, 'pending');
   assert.equal((await anon.req('POST', `/api/pairing/challenges/${challengeId}/poll`, { pollSecret: 'x'.repeat(40) })).statusCode, 404);
 
-  const viewer = await as(h.app, 'viewer');
-  assert.equal((await viewer.req('GET', `/api/pairing/lookup?code=${userCode}`)).statusCode, 403);
+  assert.equal((await anon.req('GET', `/api/pairing/lookup?code=${userCode}`)).statusCode, 401);
   const op = await as(h.app, 'operator');
   const look = await op.req('GET', `/api/pairing/lookup?code=${userCode}`);
   assert.equal(look.statusCode, 200);
@@ -310,7 +313,7 @@ test('deterministic simulation scenario drives alarms through the real pipeline 
   const doAlarm = alarms.find((a: { sensorTag: string; severity: string }) => a.sensorTag === 'DO-201' && a.severity === 'critical');
   assert.ok(doAlarm, 'critical low-low DO alarm raised');
   assert.equal(doAlarm.synthetic, true);
-  const viewerStart = await (await as(h.app, 'supervisor')).req('POST', '/api/simulation/start', { scenario: 'normal_operations', siteId: h.demo.siteId });
+  const viewerStart = await (await as(h.app, 'operator')).req('POST', '/api/simulation/start', { scenario: 'normal_operations', siteId: h.demo.siteId });
   assert.equal(viewerStart.statusCode, 403, 'simulation controls require simulation.control');
   void withSystem;
 });

@@ -79,7 +79,7 @@ export interface AssistResponse {
 }
 
 export interface AssetLite { id: string; tag: string; name: string; type: AssetType; siteId: string; siteName: string; status: string }
-export interface Member { userId: string; name: string; email: string; role: Role; status: 'invited' | 'active' | 'deactivated'; title: string | null; openInspections: number; openTasks: number }
+export interface Member { userId: string; name: string; email: string; role: Role; status: 'invited' | 'active' | 'suspended' | 'removed'; title: string | null; openInspections: number; openTasks: number }
 
 // ---------------------------------------------------------------- lookups
 
@@ -99,8 +99,8 @@ export function useMembers(roles: readonly Role[] | null, enabled = true) {
   return { q, list };
 }
 
-export const INSPECTION_EXECUTOR_ROLES: readonly Role[] = ['field_operator', 'maintenance_engineer', 'supervisor', 'factory_manager', 'org_admin'];
-export const MAINTENANCE_ASSIGNEE_ROLES: readonly Role[] = ['maintenance_engineer', 'field_operator', 'supervisor', 'factory_manager', 'org_admin'];
+export const INSPECTION_EXECUTOR_ROLES: readonly Role[] = ['operator', 'admin'];
+export const MAINTENANCE_ASSIGNEE_ROLES: readonly Role[] = ['operator', 'admin'];
 
 // ---------------------------------------------------------------- dates
 

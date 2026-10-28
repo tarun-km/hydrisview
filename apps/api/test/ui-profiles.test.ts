@@ -41,10 +41,9 @@ async function createProfile(admin: Client, name: string, config: UiProfileConfi
   return id;
 }
 
-test('ui profiles: only org_admin edits; factory_manager reads; operators denied', async () => {
+test('ui profiles: administrators read and edit; operators and glasses denied', async () => {
   const mgr = await as(h.app, 'manager');
   assert.equal((await mgr.req('GET', '/api/ui-profiles')).statusCode, 200);
-  assert.equal((await mgr.req('POST', '/api/ui-profiles', { name: 'Nope' })).statusCode, 403);
   const op = await as(h.app, 'operator');
   assert.equal((await op.req('GET', '/api/ui-profiles')).statusCode, 403);
   assert.equal((await glasses.req('GET', '/api/ui-profiles')).statusCode, 403);
@@ -124,7 +123,7 @@ test('ui profiles: precedence device > user > role > org via effective endpoint'
   const eff = async () => (await admin.req('GET', `/api/ui-profiles-effective?deviceId=${deviceId}`)).json().effective;
   await admin.req('POST', '/api/ui-profile-assignments', { scope: 'org', profileId: o });
   assert.equal((await eff()).profileId, o);
-  await admin.req('POST', '/api/ui-profile-assignments', { scope: 'role', profileId: r, role: 'field_operator' });
+  await admin.req('POST', '/api/ui-profile-assignments', { scope: 'role', profileId: r, role: 'operator' });
   assert.equal((await eff()).source, 'role');
   const ua = (await admin.req('POST', '/api/ui-profile-assignments', { scope: 'user', profileId: u, userId: h.demo.users.operator })).json().assignment;
   assert.equal((await eff()).profileId, u);

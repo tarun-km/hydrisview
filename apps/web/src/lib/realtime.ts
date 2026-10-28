@@ -69,6 +69,12 @@ export function openStream(opts: {
             if (chunk.startsWith(':')) continue;
             if (ev.id) lastId = ev.id;
             if (ev.type === 'ready') opts.onStatus('live');
+            // Suspended / removed (users) or revoked (glasses): deliver, then stop for good.
+            if (ev.type === 'account.ended' || ev.type === 'session.revoked') {
+              opts.onEvent(ev);
+              opts.onStatus('ended');
+              return;
+            }
             if (ev.type === 'session.ended') {
               if (await opts.refresh()) break;
               opts.onStatus('ended');

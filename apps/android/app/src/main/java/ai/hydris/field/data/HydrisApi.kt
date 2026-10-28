@@ -38,7 +38,10 @@ class HydrisApi(private val store: SecureStore, val baseUrl: String = BuildConfi
   private val jsonType = "application/json".toMediaType()
 
   @Volatile var accessToken: String? = null
-  @Volatile var onSessionLost: (() -> Unit)? = null
+  /** Called when the session cannot be renewed; the argument is the API error code (e.g. account_suspended). */
+  @Volatile var onSessionLost: ((String?) -> Unit)? = null
+  /** Error code of the last failed refresh (account_suspended / account_removed / session_revoked …). */
+  @Volatile var lastRefreshError: String? = null
   private val refreshLock = Mutex()
 
   private val cookieJar = object : CookieJar {
@@ -84,11 +87,12 @@ class HydrisApi(private val store: SecureStore, val baseUrl: String = BuildConfi
 
   suspend fun raw(path: String, method: String = "GET", body: String? = null, retry: Boolean = true): String = withContext(Dispatchers.IO) {
     val res = http.newCall(request(path, method, body, accessToken)).execute()
-    if (res.code == 401 && retry && !path.startsWith("/auth/login") && !path.startsWith("/auth/demo")) {
+    if (res.code == 401 && retry && !path.startsWith("/auth/")) {
       res.close()
       if (refresh()) return@withContext raw(path, method, body, retry = false)
-      onSessionLost?.invoke()
-      throw ApiException(401, "unauthenticated", "Session ended. Please sign in again.")
+      val code = lastRefreshError
+      onSessionLost?.invoke(code)
+      throw ApiException(if (code == "account_suspended" || code == "account_removed") 403 else 401, code ?: "unauthenticated", "Session ended. Please sign in again.")
     }
     res.use { it.textOrThrow() }
   }
@@ -102,8 +106,13 @@ class HydrisApi(private val store: SecureStore, val baseUrl: String = BuildConfi
     withContext(Dispatchers.IO) {
       runCatching {
         http.newCall(request("/auth/refresh", "POST", "{}", null)).execute().use { res ->
-          if (!res.isSuccessful) return@use false
-          val s = json.decodeFromString(Session.serializer(), res.body!!.string())
+          val text = res.body?.string().orEmpty()
+          if (!res.isSuccessful) {
+            lastRefreshError = runCatching { json.decodeFromString(ApiErrorBody.serializer(), text).error?.code }.getOrNull()
+            return@use false
+          }
+          lastRefreshError = null
+          val s = json.decodeFromString(Session.serializer(), text)
           accessToken = s.accessToken
           s.accessToken != null
         }
@@ -113,7 +122,13 @@ class HydrisApi(private val store: SecureStore, val baseUrl: String = BuildConfi
 
   // ------------------------------------------------------------------ auth
   suspend fun login(email: String, password: String): Session = post<Map<String, String>, Session>("/auth/login", mapOf("email" to email, "password" to password)).also { accessToken = it.accessToken }
-  suspend fun demo(name: String): Session = post<Map<String, String>, Session>("/auth/demo", mapOf("name" to name)).also { accessToken = it.accessToken }
+  /** Demo mode: "Try as Administrator" (type = admin) or "Try as Field Operator" (type = operator). */
+  suspend fun demo(name: String, type: String = "operator"): Session = post<Map<String, String>, Session>("/auth/demo", mapOf("name" to name, "type" to type)).also { accessToken = it.accessToken }
+  /** Email a one-time sign-in link that opens this app (hydrisfield://auth-callback). */
+  suspend fun requestMagicLink(email: String) { raw("/auth/magic-link", "POST", json.encodeToString(MagicLinkRequest.serializer(), MagicLinkRequest(email, "android"))) }
+  /** Finish an emailed link: built-in magic token, or a Supabase access token from the link fragment. */
+  suspend fun exchange(magicToken: String? = null, supabaseAccessToken: String? = null): Session =
+    post<ExchangeRequest, Session>("/auth/callback/exchange", ExchangeRequest(accessToken = supabaseAccessToken, magicToken = magicToken)).also { accessToken = it.accessToken }
   suspend fun me(): Session = get("/auth/me")
   suspend fun logout() { runCatching { postEmpty("/auth/logout") }; clearSession() }
 

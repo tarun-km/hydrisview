@@ -20,11 +20,15 @@ export interface DeviceRow {
 }
 
 export interface MemberRow {
-  membershipId: string; userId: string; name: string; email: string; role: Role; status: 'invited' | 'active' | 'deactivated';
+  membershipId: string; userId: string; name: string; email: string; role: Role; status: 'invited' | 'active' | 'suspended' | 'removed';
   allSites: boolean; title: string | null; lastLoginAt: string | null; mfaEnabled: boolean; createdAt: string;
+  employeeId: string | null; phone: string | null; shiftLabel: string | null; suspendedAt: string | null; removedAt: string | null;
   siteIds: string[]; devices: number; openInspections: number; openTasks: number;
 }
-export interface InvitationRow { id: string; email: string; name: string | null; role: Role; expiresAt: string; createdAt: string }
+export interface InvitationRow {
+  id: string; email: string; name: string | null; role: Role; expiresAt: string; createdAt: string; status: 'pending' | 'expired';
+  allSites: boolean; siteIds: string[]; employeeId: string | null; phone: string | null; shiftLabel: string | null;
+}
 export interface MembersResponse { members: MemberRow[]; invitations: InvitationRow[]; assignableRoles: Role[] }
 
 export function useSites() {
@@ -39,7 +43,8 @@ export function NoAccess({ what }: { what: string }) {
 export function MemberStatusChip({ status }: { status: MemberRow['status'] }) {
   if (status === 'active') return <Chip tone="ok">Active</Chip>;
   if (status === 'invited') return <Chip tone="outline">Invited</Chip>;
-  return <Chip tone="outline" className="opacity-70">Deactivated</Chip>;
+  if (status === 'suspended') return <Chip tone="high">Suspended</Chip>;
+  return <Chip tone="outline" className="opacity-70">Removed</Chip>;
 }
 
 /** Read-only value with a copy button (invitation links, MFA secrets). */

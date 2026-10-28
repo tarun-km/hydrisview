@@ -136,7 +136,7 @@ const STATE_TONE: Record<string, Parameters<typeof Chip>[0]['tone']> = {
   open: 'outline', assigned: 'cobalt', on_hold: 'medium', completed: 'ok',
   operational: 'ok', degraded: 'medium', down: 'critical', maintenance: 'cobalt', standby: 'outline', decommissioned: 'outline',
   connected: 'ok', disconnected: 'medium', paired: 'outline', suspended: 'high', revoked: 'critical', pending_pairing: 'outline', unregistered: 'outline',
-  invited: 'outline', deactivated: 'outline', draft: 'outline', archived: 'outline', urgent: 'critical', high: 'high', medium: 'medium', low: 'low', normal: 'outline',
+  invited: 'outline', deactivated: 'outline', removed: 'outline', pending: 'outline', expired: 'outline', draft: 'outline', archived: 'outline', urgent: 'critical', high: 'high', medium: 'medium', low: 'low', normal: 'outline',
 };
 export function StateChip({ state, label }: { state: string; label?: string }) {
   return <Chip tone={STATE_TONE[state] ?? 'outline'}>{label ?? state.replace(/_/g, ' ').replace(/^\w/, (c) => c.toUpperCase())}</Chip>;

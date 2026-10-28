@@ -10,10 +10,15 @@ export class ApiError extends Error {
 
 export interface SessionView {
   accessToken?: string;
-  user: { id: string; name: string; email: string; isPlatformAdmin: boolean; mfaEnabled: boolean };
+  user: { id: string; name: string; email: string; isPlatformAdmin: boolean; mfaEnabled: boolean; emailVerified?: boolean };
   memberships: { orgId: string; orgName: string; role: Role; isDemo: boolean; allSites: boolean }[];
-  org: { id: string; name: string; isDemo: boolean } | null;
+  org: { id: string; name: string; isDemo: boolean; setupCompleted?: boolean } | null;
   role: Role | null;
+  /** 'admin' (console + glasses) or 'operator' (Hydris Field app + glasses). */
+  accountType?: Role | null;
+  profile?: { title: string | null; employeeId: string | null; phone: string | null; shiftLabel: string | null } | null;
+  /** Where to land after sign-in: /console, /console/setup or /operator. */
+  home?: string;
   permissions: Permission[];
   siteScope: 'all' | string[];
 }

@@ -127,7 +127,7 @@ test('cross-tenant correction attempts and history lookups return 404', async ()
   const token = linkToken(created.json().adminInvitationLink, '/invite/');
   const sam = new Client(h.app);
   const acc = await sam.req('POST', '/api/auth/invitations/accept', { token, name: 'Sam Admin', password: 'another-strong-pass' });
-  assert.equal(acc.statusCode, 200);
+  assert.equal(acc.statusCode, 200, acc.body);
   sam.absorb(acc);
   const mgr = await as(h.app, 'manager');
   const r = (await readings(mgr)).readings[2]!;

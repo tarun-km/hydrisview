@@ -15,6 +15,10 @@ export function canReceive(p: Principal, e: DomainEvent): boolean {
   return true;
 }
 
+/** Events that end the receiving session: the stream closes right after delivering them. */
+export const isTerminalFor = (p: Principal, e: DomainEvent) =>
+  (e.type === 'account.ended' && p.kind === 'user') || (e.type === 'session.revoked' && p.kind === 'device');
+
 export const formatSse = (e: DomainEvent) => `id: ${e.id}\nevent: ${e.type}\ndata: ${JSON.stringify({ ...(e.payload as object), _at: e.at })}\n\n`;
 export const readySse = (p: Principal, retryMs = 3000) => `retry: ${retryMs}\nevent: ready\ndata: ${JSON.stringify({ kind: p.kind, serverTime: new Date().toISOString() })}\n\n`;
 
@@ -53,7 +57,10 @@ export async function runDbEventStream(o: DbStreamOptions): Promise<void> {
     const events = await readEventsSince(o.ctx.db, cursor, p.orgId);
     for (const e of events) {
       cursor = e.id;
-      if (canReceive(p, e)) o.write(formatSse(e));
+      if (canReceive(p, e)) {
+        o.write(formatSse(e));
+        if (isTerminalFor(p, e)) return;
+      }
     }
     if (Date.now() - lastBeat >= 15_000) {
       o.write(`: hb ${Date.now()}\n\n`);
@@ -103,8 +110,15 @@ export async function realtimeRoutes(app: FastifyInstance, ctx: Ctx) {
       res.end();
       return;
     }
+    let ended = false;
     const send = (e: DomainEvent) => {
-      if (p && canReceive(p, e)) res.write(formatSse(e));
+      if (ended || !p || !canReceive(p, e)) return;
+      res.write(formatSse(e));
+      // Suspended / removed: tell the client and close now (it must not reconnect with this session).
+      if (isTerminalFor(p, e)) {
+        ended = true;
+        res.end();
+      }
     };
     res.write(readySse(p));
     for (const e of ctx.bus.since(lastId)) send(e);

@@ -43,7 +43,11 @@ export function findMigrationsFolder(): string {
   return found;
 }
 
-let instance: Promise<ServerlessApi> | null = null;
+/**
+ * One API per process. Kept on globalThis so route bundles that load this module separately
+ * (Next.js dev compiles each route on its own) share the same instance, database and event log.
+ */
+const holder = globalThis as typeof globalThis & { __hydrisServerlessApi?: Promise<ServerlessApi> | null };
 
 async function create(): Promise<ServerlessApi> {
   const config = loadConfig();
@@ -59,13 +63,13 @@ async function create(): Promise<ServerlessApi> {
 
 /** The per-instance API (built on first use; a failed build is retried on the next request). */
 export function getServerlessApi(): Promise<ServerlessApi> {
-  if (!instance) {
-    instance = create().catch((e) => {
-      instance = null;
+  if (!holder.__hydrisServerlessApi) {
+    holder.__hydrisServerlessApi = create().catch((e) => {
+      holder.__hydrisServerlessApi = null;
       throw e;
     });
   }
-  return instance;
+  return holder.__hydrisServerlessApi;
 }
 
 /** Verify `Authorization: Bearer <jwt>` and resolve the principal (same rules as API routes). */

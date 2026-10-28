@@ -65,7 +65,7 @@ test('capture → review → verify → independent approval → PDF', async () 
   assert.ok(parsed.getPageCount() >= 3, 'cover + scan + reconstructed page');
 });
 
-test('verifier self-approval is only allowed (and recorded) in demo tenants; viewers cannot capture', async () => {
+test('verifier self-approval is only allowed (and recorded) in demo tenants; operators capture but cannot verify', async () => {
   const op = await as(h.app, 'operator');
   const id = (await op.req('POST', '/api/audit-docs', { title: 'Permit check', pages: [page([line(0.1, 'Permit No: EP-2231')], [line(0.1, 'Permit No: EP-2231')])] })).json().id;
   const mgr = await as(h.app, 'manager');
@@ -75,9 +75,11 @@ test('verifier self-approval is only allowed (and recorded) in demo tenants; vie
   assert.equal(r.statusCode, 200, r.body); // the test tenant is the demo tenant
   const ev = (await mgr.req('GET', `/api/audit-docs/${id}`)).json().events;
   assert.ok(ev.some((e: { action: string; note: string | null }) => e.action === 'approved' && e.note?.includes('Self-approved')));
+  // 'viewer' was a read-only role; it is a Field Operator now (legacy mapping), so it captures scans.
   const viewer = await as(h.app, 'viewer');
-  assert.equal((await viewer.req('POST', '/api/audit-docs', { pages: [page([line(0.1, 'A: 1')], [line(0.1, 'A: 1')])] })).statusCode, 403);
+  assert.equal((await viewer.req('POST', '/api/audit-docs', { pages: [page([line(0.1, 'A: 1')], [line(0.1, 'A: 1')])] })).statusCode, 201);
   assert.equal((await viewer.req('GET', `/api/audit-docs/${id}`)).statusCode, 200);
+  assert.equal((await op.req('POST', `/api/audit-docs/${id}/verify`, {})).statusCode, 403, 'operators cannot verify');
 });
 
 test('vision output is cross-checked against OCR text inside each value box', () => {

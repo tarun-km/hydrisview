@@ -231,7 +231,7 @@ export function GlassesApp({ demoScenario, simulator, profilePreview }: { demoSc
           const a = e.data as unknown as GAlarm & { siteId?: string };
           if (a.severity === 'critical' || a.severity === 'high') setInterrupt({ ...a, assetTag: null });
           reload();
-        } else if (e.type === 'device.revoked') { link.forget(); setPhase('revoked'); }
+        } else if (e.type === 'device.revoked' || e.type === 'session.revoked') { link.forget(); setPhase('revoked'); }
         else if (e.type === 'device.context_changed') {
           void link.refresh().then(() => loadContext()).then((c) => flash(`Device now assigned to ${c.operator.name}`)).catch((err) => {
             if (err instanceof DeviceError && err.code === 'device_suspended') setPhase('suspended');
@@ -1053,7 +1053,7 @@ function Status({ ctx, status, onLogout }: { ctx: GContext; status: StatusInfo; 
         {status.staleAt && <HudPill tone="high">cached {timeAgo(status.staleAt)}</HudPill>}
       </div>
       <dl className="grid grid-cols-2 gap-x-6 gap-y-3 text-[20px]">
-        <Kv k="Operator" v={ctx.operator.name} /><Kv k="Role" v={ctx.role.replace(/_/g, ' ')} />
+        <Kv k="Operator" v={ctx.operator.name} /><Kv k="Account" v={ctx.role === 'admin' ? 'Administrator' : ctx.role === 'operator' ? 'Field Operator' : ctx.role.replace(/_/g, ' ')} />
         <Kv k="Site" v={ctx.site?.name ?? '—'} /><Kv k="Session" v={status.demo ? 'Demo · client-side' : 'Active · device-bound'} />
         <Kv k="UI profile" v={pr ? `${pr.name}${pr.version ? ` · v${pr.version}` : ''}` : 'Built-in default'} /><Kv k="Applied via" v={pr?.source ?? 'default'} />
         <Kv k="Last sync" v={status.lastSync ? timeAgo(status.lastSync) : 'not yet'} /><Kv k="App version" v={`${APP_VERSION} · ${ctx.device.kind}`} />

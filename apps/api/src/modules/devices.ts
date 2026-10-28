@@ -225,7 +225,7 @@ export async function deviceRoutes(app: FastifyInstance, ctx: Ctx, opts: { relax
       const siteRows = await tx.select({ id: sites.id, name: sites.name, code: sites.code }).from(sites).where(and(siteScope(p, sites.id), isNull(sites.archivedAt))).orderBy(asc(sites.name));
       const assignees = has(p, 'device.manage')
         ? await tx.select({ id: users.id, name: users.name, role: memberships.role }).from(memberships).innerJoin(users, eq(users.id, memberships.userId))
-            .where(and(eq(memberships.status, 'active'), inArray(memberships.role, ['field_operator', 'maintenance_engineer', 'supervisor', 'factory_manager', 'org_admin']))).orderBy(asc(users.name))
+            .where(and(eq(memberships.status, 'active'), inArray(memberships.role, ['operator', 'admin']))).orderBy(asc(users.name))
         : await tx.select({ id: users.id, name: users.name, role: memberships.role }).from(memberships).innerJoin(users, eq(users.id, memberships.userId)).where(eq(memberships.userId, p.userId));
       const [org] = await tx.select({ name: organizations.name }).from(organizations).where(eq(organizations.id, p.orgId));
       const [existing] = await tx.select({ id: devices.id, name: devices.name, status: devices.status }).from(devices).where(eq(devices.hardwareId, c.hardwareId));

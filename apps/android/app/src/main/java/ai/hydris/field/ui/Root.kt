@@ -14,6 +14,7 @@ import ai.hydris.field.ui.screens.CaptureViewer
 import ai.hydris.field.ui.screens.CapturesScreen
 import ai.hydris.field.ui.screens.GlassesScreen
 import ai.hydris.field.ui.screens.HomeScreen
+import ai.hydris.field.ui.screens.AccountEndedScreen
 import ai.hydris.field.ui.screens.LoginScreen
 import ai.hydris.field.ui.screens.ScanScreen
 import ai.hydris.field.ui.screens.SensorScreen
@@ -111,19 +112,53 @@ fun Root(activity: MainActivity) {
   val app = LocalContext.current.applicationContext as HydrisApp
   var session by remember { mutableStateOf<Session?>(null) }
   var restoring by remember { mutableStateOf(true) }
+  /** account_suspended / account_removed: shown instead of the login form until acknowledged. */
+  var ended by remember { mutableStateOf<String?>(null) }
+  var prefillEmail by remember { mutableStateOf<String?>(null) }
+  var linkError by remember { mutableStateOf<String?>(null) }
   val scope = rememberCoroutineScope()
+
+  // Suspended / removed by the administrator: drop every credential (user session and glasses device token).
+  fun endAccount(code: String?) {
+    val blocked = code == "account_suspended" || code == "account_removed"
+    app.api.clearSession()
+    if (blocked) { app.api.forgetDevice(); ended = code }
+    session = null
+  }
 
   LaunchedEffect(Unit) {
     session = runCatching { app.api.resume() }.getOrNull()
+    if (session == null) app.api.lastRefreshError?.let { if (it == "account_suspended" || it == "account_removed") endAccount(it) }
     restoring = false
-    app.api.onSessionLost = { session = null }
+    app.api.onSessionLost = { code -> scope.launch { endAccount(code) } }
+  }
+
+  // Emailed sign-in links that open the app (hydrisfield://auth-callback?magic=… or #access_token=…).
+  LaunchedEffect(Unit) {
+    activity.authLink.collect { uri ->
+      if (uri == null) return@collect
+      activity.authLink.value = null
+      if (uri.host == "login") { prefillEmail = uri.getQueryParameter("email"); return@collect }
+      val magic = uri.getQueryParameter("magic")
+      val fragment = uri.fragment.orEmpty().split('&').mapNotNull { kv -> kv.split('=', limit = 2).takeIf { it.size == 2 }?.let { it[0] to android.net.Uri.decode(it[1]) } }.toMap()
+      val token = fragment["access_token"]
+      if (magic == null && token == null) { linkError = fragment["error_description"]?.replace('+', ' ') ?: "This sign-in link is invalid or has expired."; return@collect }
+      runCatching { app.api.exchange(magicToken = magic, supabaseAccessToken = token) }
+        .onSuccess { ended = null; linkError = null; session = it }
+        .onFailure { e -> val code = (e as? ai.hydris.field.data.ApiException)?.code; if (code == "account_suspended" || code == "account_removed") endAccount(code) else linkError = e.message }
+    }
   }
 
   Box(Modifier.fillMaxSize().background(Hx.Midnight)) {
     when {
       restoring -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { ai.hydris.field.ui.components.HydrisLogo(72.dp) }
-      session == null -> LoginScreen(onSignedIn = { session = it })
-      else -> Main(activity, session!!, onSignOut = { scope.launch { app.voice.stop(); app.api.logout(); session = null } })
+      ended != null -> AccountEndedScreen(ended!!, onBack = { ended = null })
+      session == null -> LoginScreen(
+        initialEmail = prefillEmail, initialError = linkError,
+        onSignedIn = { linkError = null; session = it },
+        onBlocked = { code -> endAccount(code) },
+      )
+      else -> Main(activity, session!!, onSignOut = { scope.launch { app.voice.stop(); app.api.logout(); session = null } }, onAccountEnded = { code -> scope.launch { app.voice.stop(); endAccount(code) } })
     }
   }
 }
@@ -140,7 +175,7 @@ private val TABS = listOf(
 @OptIn(androidx.compose.animation.ExperimentalSharedTransitionApi::class)
 @SuppressLint("MissingPermission")
 @Composable
-private fun Main(activity: MainActivity, session: Session, onSignOut: () -> Unit) {
+private fun Main(activity: MainActivity, session: Session, onSignOut: () -> Unit, onAccountEnded: (String) -> Unit) {
   val app = LocalContext.current.applicationContext as HydrisApp
   val nav = rememberNavController()
   val current by nav.currentBackStackEntryAsState()
@@ -155,6 +190,12 @@ private fun Main(activity: MainActivity, session: Session, onSignOut: () -> Unit
   LaunchedEffect(session.user.id) {
     val nm = activity.getSystemService(NotificationManager::class.java)
     app.api.events().collect { (event, data) ->
+      if (event == "account.ended") {
+        // Suspended or removed by the administrator: sign out within seconds.
+        val code = runCatching { app.api.json.parseToJsonElement(data).jsonObject["code"]?.jsonPrimitive?.content }.getOrNull() ?: "account_suspended"
+        onAccountEnded(code)
+        return@collect
+      }
       if (event != "alarm.created") return@collect
       val o = runCatching { app.api.json.parseToJsonElement(data).jsonObject }.getOrNull() ?: return@collect
       val state = o["state"]?.jsonPrimitive?.content

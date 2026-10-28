@@ -38,9 +38,30 @@ const schema = z.object({
    * public demo secrets, lazily advanced simulation. Auto-enabled on Vercel when DATABASE_URL is unset.
    */
   DEMO_MODE: z.enum(['true', 'false']).optional(),
+  // ---------------- identity (Supabase Auth) ----------------
+  /** https://<project-ref>.supabase.co — when set (with SUPABASE_ANON_KEY), sign-up/sign-in/reset/magic links go through Supabase Auth. */
+  SUPABASE_URL: z.string().url().optional().or(z.literal('').transform(() => undefined)),
+  /** Public anon key (safe to expose). */
+  SUPABASE_ANON_KEY: z.string().optional(),
+  /** Server-only service-role key (invites, admin user management). Never sent to clients. */
+  SUPABASE_SERVICE_ROLE_KEY: z.string().optional(),
+  /** Legacy HS256 JWT secret. Optional: without it access tokens are verified against the project's JWKS. */
+  SUPABASE_JWT_SECRET: z.string().optional(),
+  /** Comma-separated email domains allowed to self-register an Administrator account. */
+  ADMIN_SIGNUP_DOMAINS: z.string().default('hydris.ai'),
+  /** Where operators get the Android app (Play Store listing; placeholder until published). */
+  ANDROID_APP_URL: z.string().default('https://play.google.com/store/apps/details?id=ai.hydris.field'),
+  /** Direct APK download (sideload) while the Play listing is pending. */
+  ANDROID_APK_URL: z.string().optional(),
+  // ---------------- email (Brevo) ----------------
+  /** Brevo transactional API key. Unset = keep mail in mail_outbox only (dev, tests, demo). */
+  BREVO_API_KEY: z.string().optional(),
+  /** Sender, e.g. "Hydris <no-reply@hydris.ai>" (the domain must be authenticated in Brevo). */
+  MAIL_FROM: z.string().default('Hydris <no-reply@hydris.ai>'),
+  MAIL_REPLY_TO: z.string().optional(),
 });
 
-export type Config = z.infer<typeof schema> & { isProd: boolean; serverless: boolean; demoMode: boolean };
+export type Config = z.infer<typeof schema> & { isProd: boolean; serverless: boolean; demoMode: boolean; supabaseEnabled: boolean };
 
 /** Public, non-secret demo credentials. Only ever used when demo mode is on and nothing else is configured. */
 export const DEMO_SECRETS = {
@@ -93,7 +114,9 @@ export function loadConfig(overrides: Partial<Record<keyof z.infer<typeof schema
   }
   const d = parsed.data;
   // Demo mode always behaves like serverless: no interval timers; simulations advance lazily per request.
-  return { ...d, isProd: d.NODE_ENV === 'production', demoMode, serverless: d.SERVERLESS === '1' || d.SERVERLESS === 'true' || !!d.VERCEL || demoMode };
+  // Supabase Auth is the identity provider when configured. Demo mode (in-memory, synthetic) never uses it.
+  const supabaseEnabled = !demoMode && !!d.SUPABASE_URL && !!d.SUPABASE_ANON_KEY;
+  return { ...d, isProd: d.NODE_ENV === 'production', demoMode, supabaseEnabled, serverless: d.SERVERLESS === '1' || d.SERVERLESS === 'true' || !!d.VERCEL || demoMode };
 }
 
 /** Access-token lifetime: short normally; 12 h in demo mode (sessions there live per instance). */
@@ -105,6 +128,8 @@ export const TTL = {
   deviceRefreshMs: 30 * 24 * 3600_000,
   inviteMs: 7 * 24 * 3600_000,
   resetMs: 30 * 60_000,
+  verifyMs: 24 * 3600_000,
+  magicLinkMs: 15 * 60_000,
   mfaChallenge: '5m',
   lockoutMs: 15 * 60_000,
   maxFailedLogins: 5,

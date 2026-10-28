@@ -117,9 +117,9 @@ export function installProfileEnforcement(app: FastifyInstance, ctx: Ctx) {
 }
 
 // ---------------- routes ----------------
-const canRead = (p: Principal) => p.kind === 'user' && (p.role === 'org_admin' || p.role === 'factory_manager');
+const canRead = (p: Principal) => p.kind === 'user' && p.role === 'admin';
 const requireRead = (p: Principal) => { if (!canRead(p)) throw forbidden(); };
-const requireEdit = (p: Principal) => { if (p.kind !== 'user' || p.role !== 'org_admin') throw forbidden('Only organization administrators can change glasses UI profiles'); };
+const requireEdit = (p: Principal) => { if (p.kind !== 'user' || p.role !== 'admin') throw forbidden('Only organization administrators can change glasses UI profiles'); };
 
 const idParam = z.object({ id: z.uuid() });
 
@@ -167,7 +167,7 @@ export async function uiProfileRoutes(app: FastifyInstance, ctx: Ctx) {
         hasDraft: versions.some((v) => v.profileId === pr.id && v.status === 'draft'),
         assignments: assigns.find((a) => a.profileId === pr.id)?.n ?? 0,
       })),
-      canEdit: p.role === 'org_admin',
+      canEdit: p.role === 'admin',
       defaultConfig: DEFAULT_UI_PROFILE_CONFIG,
     };
   }));
@@ -204,7 +204,7 @@ export async function uiProfileRoutes(app: FastifyInstance, ctx: Ctx) {
       profile: pr, versions,
       draft: versions.find((v) => v.status === 'draft') ?? null,
       published: versions.find((v) => v.status === 'published') ?? null,
-      assignments, canEdit: p.role === 'org_admin',
+      assignments, canEdit: p.role === 'admin',
     };
   }));
 
@@ -310,7 +310,7 @@ export async function uiProfileRoutes(app: FastifyInstance, ctx: Ctx) {
       .from(uiProfileAssignments).innerJoin(uiProfiles, eq(uiProfiles.id, uiProfileAssignments.profileId))
       .leftJoin(users, eq(users.id, uiProfileAssignments.userId)).leftJoin(devices, eq(devices.id, uiProfileAssignments.deviceId))
       .orderBy(asc(uiProfileAssignments.scope), asc(uiProfileAssignments.createdAt));
-    return { assignments: rows.map((r) => ({ ...r.a, profileName: r.profileName, userName: r.userName, deviceName: r.deviceName })), canEdit: p.role === 'org_admin' };
+    return { assignments: rows.map((r) => ({ ...r.a, profileName: r.profileName, userName: r.userName, deviceName: r.deviceName })), canEdit: p.role === 'admin' };
   }));
 
   const assignBody = z.discriminatedUnion('scope', [

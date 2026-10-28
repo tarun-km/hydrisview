@@ -5,6 +5,7 @@ import { withSystem } from './db/tenant';
 import { evaluateStaleRules } from './modules/alarms';
 import type { SimulationEngine } from './modules/simulation';
 import { pruneRealtimeEvents } from './core/events';
+import { deliverOutbox } from './core/mailer';
 
 const engineOf = (ctx: Ctx) => (ctx as Ctx & { simulation?: SimulationEngine }).simulation;
 
@@ -18,6 +19,7 @@ export interface JobReport {
   pairingExpiry: 'ok' | string;
   realtimePruned: number | string;
   simulationSteps: number | 'disabled' | string;
+  mail?: { sent: number; failed: number } | 'disabled' | string;
 }
 
 const errText = (e: unknown) => `error: ${e instanceof Error ? e.message : String(e)}`;
@@ -33,6 +35,7 @@ export async function runScheduledJobs(ctx: Ctx): Promise<JobReport> {
   report.realtimePruned = await pruneRealtimeEvents(ctx.db).catch(errText);
   const engine = engineOf(ctx);
   if (engine && ctx.config.SIMULATOR_ENABLED === 'true') report.simulationSteps = await engine.advanceAll().catch(errText);
+  report.mail = ctx.mailer ? await deliverOutbox(ctx.db, ctx.mailer, 50).catch(errText) : 'disabled';
   await ctx.bus.flush();
   return report;
 }
@@ -41,6 +44,7 @@ export async function runScheduledJobs(ctx: Ctx): Promise<JobReport> {
 export function startJobs(ctx: Ctx): () => void {
   const stale = setInterval(() => evaluateStaleRules(ctx).catch((e) => console.error('[jobs] stale rules', e)), 30_000);
   const expire = setInterval(() => expirePairings(ctx).catch((e) => console.error('[jobs] pairing expiry', e)), 60_000);
+  const mail = ctx.mailer ? setInterval(() => void deliverOutbox(ctx.db, ctx.mailer).catch(() => {}), 60_000) : null;
   const prune = ctx.bus.mode === 'db'
     ? setInterval(() => pruneRealtimeEvents(ctx.db).catch((e) => console.error('[jobs] realtime prune', e)), 3600_000)
     : null;
@@ -54,5 +58,6 @@ export function startJobs(ctx: Ctx): () => void {
     clearInterval(stale);
     clearInterval(expire);
     if (prune) clearInterval(prune);
+    if (mail) clearInterval(mail);
   };
 }

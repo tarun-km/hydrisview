@@ -268,7 +268,7 @@ export class DemoData implements GlassesData {
       measurements: this.measurements(this.previewConfig ?? DEFAULT_UI_PROFILE_CONFIG),
       profile: this.previewConfig ? { id: null, name: 'Draft preview', version: null, source: 'preview', config: normalizeUiProfileConfig(this.previewConfig) } : { id: null, name: 'Built-in default', version: null, source: 'default', config: DEFAULT_UI_PROFILE_CONFIG },
       device: { id: 'demo', name: 'Demo glasses', kind: 'simulator' }, operator: { id: 'demo-op', name: 'Demo Operator' },
-      organization: { name: 'Riverbend demo plant', isDemo: true }, site: { id: 'demo-site', name: SIM_PLANT.site.name, code: SIM_PLANT.site.code }, role: 'field_operator',
+      organization: { name: 'Riverbend demo plant', isDemo: true }, site: { id: 'demo-site', name: SIM_PLANT.site.name, code: SIM_PLANT.site.code }, role: 'operator',
       inspections: this.status === 'submitted' ? [] : [{ id: 'demo-insp', title: 'Pump routine inspection · P-101', status: this.status, priority: 'normal', dueAt: new Date(this.started + 3 * 3600_000).toISOString(), assetTag: 'P-101', assetName: 'Transfer pump P-101', stepCount: DEMO_STEPS.length, revision: 1 }],
       alarms: this.alarms(),
       tasks: [{ id: 'demo-task', title: 'Dosing pump diaphragm check', status: 'assigned', priority: 'medium', assetTag: 'DP-301', checklist: this.checklist }],

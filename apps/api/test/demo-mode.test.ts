@@ -60,7 +60,7 @@ test('owner logs in with demo@123 and is org admin of the demo org and platform 
   const me = (await c.req('GET', '/api/auth/me')).json();
   assert.equal(me.user.name, 'Tarun KM');
   assert.equal(me.user.isPlatformAdmin, true);
-  assert.equal(me.role, 'org_admin');
+  assert.equal(me.role, 'admin');
   assert.equal(me.org.isDemo, true);
   // Demo role accounts share the demo password.
   await login(a.app, 'operator@demo.hydris.local');
@@ -292,4 +292,27 @@ test('voice assistant answers from the connected account (user and paired glasse
   const g = await ask(glasses, 'Hey Hydris what is the current pH');
   assert.equal(g.intent, 'reading');
   assert.match(g.answer, /pH/);
+});
+
+test('demo: "Try as Administrator" and "Try as Field Operator" create named accounts of that type in the same demo org', async () => {
+  const adm = new Client(a.app);
+  const ra = await adm.req('POST', '/api/auth/demo', { name: 'Asha Try', type: 'admin' });
+  assert.equal(ra.statusCode, 200, ra.body);
+  const sa = adm.absorb(ra);
+  assert.equal(sa.role, 'admin');
+  assert.equal(sa.home, '/console');
+  const op = new Client(a.app);
+  const ro = await op.req('POST', '/api/auth/demo', { name: 'Asha Try', type: 'operator' });
+  assert.equal(ro.statusCode, 200, ro.body);
+  const so = op.absorb(ro);
+  assert.equal(so.role, 'operator');
+  assert.equal(so.home, '/operator');
+  assert.equal(so.org.id, sa.org.id, 'same demo organization');
+  assert.notEqual(so.user.id, sa.user.id, 'separate accounts per type');
+  assert.equal((await op.req('GET', '/api/members')).statusCode, 403, 'demo operator has no console');
+  assert.equal((await op.req('GET', '/api/inspections')).statusCode, 200);
+  // Another instance rebuilds the operator guest from its token (type preserved).
+  const other = new Client(b.app);
+  other.token = op.token;
+  assert.equal((await other.req('GET', '/api/auth/me')).json().role, 'operator');
 });

@@ -17,7 +17,11 @@ import kotlinx.serialization.json.JsonElement
   val permissions: List<String> = emptyList(),
   val mfaRequired: Boolean = false,
   val mfaToken: String? = null,
+  /** "admin" (console + glasses) or "operator" (this app + glasses). Admins may use the app for glasses too. */
+  val accountType: String? = null,
 )
+@Serializable data class MagicLinkRequest(val email: String, val client: String)
+@Serializable data class ExchangeRequest(val accessToken: String? = null, val magicToken: String? = null)
 
 // ---------------- overview (console dashboard)
 @Serializable data class Overview(

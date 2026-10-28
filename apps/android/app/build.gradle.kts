@@ -36,6 +36,8 @@ android {
       signingConfig = signingConfigs.getByName("debug") // replace with the release keystore for distribution
     }
   }
+  // One APK per CPU type (arm64 covers current phones) plus a universal APK for anything else.
+  splits { abi { isEnable = true; reset(); include("arm64-v8a", "armeabi-v7a", "x86_64"); isUniversalApk = true } }
   buildFeatures { buildConfig = true; compose = true }
   compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
   packaging { resources { excludes += "/META-INF/{AL2.0,LGPL2.1}" } }

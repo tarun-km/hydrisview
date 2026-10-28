@@ -10,6 +10,8 @@ import type { Db } from './db/client';
 import { HttpError } from './core/errors';
 import { EventBus } from './core/events';
 import { createStorage } from './core/services';
+import { createSupabaseAuth } from './core/supabase';
+import { createMailer, deliverOutbox } from './core/mailer';
 import type { Ctx } from './context';
 import { authRoutes } from './modules/auth';
 import { orgRoutes } from './modules/org';
@@ -38,7 +40,11 @@ export interface BuildOptions {
 
 export async function buildApp(opts: BuildOptions): Promise<{ app: FastifyInstance; ctx: Ctx }> {
   const app = Fastify({ logger: opts.logger ? { level: 'info' } : false, bodyLimit: 1024 * 1024, trustProxy: true });
-  const ctx: Ctx = { db: opts.db, config: opts.config, bus: new EventBus(opts.config.REALTIME_MODE, opts.db), storage: createStorage(opts.config), liveDevices: new Map() };
+  const ctx: Ctx = { db: opts.db, config: opts.config, bus: new EventBus(opts.config.REALTIME_MODE, opts.db), storage: createStorage(opts.config), supabase: createSupabaseAuth(opts.config), mailer: opts.config.demoMode ? null : createMailer(opts.config), liveDevices: new Map() };
+  // Brevo: deliver mail queued by the request once its transaction has committed (never blocks the response).
+  app.addHook('onResponse', async () => {
+    if (ctx.mailer) void deliverOutbox(ctx.db, ctx.mailer).catch((e) => console.error('[mail] outbox', (e as Error).message));
+  });
   // db realtime mode: persist events published by the handler once it has finished (its transaction is closed).
   if (ctx.bus.mode === 'db') app.addHook('onSend', async () => ctx.bus.flush());
   // Demo mode: no cron or timers needed; live data advances lazily on API activity.

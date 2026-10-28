@@ -56,7 +56,7 @@ export function RouteProfile({ metrics, hover, onHover }: { metrics: RouteMetric
   );
 }
 
-const EXECUTOR_ROLES: Role[] = ['field_operator', 'maintenance_engineer', 'supervisor', 'factory_manager', 'org_admin'];
+const EXECUTOR_ROLES: Role[] = ['operator', 'admin'];
 
 export function DispatchDialog({ open, onOpenChange, route, siteId, assetsById, templates }: {
   open: boolean; onOpenChange: (v: boolean) => void; route: InspectionRoute; siteId: string; assetsById: Map<string, AssetSummary>; templates: InspectionTemplate[];
@@ -79,7 +79,7 @@ export function DispatchDialog({ open, onOpenChange, route, siteId, assetsById, 
 
   const eligible = useMemo(() => (members.data?.members ?? [])
     .filter((m) => m.status === 'active' && EXECUTOR_ROLES.includes(m.role as Role) && (m.allSites || m.siteIds.includes(siteId)))
-    .sort((a, b) => Number(b.role === 'field_operator') - Number(a.role === 'field_operator') || a.name.localeCompare(b.name)), [members.data, siteId]);
+    .sort((a, b) => Number(b.role === 'operator') - Number(a.role === 'operator') || a.name.localeCompare(b.name)), [members.data, siteId]);
 
   const typed = route.assetIds.filter((id) => templateFor(assetsById.get(id) ?? null, templates)).length;
   const viaFallback = route.assetIds.length - typed;

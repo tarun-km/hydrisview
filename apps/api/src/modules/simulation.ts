@@ -112,7 +112,7 @@ export class SimulationEngine {
       const [a] = await tx.update(assets).set({ status: ev.offline ? 'down' : 'operational', updatedAt: new Date() }).where(and(eq(assets.siteId, siteId), eq(assets.tag, ev.assetTag))).returning();
       if (a) this.ctx.bus.publish({ type: 'asset.updated', orgId, siteId, permission: 'asset.read', payload: { id: a.id, status: a.status } });
     } else if (ev.type === 'reassign_device') {
-      const ops = await tx.select({ userId: memberships.userId }).from(memberships).where(and(eq(memberships.role, 'field_operator'), eq(memberships.status, 'active'))).orderBy(asc(memberships.createdAt));
+      const ops = await tx.select({ userId: memberships.userId }).from(memberships).where(and(eq(memberships.role, 'operator'), eq(memberships.status, 'active'))).orderBy(asc(memberships.createdAt));
       const sims = await tx.select().from(devices).where(and(eq(devices.kind, 'simulator'), eq(devices.status, 'active')));
       for (const d of sims) {
         const [cur] = await tx.select().from(deviceAssignments).where(and(eq(deviceAssignments.deviceId, d.id), isNull(deviceAssignments.unassignedAt)));
@@ -130,7 +130,7 @@ export class SimulationEngine {
 
   private async demoOperator(tx: Tx): Promise<string | null> {
     const [op] = await tx.select({ id: users.id }).from(memberships).innerJoin(users, eq(users.id, memberships.userId))
-      .where(and(eq(memberships.role, 'field_operator'), eq(memberships.status, 'active'))).orderBy(asc(memberships.createdAt)).limit(1);
+      .where(and(eq(memberships.role, 'operator'), eq(memberships.status, 'active'))).orderBy(asc(memberships.createdAt)).limit(1);
     return op?.id ?? null;
   }
 }
@@ -145,7 +145,7 @@ export async function simulationRoutes(app: FastifyInstance, ctx: Ctx) {
     const [org] = await tx.select({ isDemo: organizations.isDemo }).from(organizations).where(eq(organizations.id, p.orgId));
     const runs = await tx.select().from(simulationRuns).where(eq(simulationRuns.status, 'running'));
     return {
-      available: !!org?.isDemo && ctx.config.SIMULATOR_ENABLED === 'true', canControl: p.kind === 'user' && org?.isDemo && p.role !== 'viewer' && (p.role === 'org_admin' || p.role === 'factory_manager'),
+      available: !!org?.isDemo && ctx.config.SIMULATOR_ENABLED === 'true', canControl: p.kind === 'user' && org?.isDemo && p.role === 'admin',
       scenarios: SCENARIO_KEYS.map((k) => ({ key: k, title: SCENARIOS[k].title, summary: SCENARIOS[k].summary, expected: SCENARIOS[k].expected, steps: SCENARIOS[k].steps })),
       stepSeconds: SIM_STEP_SECONDS,
       running: runs.map((r) => ({ ...r, live: ctx.config.serverless || engine.isRunning(r.id) })),

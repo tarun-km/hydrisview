@@ -31,7 +31,7 @@ test('db mode: published events are persisted after the request and filtered per
   const me = await mgr.req('GET', '/api/auth/me');
   assert.equal(me.statusCode, 200);
   // Same canReceive rules as the in-memory hub.
-  const p = { kind: 'user', userId: h.demo.users.manager!, orgId: h.demo.orgId, role: 'factory_manager', allSites: true, siteIds: [], isDemoOrg: true, isPlatformAdmin: false } as never;
+  const p = { kind: 'user', userId: h.demo.users.manager!, orgId: h.demo.orgId, role: 'admin', allSites: true, siteIds: [], isDemoOrg: true, isPlatformAdmin: false } as never;
   assert.equal(canReceive(p, evs[0]!), true);
   assert.equal(canReceive(p, evs[1]!), false);
 });

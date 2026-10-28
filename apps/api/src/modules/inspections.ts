@@ -73,7 +73,7 @@ export async function createInspection(ctx: Ctx, tx: Tx, p: Principal | { orgId:
   if ('kind' in p) requireSite(p, siteId, 'Site');
   if (input.assignedTo) {
     const [m] = await tx.select().from(memberships).where(and(eq(memberships.userId, input.assignedTo), eq(memberships.status, 'active')));
-    if (!m || !['field_operator', 'maintenance_engineer', 'supervisor', 'factory_manager', 'org_admin'].includes(m.role)) throw badRequest('invalid_assignee', 'Assignee cannot execute inspections');
+    if (!m || !['operator', 'admin'].includes(m.role)) throw badRequest('invalid_assignee', 'Assignee cannot execute inspections');
   }
   const [row] = await tx.insert(inspections).values({
     orgId: p.orgId, siteId, assetId: input.assetId ?? null, templateId: tpl.id, templateVersion: tpl.version, routeId: input.routeId ?? null,

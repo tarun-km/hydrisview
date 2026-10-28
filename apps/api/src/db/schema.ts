@@ -95,10 +95,12 @@ export const users = pgTable(
     lockedUntil: ts('locked_until'),
     lastLoginAt: ts('last_login_at'),
     defaultOrgId: uuid('default_org_id'),
+    /** Supabase Auth user id (auth.users.id) when Supabase is the identity provider; null for built-in auth / not yet linked. */
+    supabaseUserId: uuid('supabase_user_id'),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
-  (t) => [uniqueIndex('users_email_lower_uq').on(sql`lower(${t.email})`)],
+  (t) => [uniqueIndex('users_email_lower_uq').on(sql`lower(${t.email})`), uniqueIndex('users_supabase_uq').on(t.supabaseUserId)],
 );
 
 export const organizations = pgTable(
@@ -112,6 +114,10 @@ export const organizations = pgTable(
     region: text('region'),
     timezone: text('timezone').notNull().default('UTC'),
     status: text('status').$type<'active' | 'suspended'>().notNull().default('active'),
+    /** Work-email domain of the administrator who created the organization by self sign-up. */
+    emailDomain: text('email_domain'),
+    /** Set when an administrator finishes the console setup wizard. */
+    setupCompletedAt: ts('setup_completed_at'),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
@@ -129,9 +135,17 @@ export const memberships = pgTable(
     /** When false, access is limited to sites listed in membership_sites. */
     allSites: boolean('all_sites').notNull().default(true),
     title: text('title'),
+    /** Field Operator profile. */
+    employeeId: text('employee_id'),
+    phone: text('phone'),
+    shiftLabel: text('shift_label'),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
+    /** Legacy name of suspendedAt (kept for older rows). */
     deactivatedAt: ts('deactivated_at'),
+    suspendedAt: ts('suspended_at'),
+    removedAt: ts('removed_at'),
+    statusChangedBy: uuid('status_changed_by').references(() => users.id),
   },
   (t) => [uniqueIndex('memberships_org_user_uq').on(t.orgId, t.userId), index('memberships_user_idx').on(t.userId)],
 );
@@ -156,6 +170,11 @@ export const invitations = pgTable(
     role: roleEnum('role').notNull(),
     siteIds: jsonb('site_ids').$type<string[]>().notNull().default([]),
     allSites: boolean('all_sites').notNull().default(true),
+    /** pending until accepted or revoked; expiry is evaluated against expires_at. */
+    status: text('status').$type<'pending' | 'accepted' | 'revoked'>().notNull().default('pending'),
+    employeeId: text('employee_id'),
+    phone: text('phone'),
+    shiftLabel: text('shift_label'),
     tokenHash: text('token_hash').notNull(),
     expiresAt: ts('expires_at').notNull(),
     acceptedAt: ts('accepted_at'),
@@ -191,7 +210,7 @@ export const authTokens = pgTable(
   'auth_tokens',
   {
     id: pk(),
-    purpose: text('purpose').$type<'password_reset' | 'email_verify'>().notNull(),
+    purpose: text('purpose').$type<'password_reset' | 'email_verify' | 'magic_link'>().notNull(),
     userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
     tokenHash: text('token_hash').notNull(),
     expiresAt: ts('expires_at').notNull(),
@@ -207,8 +226,14 @@ export const mailOutbox = pgTable('mail_outbox', {
   to: text('to').notNull(),
   subject: text('subject').notNull(),
   bodyText: text('body_text').notNull(),
+  /** HTML alternative (Brevo htmlContent); the text body is always sent too. */
+  bodyHtml: text('body_html'),
   createdAt: createdAt(),
   sentAt: ts('sent_at'),
+  /** Delivery attempts through the mail provider (Brevo) and the last (token-free) error. */
+  attempts: integer('attempts').notNull().default(0),
+  lastError: text('last_error'),
+  nextAttemptAt: ts('next_attempt_at'),
 });
 
 // ---------------- plant hierarchy ----------------

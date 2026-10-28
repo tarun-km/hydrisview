@@ -78,7 +78,7 @@ test('live view: another organization cannot read the snapshot', async () => {
   const { users, memberships } = await import('../src/db/schema.js');
   const outsider = await withSystem(h.database.db, async (tx) => {
     const [u] = await tx.insert(users).values({ email: `live-outsider-${Date.now()}@other.test`, name: 'Outsider' } as typeof users.$inferInsert).returning();
-    await tx.insert(memberships).values({ orgId: other.id, userId: u!.id, role: 'org_admin', status: 'active', allSites: true } as typeof memberships.$inferInsert);
+    await tx.insert(memberships).values({ orgId: other.id, userId: u!.id, role: 'admin', status: 'active', allSites: true } as typeof memberships.$inferInsert);
     return u!;
   });
   const c = new Client(h.app);
