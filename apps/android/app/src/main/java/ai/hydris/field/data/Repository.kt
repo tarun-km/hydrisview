@@ -4,7 +4,47 @@ import kotlinx.coroutines.delay
 import kotlinx.serialization.builtins.ListSerializer
 
 /** Everything the app reads and writes, all through the shared Hydris API (one account, every surface). */
-class Repository(val api: HydrisApi) {
+class Repository(val api: HydrisApi, val outbox: Outbox) {
+  /** A server view, or the last cached copy when offline ([cachedAt] set). */
+  data class Fresh<T>(val value: T, val cachedAt: Long? = null)
+
+  private suspend fun <T> cachedGet(key: String, path: String, de: kotlinx.serialization.KSerializer<T>): Fresh<T> = try {
+    val text = api.raw(path)
+    outbox.putCache(key, text)
+    Fresh(api.json.decodeFromString(de, text))
+  } catch (e: java.io.IOException) {
+    if (e is ApiException && !e.retryable()) throw e
+    val text = outbox.cacheText(key) ?: throw e
+    Fresh(api.json.decodeFromString(de, text), outbox.cacheAge(key) ?: 0L)
+  }
+
+  // ---------------- field operator (/me/*)
+  suspend fun shift(): Fresh<Shift> = cachedGet("shift", "/me/shift", Shift.serializer())
+  suspend fun work(scope: String): Fresh<WorkView> = cachedGet("work_$scope", "/me/work?scope=$scope", WorkView.serializer())
+  suspend fun profile(): Fresh<Profile> = cachedGet("profile", "/me/profile", ProfileEnvelope.serializer()).let { Fresh(it.value.profile, it.cachedAt) }
+
+  // ---------------- rounds
+  /** Latest server view of a round (cached for offline use); falls back to the cached copy when offline. */
+  suspend fun inspection(id: String): Fresh<InspectionEnvelope> = try {
+    val env = api.get<InspectionEnvelope>("/inspections/$id")
+    outbox.saveInspection(env)
+    Fresh(env)
+  } catch (e: java.io.IOException) {
+    if (e is ApiException && !e.retryable()) throw e
+    Fresh(outbox.cachedInspection(id) ?: throw e, outbox.cacheAge("insp_$id") ?: 0L)
+  }
+  suspend fun sendResponses(id: String, ops: List<ResponseOp>): ResponseResult = api.post("/inspections/$id/responses", ResponseBatch(ops))
+  suspend fun inspectionAction(id: String, action: String): InspectionDetail =
+    api.json.decodeFromString(InspectionEnvelope.serializer(), api.raw("/inspections/$id/$action", "POST", "{}")).inspection
+  suspend fun uploadAttachment(ownerType: String, ownerId: String, file: java.io.File): String =
+    api.json.decodeFromString(AttachmentEnvelope.serializer(), api.upload("/attachments", mapOf("ownerType" to ownerType, "ownerId" to ownerId), file, "image/jpeg")).attachment.id
+
+  // ---------------- maintenance
+  suspend fun task(id: String): TaskEnvelope = api.get("/maintenance/$id")
+  suspend fun taskAction(id: String, action: String, note: String? = null): Task =
+    api.post<Map<String, String>, TaskEnvelope>("/maintenance/$id/$action", buildMap { note?.let { put("note", it) } }).task
+  suspend fun alarmDetail(id: String): AlarmEnvelope = api.get("/alarms/$id")
+
   suspend fun overview(): Overview = api.get("/overview")
   suspend fun alarms(): List<Alarm> = api.get<AlarmList>("/alarms").alarms
   suspend fun alarm(id: String): Alarm = api.get<AlarmEnvelope>("/alarms/$id").alarm

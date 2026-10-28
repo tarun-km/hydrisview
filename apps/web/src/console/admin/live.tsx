@@ -18,6 +18,9 @@ export interface LiveView {
   view: string | null;
   camera?: string | null;
   cameraActive: boolean;
+  /** Battery percent when the glasses report it. */
+  battery?: number | null;
+  charging?: boolean | null;
   updatedAt: string | null;
   live: boolean;
 }

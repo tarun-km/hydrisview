@@ -10,7 +10,7 @@ import * as RDialog from '@radix-ui/react-dialog';
 import clsx from 'clsx';
 import {
   SlidersHorizontal, Activity, BarChart3, Bell, Boxes, Building2, Check, ClipboardCheck, FileText, Glasses, LayoutGrid, LogOut, Menu, Monitor, MonitorSmartphone, Moon, Route, ScrollText, Search,
-  Settings, ShieldCheck, Siren, Sun, UserRound, Users, Wrench, X, ScanLine,
+  Settings, ShieldCheck, Siren, Sun, UserRound, Users, Wrench, X, ScanLine, Radar, Stamp,
 } from 'lucide-react';
 import { ROLE_LABELS, type Permission } from '@hydris/domain';
 import { getAccessToken, refreshSession, setAccessToken } from '@/lib/api';
@@ -26,33 +26,36 @@ import { CommandPalette } from './CommandPalette';
 
 interface NavItem { href: string; label: string; icon: ReactNode; perm?: Permission; group: string }
 const NAV: NavItem[] = [
-  { href: '/console', label: 'Overview', icon: <LayoutGrid size={19} />, group: 'Operate' },
-  { href: '/console/alarms', label: 'Alarms & events', icon: <Siren size={19} />, perm: 'alarm.read', group: 'Operate' },
-  { href: '/console/telemetry', label: 'Sensor monitoring', icon: <Activity size={19} />, perm: 'telemetry.read', group: 'Operate' },
-  { href: '/console/map', label: 'Plant map & rounds', icon: <Route size={19} />, perm: 'site.read', group: 'Operate' },
-  { href: '/console/inspections', label: 'Inspections', icon: <ClipboardCheck size={19} />, perm: 'inspection.read', group: 'Work' },
+  { href: '/console', label: 'Command', icon: <Radar size={19} />, perm: 'console.access', group: 'Command' },
+  { href: '/console/operators', label: 'Operators', icon: <Users size={19} />, perm: 'member.read', group: 'Team' },
+  { href: '/console/devices', label: 'Devices', icon: <Glasses size={19} />, perm: 'device.read', group: 'Team' },
+  { href: '/console/glasses-profiles', label: 'Glasses UI profiles', icon: <SlidersHorizontal size={19} />, perm: 'device.manage', group: 'Team' },
+  { href: '/console/alarms', label: 'Alarms', icon: <Siren size={19} />, perm: 'alarm.read', group: 'Work' },
+  { href: '/console/inspections', label: 'Rounds & inspections', icon: <ClipboardCheck size={19} />, perm: 'inspection.read', group: 'Work' },
   { href: '/console/maintenance', label: 'Maintenance', icon: <Wrench size={19} />, perm: 'maintenance.read', group: 'Work' },
-  { href: '/console/documents', label: 'Documents & SOPs', icon: <FileText size={19} />, perm: 'document.read', group: 'Work' },
-  { href: '/console/audit-docs', label: 'Audit documents', icon: <ScanLine size={19} />, perm: 'auditdoc.read', group: 'Work' },
+  { href: '/console/approvals', label: 'Approvals', icon: <Stamp size={19} />, perm: 'console.access', group: 'Work' },
+  { href: '/console/overview', label: 'Plant overview', icon: <LayoutGrid size={19} />, perm: 'site.read', group: 'Plant' },
   { href: '/console/sites', label: 'Sites & facilities', icon: <Building2 size={19} />, perm: 'site.read', group: 'Plant' },
   { href: '/console/assets', label: 'Assets & equipment', icon: <Boxes size={19} />, perm: 'asset.read', group: 'Plant' },
-  { href: '/console/devices', label: 'Field glasses', icon: <Glasses size={19} />, perm: 'device.read', group: 'People & devices' },
-  { href: '/console/glasses-profiles', label: 'Glasses UI profiles', icon: <SlidersHorizontal size={19} />, perm: 'device.manage', group: 'People & devices' },
-  { href: '/console/operators', label: 'Operators', icon: <Users size={19} />, perm: 'member.read', group: 'People & devices' },
-  { href: '/console/reports', label: 'Reports & analytics', icon: <BarChart3 size={19} />, perm: 'report.read', group: 'Insight' },
-  { href: '/console/audit', label: 'Audit log', icon: <ScrollText size={19} />, perm: 'audit.read', group: 'Insight' },
-  { href: '/console/settings', label: 'Organization settings', icon: <Settings size={19} />, perm: 'org.manage', group: 'Admin' },
+  { href: '/console/map', label: 'Plant map & routes', icon: <Route size={19} />, perm: 'site.read', group: 'Plant' },
+  { href: '/console/telemetry', label: 'Telemetry', icon: <Activity size={19} />, perm: 'telemetry.read', group: 'Plant' },
+  { href: '/console/documents', label: 'SOPs & documents', icon: <FileText size={19} />, perm: 'document.read', group: 'Knowledge' },
+  { href: '/console/audit-docs', label: 'Scanned audit documents', icon: <ScanLine size={19} />, perm: 'auditdoc.read', group: 'Knowledge' },
+  { href: '/console/reports', label: 'Reports & analytics', icon: <BarChart3 size={19} />, perm: 'report.read', group: 'Insights' },
+  { href: '/console/audit', label: 'Audit log', icon: <ScrollText size={19} />, perm: 'audit.read', group: 'Insights' },
+  { href: '/console/settings', label: 'Settings', icon: <Settings size={19} />, perm: 'org.manage', group: 'Settings' },
 ];
 
 const EVENT_PATHS: Record<string, string[]> = {
-  'alarm.created': ['/alarms', '/overview', '/assets', '/sites', '/device/context'],
-  'alarm.updated': ['/alarms', '/overview', '/assets'],
+  'alarm.created': ['/alarms', '/overview', '/assets', '/sites', '/device/context', '/command'],
+  'alarm.updated': ['/alarms', '/overview', '/assets', '/command'],
   'telemetry.reading': ['/sensors', '/overview', '/assets/', '/hierarchy', '/telemetry'],
-  'inspection.updated': ['/inspections', '/overview', '/members'],
-  'maintenance.updated': ['/maintenance', '/overview', '/assets/'],
-  'device.updated': ['/devices', '/overview'],
-  'device.paired': ['/devices', '/overview'],
+  'inspection.updated': ['/inspections', '/overview', '/members', '/command'],
+  'maintenance.updated': ['/maintenance', '/overview', '/assets/', '/command'],
+  'device.updated': ['/devices', '/overview', '/command'],
+  'device.paired': ['/devices', '/overview', '/command'],
   'device.live': ['/devices/live'],
+  'auditdoc.updated': ['/audit-docs', '/command'],
   'asset.updated': ['/assets', '/hierarchy', '/overview', '/sites'],
   'notification.created': ['/notifications'],
   'simulation.step': ['/simulation'],
@@ -204,8 +207,8 @@ export function ConsoleShell({ children }: { children: ReactNode }) {
   );
 }
 
-const PRIMARY_MOBILE = ['/console', '/console/alarms', '/console/telemetry', '/console/inspections'];
-const SHORT: Record<string, string> = { '/console': 'Overview', '/console/alarms': 'Alarms', '/console/telemetry': 'Sensors', '/console/inspections': 'Inspections' };
+const PRIMARY_MOBILE = ['/console', '/console/operators', '/console/alarms', '/console/approvals'];
+const SHORT: Record<string, string> = { '/console': 'Command', '/console/operators': 'Team', '/console/alarms': 'Alarms', '/console/approvals': 'Approvals' };
 
 function MobileNav({ items, isActive }: { items: NavItem[]; isActive: (href: string) => boolean }) {
   const [open, setOpen] = useState(false);

@@ -282,6 +282,21 @@ export async function orgRoutes(app: FastifyInstance, ctx: Ctx) {
     return { ok: true };
   }));
 
+  /** Re-send a pending (or expired) invitation: a fresh single-use link with a new expiry; the old link stops working. */
+  app.post('/invitations/:id/resend', auth, async (req, reply) => tenant(ctx, req, async (tx, p) => {
+    requirePerm(p, 'member.manage');
+    const { id } = z.object({ id: z.uuid() }).parse(req.params);
+    const [inv] = await tx.select().from(invitations).where(and(eq(invitations.id, id), isNull(invitations.acceptedAt), isNull(invitations.revokedAt)));
+    if (!inv) throw notFound('Invitation');
+    if (!assignableRoles(p.role).includes(inv.role)) throw forbidden('You cannot grant that account type');
+    const { link, delivery } = await createInvitation(tx, p.orgId, p.userId, {
+      email: inv.email.toLowerCase(), name: inv.name ?? undefined, role: inv.role, allSites: inv.allSites, siteIds: inv.siteIds,
+      employeeId: inv.employeeId, phone: inv.phone, shiftLabel: inv.shiftLabel,
+    });
+    await audit(tx, p, { orgId: p.orgId, action: 'member.invitation_resent', entityType: 'invitation', entityId: id, summary: inv.email, metadata: { delivery } });
+    return reply.code(201).send({ invitationLink: link, delivery });
+  }));
+
   /** Load a member of the caller's org that the caller may manage (never themselves). */
   async function manageableMember(tx: Parameters<Parameters<typeof withSystem>[1]>[0], p: { userId: string; role: Role }, userId: string) {
     if (userId === p.userId) throw forbidden('You cannot change your own account status');

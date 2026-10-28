@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <paths>
   <files-path name="captures" path="captures/" />
+  <!-- Phone-camera photos for round steps and maintenance evidence (queued until uploaded) -->
+  <files-path name="outbox" path="outbox/photos/" />
 </paths>

@@ -64,6 +64,8 @@ dependencies {
   implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
   implementation("com.squareup.okhttp3:okhttp:4.12.0")
   implementation("androidx.datastore:datastore-preferences:1.1.7")
+  // Offline round outbox replay
+  implementation("androidx.work:work-runtime-ktx:2.10.1")
   // Camera + on-device OCR
   val camerax = "1.4.2"
   implementation("androidx.camera:camera-camera2:$camerax")

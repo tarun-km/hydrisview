@@ -1,326 +1,275 @@
 'use client';
 
 import Link from 'next/link';
-import { useMemo, useState } from 'react';
-import { ArrowUpRight, CheckCircle2 } from 'lucide-react';
-import { ALARM_SEVERITIES, ASSET_STATUS_LABELS, MAINTENANCE_PRIORITIES, type AlarmSeverity, type AssetStatus, type Freshness } from '@hydris/domain';
+import { useState } from 'react';
+import { ArrowUpRight, BatteryLow, BatteryMedium, CheckCircle2, ClipboardList, Glasses, ScanLine, Send, Siren, UserPlus, Wrench } from 'lucide-react';
 import { useApi } from '@/lib/query';
 import { useCan, useSession } from '@/lib/session';
-import { ago, fmtValue } from '@/lib/format';
-import { Capsule, Card, EmptyState, KpiCard, OpenLink, PageHeader, QueryView, SeverityChip, Skeleton, StateChip, SyntheticBadge, Timeline } from '@/ui';
-import { BarList, BulletBar, Delta, Donut, PRIORITY_COLORS, RadialGauge, SEVERITY_COLORS, Sparkbars, StackedBar, StatusStrip, type Datum } from '@/ui/charts';
-import type { AlarmListRow } from '@/console/alarms-telemetry/types';
-import type { MaintenanceRow } from '@/console/work/shared';
+import { ago, until } from '@/lib/format';
+import { Avatar, Button, ButtonLink, Card, Chip, EmptyState, KpiCard, OpenLink, PageHeader, QueryView, SeverityChip, Skeleton, StateChip, SyntheticBadge, Timeline, cx } from '@/ui';
+import { RadialGauge } from '@/ui/charts';
+import { GlassesArt } from '@/console/admin/glasses';
+import { useFleetLive, type LiveView } from '@/console/admin/live';
+import { AssignWorkDialog } from '@/console/command/AssignWork';
+import { activityTone, describeAction, type Dashboard, type OnShiftCard } from '@/console/command/types';
 
-interface Overview {
-  generatedAt: string;
-  alarms: { active: number; critical: number; open: number; last24h: number };
-  inspections: { due: number; overdue: number; review: number; done7d: number };
-  maintenance: { open: number; urgent: number };
-  devices: { registered: number; connected: number };
-  activeOperators: number;
-  sites: { id: string; name: string; code: string; assets: number; degraded: number; openAlarms: number; criticalAlarms: number }[];
-  assetHealth: { status: AssetStatus; n: number }[];
-  metrics: { id: string; tag: string; name: string; assetTag: string | null; label: string; unit: string; decimals: number; value: number | null; ts: string | null; source: string | null; freshness: Freshness }[];
-  recentAlarms: { id: string; title: string; severity: AlarmSeverity; state: string; triggeredAt: string; assetTag: string | null; synthetic: boolean }[];
-  activity: { id: string; action: string; summary: string | null; at: string; actorName: string | null; actorLabel: string | null }[];
-  alarmTrend: { day: string; n: number }[];
-}
-
-const HEALTH_ORDER: AssetStatus[] = ['operational', 'standby', 'maintenance', 'degraded', 'down'];
-// Active Green is for small indicators only; large fills use a dimmed mix so they never become neon.
-const OK_FILL = 'color-mix(in srgb, var(--color-ok) 50%, var(--color-surface-3))';
-const HEALTH_COLOR: Record<string, string> = {
-  operational: OK_FILL, standby: 'var(--color-muted)', maintenance: 'var(--color-cobalt)', degraded: 'var(--color-medium)', down: 'var(--color-critical)',
-};
-const SEV_LABEL: Record<AlarmSeverity, string> = { critical: 'Critical', high: 'High', medium: 'Medium', low: 'Low' };
-const SEV_RANK: Record<AlarmSeverity, number> = { critical: 0, high: 1, medium: 2, low: 3 };
-const HOUR = 3600_000;
-
-export default function OverviewPage() {
+/** Command center: the administrator's live picture of the field team. */
+export default function CommandPage() {
   const s = useSession();
   const can = useCan();
-  const sites = useApi<{ sites: { id: string; name: string }[] }>('/sites');
-  const [siteId, setSiteId] = useState<string>('all');
-  const siteQs = siteId !== 'all' ? `siteId=${siteId}` : '';
-  const q = useApi<Overview>(`/overview${siteQs ? `?${siteQs}` : ''}`, { refetchInterval: 30_000 });
-  // Distributions are computed client-side from the list endpoints (the overview payload only carries totals).
-  const canAlarms = can('alarm.read');
-  const canMaint = can('maintenance.read');
-  const openAlarms = useApi<{ alarms: AlarmListRow[] }>(canAlarms ? `/alarms?state=open&limit=500${siteQs ? `&${siteQs}` : ''}` : null, { refetchInterval: 30_000 });
-  // Last 24 whole hours; the query key only changes once an hour.
-  const since = Math.floor(Date.now() / HOUR) * HOUR - 23 * HOUR;
-  const dayAlarms = useApi<{ alarms: AlarmListRow[] }>(canAlarms ? `/alarms?from=${new Date(since).toISOString()}&limit=500${siteQs ? `&${siteQs}` : ''}` : null, { refetchInterval: 60_000 });
-  const backlog = useApi<{ tasks: MaintenanceRow[] }>(canMaint ? `/maintenance?status=open_all${siteQs ? `&${siteQs}` : ''}` : null, { refetchInterval: 60_000 });
+  const q = useApi<Dashboard>('/command/dashboard', { refetchInterval: 20_000 });
+  const live = useFleetLive(can('device.read'));
+  const [assign, setAssign] = useState(false);
   const firstName = s.user.name.split(' ')[0];
 
   return (
     <>
       <PageHeader
-        eyebrow={<>Overview · {q.data ? `updated ${ago(q.data.generatedAt)}` : 'loading'}</>}
+        eyebrow={<span className="inline-flex items-center gap-2">Command{q.data && <> · updated {ago(q.data.generatedAt)}</>}</span>}
         title={<>Good {greeting()}, {firstName}.<br /><span className="text-muted">{q.data ? summaryLine(q.data) : ' '}</span></>}
-        actions={(sites.data?.sites.length ?? 0) > 1 ? (
-          <Capsule label="Site filter" value={siteId} onChange={setSiteId} options={[{ value: 'all', label: 'All sites' }, ...sites.data!.sites.map((x) => ({ value: x.id, label: x.name }))]} />
-        ) : undefined}
+        actions={<>
+          {can('member.manage') && <ButtonLink href="/console/operators?invite=1" icon={<UserPlus size={16} aria-hidden />}>Invite operator</ButtonLink>}
+          {(can('inspection.manage') || can('maintenance.manage')) && <Button variant="primary" icon={<Send size={16} aria-hidden />} onClick={() => setAssign(true)}>Assign work</Button>}
+        </>}
       />
-      <QueryView q={q} loading={<OverviewSkeleton />}>
+      <QueryView q={q} loading={<CommandSkeleton />}>
         {(d) => {
-          const week = d.alarmTrend.slice(-7).reduce((a, t) => a + t.n, 0);
-          const prevWeek = d.alarmTrend.length >= 14 ? d.alarmTrend.slice(0, 7).reduce((a, t) => a + t.n, 0) : null;
+          const on = d.onShift.filter((o) => o.onShift);
+          const off = d.onShift.filter((o) => !o.onShift);
+          const roundsPct = d.kpis.roundsAssigned ? Math.round((d.kpis.roundsCompleted / d.kpis.roundsAssigned) * 100) : null;
           return (
-            <div className="grid gap-4 fade-in">
-              {/* Tier 1 — executive signal */}
+            <div className="grid grid-cols-[minmax(0,1fr)] gap-4 fade-in">
               <div className="stagger grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
-                <KpiCard label="Open alarms" value={d.alarms.open} href="/console/alarms" accent={d.alarms.critical ? 'critical' : undefined}
-                  sub={<>{d.alarms.critical} critical · {d.alarms.active} unacknowledged</>} />
-                <KpiCard label="Inspections due" value={d.inspections.due} href="/console/inspections" accent={d.inspections.overdue ? 'high' : undefined}
-                  sub={<>{d.inspections.overdue} overdue · {d.inspections.review} awaiting review</>} />
-                <KpiCard label="Open maintenance" value={d.maintenance.open} href="/console/maintenance" sub={<>{d.maintenance.urgent} high or urgent priority</>} />
-                <KpiCard label="Field glasses connected" value={<>{d.devices.connected}<span className="text-[0.5em] opacity-50">/{d.devices.registered}</span></>} href="/console/devices" sub={<>{d.activeOperators} operators with assigned glasses</>} />
+                <KpiCard label="On shift now" value={<>{d.kpis.onShift}<span className="text-[0.5em] opacity-50">/{d.kpis.operators}</span></>} href="/console/operators"
+                  sub={<>{d.onShift.filter((o) => o.connected).length} wearing connected glasses</>} />
+                <KpiCard label="Open alarms" value={d.kpis.openAlarms} href="/console/alarms" accent={d.kpis.criticalAlarms ? 'critical' : undefined}
+                  sub={<>{d.kpis.criticalAlarms} critical · <span className={d.kpis.unownedAlarms ? 'font-medium' : undefined}>{d.kpis.unownedAlarms} without an owner</span></>} />
+                <KpiCard label="Today's rounds" value={<>{d.kpis.roundsCompleted}<span className="text-[0.5em] opacity-50">/{d.kpis.roundsAssigned}</span></>} href="/console/inspections"
+                  sub={roundsPct === null ? 'Nothing scheduled for today' : <>{roundsPct}% complete</>}
+                  footer={roundsPct !== null ? <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-[rgb(15_23_42/0.08)]" aria-hidden><div className="h-full rounded-full bg-[var(--color-signal)] transition-[width] duration-700" style={{ width: `${roundsPct}%` }} /></div> : undefined} />
+                <KpiCard label="Awaiting approval" value={d.kpis.approvals} href="/console/approvals" accent={d.kpis.approvals ? 'high' : undefined}
+                  sub={<>{d.approvals.scans} scans · {d.approvals.inspections} inspections</>} />
               </div>
 
-              {/* Tier 2 — diagnostics */}
-              <div className="grid gap-4 xl:grid-cols-[1.6fr_1fr]">
-                <section className="card card-lime" aria-labelledby="snapshot">
+              <div className="grid grid-cols-[minmax(0,1fr)] gap-4 xl:grid-cols-[minmax(0,1.75fr)_minmax(0,1fr)]">
+                <section className="card" aria-labelledby="on-shift">
                   <div className="flex flex-wrap items-center justify-between gap-3">
-                    <h2 id="snapshot" className="t-section">Process snapshot</h2>
-                    <div className="flex items-center gap-2">
-                      {d.metrics.some((m) => m.source === 'simulator') && <span className="chip chip-dark-on-lime">Synthetic demo data</span>}
-                      <Link href="/console/telemetry" className="chip chip-dark-on-lime">All sensors <ArrowUpRight size={13} /></Link>
-                    </div>
+                    <h2 id="on-shift" className="t-section flex items-center gap-2.5">On shift now<span className="dot pulse-dot bg-ok" aria-hidden /></h2>
+                    <Link href="/console/operators" className="link-quiet text-sm">All operators</Link>
                   </div>
-                  {d.metrics.length ? (
-                    <div className="mt-6 grid grid-cols-2 gap-x-6 gap-y-6 sm:grid-cols-3">
-                      {d.metrics.slice(0, 6).map((m) => (
-                        <Link key={m.id} href={`/console/telemetry/${m.id}`} className="group -m-2 min-w-0 rounded-2xl p-2 transition-[background-color,transform] duration-200 hover:bg-white/10 active:scale-[0.98]">
-                          <div className="flex items-baseline gap-1.5">
-                            <span className="t-kpi-sm">{fmtValue(m.freshness === 'stale' || m.freshness === 'no_data' ? null : m.value, undefined, m.decimals)}</span>
-                            <span className="text-sm opacity-80">{m.unit}</span>
-                          </div>
-                          <div className="mt-1 truncate text-[13px] font-medium">{m.label} · {m.tag}</div>
-                          <div className="flex items-center gap-1.5 text-[12px] opacity-80">
-                            <span className={m.freshness === 'live' ? 'dot pulse-dot bg-white' : 'dot bg-white/50'} style={{ width: 6, height: 6 }} aria-hidden />
-                            {m.freshness === 'live' ? `observed ${ago(m.ts)}` : m.freshness === 'no_data' ? 'no data received' : `stale · last ${ago(m.ts)}`}
-                          </div>
-                        </Link>
-                      ))}
-                    </div>
-                  ) : <p className="mt-6 text-sm opacity-85">No online instruments configured yet.</p>}
-                </section>
-                <Card title="Alarm frequency" action={<span className="t-label">last 14 days</span>}>
-                  <div className="flex items-end justify-between gap-6">
-                    <div>
-                      <div className="t-kpi">{d.alarms.last24h}</div>
-                      <div className="t-label mt-1">raised in the last 24 h</div>
-                      <Delta className="mt-2" value={week} previous={prevWeek} goodWhen="down" suffix="this week vs last" />
-                    </div>
-                    <OpenLink href="/console/reports?kind=alarms" label="Open alarm report" tone="default" size="sm" />
-                  </div>
-                  <div className="relative mt-4">
-                    {d.alarmTrend.every((t) => t.n === 0) && <span className="absolute inset-x-0 top-8 text-center text-xs text-muted">No alarms raised in the last 14 days</span>}
-                    <Sparkbars data={d.alarmTrend.map((t) => ({ label: dayLabel(t.day), value: t.n }))} height={78} highlight="var(--color-orange)" color="var(--color-surface-3)" table
-                      ariaLabel={`Alarms per day for the last 14 days: ${d.alarmTrend.map((t) => t.n).join(', ')}`} axis={[d.alarmTrend[0] ? dayLabel(d.alarmTrend[0].day) : '', 'today']} />
-                  </div>
-                </Card>
-              </div>
-
-              {/* Tier 2b — distributions */}
-              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-                <Card title="Open alarms by severity" action={<OpenLink href="/console/alarms" label="Open alarms" tone="default" size="sm" />}>
-                  {!canAlarms ? <p className="text-sm text-muted">You do not have access to alarms.</p> : openAlarms.isError ? <p className="text-sm text-muted">Could not load alarms.</p> : !openAlarms.data ? <Skeleton className="mx-auto h-[140px] w-[140px] rounded-full" /> : (
-                    <SeverityDonut alarms={openAlarms.data.alarms} />
-                  )}
-                </Card>
-                <Card title="Inspection throughput">
-                  <InspectionRing d={d.inspections} />
-                </Card>
-                <Card title="Maintenance backlog" action={<OpenLink href="/console/maintenance" label="Open maintenance" tone="default" size="sm" />}>
-                  {!canMaint || backlog.isError ? <p className="text-sm text-muted">The backlog is not available.</p> : !backlog.data ? <Skeleton className="h-[160px]" /> : <Backlog tasks={backlog.data.tasks} />}
-                </Card>
-                <Card title="Fleet connectivity" action={<OpenLink href="/console/devices" label="Open field glasses" tone="default" size="sm" />}>
-                  <div className="grid place-items-center">
-                    <RadialGauge value={d.devices.registered ? Math.round((d.devices.connected / d.devices.registered) * 100) : null} unit="%" size={152}
-                      label={`${d.devices.connected} of ${d.devices.registered} connected`} tone="var(--color-signal)"
-                      ariaLabel={d.devices.registered ? `${d.devices.connected} of ${d.devices.registered} field glasses connected` : 'No field glasses registered'} />
-                    <p className="mt-2 text-center text-[12.5px] text-muted">{d.devices.registered ? `${d.activeOperators} operator${d.activeOperators === 1 ? '' : 's'} with assigned glasses` : 'Pair glasses to see fleet status'}</p>
-                  </div>
-                </Card>
-              </div>
-
-              {/* Tier 3 — exceptions & health */}
-              <div className="grid gap-4 lg:grid-cols-[1.25fr_1fr_1fr]">
-                <Card title="Needs attention" action={<Link className="link-quiet text-sm" href="/console/alarms">All alarms</Link>}>
-                  {d.recentAlarms.length ? (
-                    <ul className="grid gap-2">
-                      {d.recentAlarms.map((a) => (
-                        <li key={a.id}>
-                          <Link href={`/console/alarms/${a.id}`} className="flex items-center gap-3 rounded-2xl bg-bg-2 px-4 py-3 transition-[background-color,transform] hover:bg-surface-2 active:scale-[0.99]">
-                            <span className="dot" style={{ background: `var(--color-${a.severity})` }} aria-hidden />
-                            <span className="min-w-0 flex-1">
-                              <span className="block truncate text-sm">{a.title}</span>
-                              <span className="text-xs text-muted">{ago(a.triggeredAt)}{a.assetTag ? ` · ${a.assetTag}` : ''}</span>
-                            </span>
-                            {a.synthetic && <SyntheticBadge />}
-                            <StateChip state={a.state} />
-                          </Link>
-                        </li>
-                      ))}
+                  {!d.onShift.length ? (
+                    <div className="mt-5"><EmptyState icon={<UserPlus size={20} aria-hidden />} title="No operators yet" body="Invite Field Operators; they appear here as soon as they sign in on the Hydris Field app or put on their glasses."
+                      action={can('member.manage') ? <ButtonLink href="/console/operators?invite=1" variant="primary">Invite operators</ButtonLink> : undefined} /></div>
+                  ) : !on.length ? (
+                    <div className="mt-5"><EmptyState compact title="Nobody on shift right now" body="Operators show up here when their glasses connect or they are active in the app (last 8 hours)." /></div>
+                  ) : (
+                    <ul className="stagger mt-5 grid grid-cols-[minmax(0,1fr)] gap-3 sm:grid-cols-2 2xl:grid-cols-3">
+                      {on.map((o) => <li key={o.userId}><OperatorCard o={o} live={o.glasses ? live.get(o.glasses.id) : undefined} /></li>)}
                     </ul>
-                  ) : <EmptyState compact icon={<CheckCircle2 size={20} className="text-ok-text" />} title="No open alarms" body="All monitored conditions are within configured limits." />}
-                </Card>
-                <Card title="Equipment health" action={<OpenLink href="/console/assets" label="Open asset registry" tone="default" size="sm" />}>
-                  <HealthBars health={d.assetHealth} />
-                </Card>
-                <Card title="Recent activity">
-                  <Timeline items={d.activity.slice(0, 6).map((a) => ({ id: a.id, title: a.summary ?? a.action.replace(/[._]/g, ' '), meta: `${a.actorName ?? a.actorLabel ?? 'Hydris'} · ${ago(a.at)}`, tone: a.action.startsWith('alarm.triggered') ? 'critical' : a.action.includes('submitted') || a.action.includes('approved') ? 'ok' : 'muted' }))} />
-                </Card>
+                  )}
+                  {off.length > 0 && (
+                    <div className="mt-5 flex flex-wrap items-center gap-3 border-t border-line pt-4">
+                      <span className="t-label">Off shift · {off.length}</span>
+                      <ul className="flex flex-wrap gap-1.5">
+                        {off.map((o) => (
+                          <li key={o.userId}>
+                            <Link href={`/console/operators/${o.userId}`} title={`${o.name}${o.lastActiveAt ? ` · active ${ago(o.lastActiveAt)}` : ' · never active'}`} className="block rounded-full opacity-70 transition-opacity hover:opacity-100">
+                              <Avatar name={o.name} size={30} />
+                            </Link>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </section>
+
+                <div className="grid grid-cols-[minmax(0,1fr)] content-start gap-4">
+                  <FleetPanel d={d} />
+                  <Card title="Open alarms & owners" action={<OpenLink href="/console/alarms" label="Open alarms" tone="default" size="sm" />}>
+                    {d.alarms.length ? (
+                      <ul className="grid grid-cols-[minmax(0,1fr)] gap-2">
+                        {d.alarms.slice(0, 5).map((a) => (
+                          <li key={a.id}>
+                            <Link href={`/console/alarms/${a.id}`} className="flex items-center gap-3 rounded-2xl bg-bg-2 px-3.5 py-2.5 transition-[background-color,transform] hover:bg-surface-2 active:scale-[0.99]">
+                              <span className="dot" style={{ background: `var(--color-${a.severity})` }} aria-hidden />
+                              <span className="min-w-0 flex-1">
+                                <span className="block truncate text-sm">{a.title}</span>
+                                <span className="block truncate text-xs text-muted">{ago(a.triggeredAt)} · {a.assetTag ?? a.siteName}</span>
+                              </span>
+                              {a.synthetic && <SyntheticBadge />}
+                              {a.owner ? (
+                                <span className="flex flex-none items-center gap-1.5 text-xs text-text-2" title={`${a.owner.via === 'assigned' ? 'Assigned to' : 'Acknowledged by'} ${a.owner.name}`}><Avatar name={a.owner.name} size={22} /><span className="max-w-[90px] truncate max-sm:hidden">{a.owner.name.split(' ')[0]}</span></span>
+                              ) : <Chip tone="high" className="flex-none">No owner</Chip>}
+                            </Link>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : <EmptyState compact icon={<CheckCircle2 size={20} className="text-ok-text" />} title="No open alarms" body="All monitored conditions are within limits." />}
+                    {d.alarms.length > 5 && <p className="mt-3 text-xs text-muted">+ {d.kpis.openAlarms - 5} more open</p>}
+                  </Card>
+                </div>
               </div>
 
-              {/* Tier 4 — compliance & facilities */}
-              <div className="grid gap-4 xl:grid-cols-[1fr_1.4fr]">
-                <Card title="24-hour compliance" action={<span className="t-label">new alarms per hour</span>}>
-                  {!canAlarms ? <p className="text-sm text-muted">You do not have access to alarms.</p> : dayAlarms.isError ? <p className="text-sm text-muted">Could not load alarms.</p> : !dayAlarms.data ? <Skeleton className="h-[110px]" /> : <ComplianceStrip alarms={dayAlarms.data.alarms} since={since} />}
-                </Card>
-                <Card title="Facility operating status">
-                  {d.sites.length ? (
-                    <ul className="grid gap-3 md:grid-cols-2">
-                      {d.sites.map((x) => {
-                        const healthy = x.assets ? Math.round(((x.assets - x.degraded) / x.assets) * 100) : null;
+              <div className="grid grid-cols-[minmax(0,1fr)] gap-4 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)_minmax(0,1fr)]">
+                <Card title="Today's rounds by operator" action={<OpenLink href="/console/inspections" label="Open rounds" tone="default" size="sm" />}>
+                  {d.rounds.length ? (
+                    <ul className="grid grid-cols-[minmax(0,1fr)] gap-3.5">
+                      {d.rounds.slice(0, 8).map((r) => {
+                        const pct = r.assigned ? Math.round((r.completed / r.assigned) * 100) : 0;
                         return (
-                          <li key={x.id}>
-                            <Link href={`/console/sites/${x.id}`} className="card-inset lift grid gap-3 p-4">
-                              <div className="flex items-start justify-between gap-3">
-                                <div className="min-w-0">
-                                  <div className="t-card truncate">{x.name}</div>
-                                  <div className="t-label mt-0.5">{x.assets} assets · {x.degraded} degraded or down</div>
-                                </div>
-                                {x.criticalAlarms ? <SeverityChip severity="critical" /> : x.openAlarms ? <StateChip state="acknowledged" label={`${x.openAlarms} open`} /> : <StateChip state="operational" label="Normal" />}
+                          <li key={r.userId}>
+                            <Link href={`/console/operators/${r.userId}`} className="group grid grid-cols-[minmax(0,1fr)] gap-1.5">
+                              <div className="flex items-baseline justify-between gap-3 text-[13.5px]">
+                                <span className="min-w-0 truncate text-text-2 group-hover:text-text">{r.name}</span>
+                                <span className="num flex-none">{r.completed}<span className="text-muted">/{r.assigned}</span>{r.overdue > 0 && <span className="ml-2 text-high-text">{r.overdue} overdue</span>}</span>
                               </div>
-                              <BulletBar value={healthy} target={90} label="Assets not degraded or down" targetLabel="Target"
-                                ariaLabel={healthy === null ? `${x.name}: no assets registered` : `${x.name}: ${healthy}% of assets not degraded or down, target 90%`} />
+                              <div className="hatch h-2 overflow-hidden rounded-full bg-surface-2" role="progressbar" aria-label={`${r.name}: ${r.completed} of ${r.assigned} rounds done`} aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}>
+                                <div className="h-full rounded-full transition-[width] duration-700" style={{ width: `${Math.max(pct, 2)}%`, background: pct === 100 ? 'var(--color-ok)' : 'var(--color-signal)' }} />
+                              </div>
                             </Link>
                           </li>
                         );
                       })}
                     </ul>
-                  ) : <EmptyState compact title="No sites yet" body="Sites and their assets appear here once registered." />}
+                  ) : <EmptyState compact icon={<ClipboardList size={20} aria-hidden />} title="No rounds today" body="Assign a round to an operator or a whole shift."
+                    action={can('inspection.manage') ? <Button size="sm" onClick={() => setAssign(true)}>Assign work</Button> : undefined} />}
+                </Card>
+                <Card title="Awaiting approval" action={<OpenLink href="/console/approvals" label="Open approvals" tone="default" size="sm" />}>
+                  {d.approvals.items.length ? (
+                    <ul className="grid grid-cols-[minmax(0,1fr)] gap-1">
+                      {d.approvals.items.map((i) => (
+                        <li key={`${i.kind}-${i.id}`}>
+                          <Link href={i.kind === 'scan' ? `/console/audit-docs/${i.id}` : `/console/inspections/${i.id}`} className="flex items-center gap-3 rounded-2xl px-3 py-2.5 transition-colors hover:bg-surface-2">
+                            <span className="grid h-8 w-8 flex-none place-items-center rounded-full bg-surface-2 text-text-2">{i.kind === 'scan' ? <ScanLine size={15} aria-hidden /> : <ClipboardList size={15} aria-hidden />}</span>
+                            <span className="min-w-0 flex-1">
+                              <span className="block truncate text-sm">{i.title}</span>
+                              <span className="block truncate text-xs text-muted">{i.by ?? 'Unknown'} · {i.at ? ago(i.at) : '—'}</span>
+                            </span>
+                            {i.status && <StateChip state={i.status} />}
+                          </Link>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : <EmptyState compact icon={<CheckCircle2 size={20} className="text-ok-text" />} title="Queue is clear" body="Scans and inspections waiting for sign-off appear here." />}
+                </Card>
+                <Card title="Recent activity" action={<Link className="link-quiet text-sm" href="/console/audit">Audit log</Link>}>
+                  <Timeline items={d.activity.slice(0, 7).map((a) => ({ id: a.id, title: describeAction(a), meta: `${a.actorName ?? a.actorLabel ?? 'Hydris'} · ${ago(a.at)}`, tone: activityTone(a.action) }))} />
                 </Card>
               </div>
             </div>
           );
         }}
       </QueryView>
+      {assign && <AssignWorkDialog open={assign} onClose={() => setAssign(false)} />}
     </>
   );
 }
 
-function SeverityDonut({ alarms }: { alarms: AlarmListRow[] }) {
-  if (!alarms.length) return <EmptyState compact icon={<CheckCircle2 size={20} className="text-ok-text" />} title="No open alarms" />;
-  const data: Datum[] = ALARM_SEVERITIES.map((s) => ({ key: s, label: SEV_LABEL[s], value: alarms.filter((a) => a.severity === s).length, color: SEVERITY_COLORS[s] }));
-  return <Donut data={data} size={140} thickness={13} centerLabel="open" table ariaLabel={`Open alarms by severity: ${data.map((x) => `${x.value} ${x.label.toLowerCase()}`).join(', ')}`} />;
-}
-
-function InspectionRing({ d }: { d: Overview['inspections'] }) {
-  // Last-7-day throughput: completed (submitted/approved) vs still open. The denominator is shown below the ring.
-  const total = d.done7d + d.due;
-  const rate = total ? Math.round((d.done7d / total) * 100) : null;
+/** One operator on shift: who, where, what their glasses show, and what they are doing. */
+function OperatorCard({ o, live }: { o: OnShiftCard; live?: LiveView }) {
+  const streaming = !!live?.live && !!live.view;
+  const g = o.glasses;
+  const battery = live?.battery ?? g?.battery ?? null;
+  const site = o.allSites ? 'All sites' : o.sites.map((s) => s.name).join(', ') || 'No site';
   return (
-    <div className="grid place-items-center gap-3">
-      <RadialGauge value={rate} unit="%" size={152} label="completed vs open" tone="var(--color-signal)"
-        ariaLabel={rate === null ? 'No inspections completed or open' : `${d.done7d} inspections completed in the last 7 days; ${d.due} still open, ${d.overdue} overdue`} />
-      <dl className="grid w-full grid-cols-3 gap-2 text-center text-[12px]">
-        <div><dt className="text-muted">Done 7 d</dt><dd className="num text-[15px] font-medium">{d.done7d}</dd></div>
-        <div><dt className="text-muted">Open</dt><dd className="num text-[15px] font-medium">{d.due}</dd></div>
-        <div><dt className="text-muted">Overdue</dt><dd className={d.overdue ? 'num text-[15px] font-medium text-high-text' : 'num text-[15px] font-medium'}>{d.overdue}</dd></div>
-      </dl>
-    </div>
-  );
-}
-
-function Backlog({ tasks }: { tasks: MaintenanceRow[] }) {
-  if (!tasks.length) return <EmptyState compact icon={<CheckCircle2 size={20} className="text-ok-text" />} title="No open work" />;
-  const data: Datum[] = [...MAINTENANCE_PRIORITIES].reverse().map((p) => ({ key: p, label: p[0]!.toUpperCase() + p.slice(1), value: tasks.filter((t) => t.priority === p).length, color: PRIORITY_COLORS[p] }));
-  const now = Date.now();
-  const overdue = tasks.filter((t) => t.dueAt && new Date(t.dueAt).getTime() < now).length;
-  const unassigned = tasks.filter((t) => !t.assignedTo).length;
-  return (
-    <div className="grid gap-4">
-      <div className="flex items-baseline gap-2"><span className="t-kpi-sm">{tasks.length}</span><span className="text-sm text-muted">open tasks</span></div>
-      <BarList data={data} ariaLabel={`Open maintenance by priority: ${data.map((x) => `${x.value} ${x.key}`).join(', ')}`} />
-      <p className="text-[12px] text-muted"><span className={overdue ? 'text-high-text' : undefined}>{overdue} overdue</span> · {unassigned} unassigned</p>
-    </div>
-  );
-}
-
-function ComplianceStrip({ alarms, since }: { alarms: AlarmListRow[]; since: number }) {
-  const cells = useMemo(() => {
-    const now = Date.now();
-    return Array.from({ length: 24 }, (_, i) => {
-      const t0 = since + i * HOUR;
-      const inHour = alarms.filter((a) => { const t = new Date(a.triggeredAt).getTime(); return t >= t0 && t < t0 + HOUR; });
-      const worst = inHour.reduce<AlarmSeverity | null>((w, a) => (w === null || SEV_RANK[a.severity] < SEV_RANK[w] ? a.severity : w), null);
-      const hour = new Date(t0).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
-      const future = t0 > now;
-      return {
-        key: String(t0), hour, n: inHour.length,
-        color: future ? null : worst ? SEVERITY_COLORS[worst] : OK_FILL,
-        title: `${hour}: ${inHour.length ? `${inHour.length} alarm${inHour.length > 1 ? 's' : ''}, worst ${worst}` : 'no new alarm'}`,
-      };
-    });
-  }, [alarms, since]);
-  const clean = cells.filter((c) => c.n === 0).length;
-  return (
-    <div className="grid gap-4">
-      <div className="flex items-baseline gap-2">
-        <span className="t-kpi-sm">{clean}<span className="text-[0.6em] opacity-50">/24</span></span>
-        <span className="text-sm text-muted">hours without a new alarm</span>
+    <article className="card-inset lift group flex h-full flex-col overflow-hidden">
+      <Link href={`/console/operators/${o.userId}`} className="flex items-center gap-3 p-3.5 pb-3">
+        <span className="relative flex-none">
+          <Avatar name={o.name} size={40} tone={o.connected ? 'cobalt' : 'surface'} />
+          <span className={cx('absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full ring-2 ring-[var(--color-bg-2)]', o.connected ? 'bg-ok' : 'bg-medium')} aria-hidden />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-[15px] font-medium">{o.name}</span>
+          <span className="block truncate text-xs text-muted">{[o.shiftLabel, site].filter(Boolean).join(' · ')}</span>
+        </span>
+        <ArrowUpRight size={16} className="flex-none text-muted transition-transform group-hover:-translate-y-0.5 group-hover:translate-x-0.5" aria-hidden />
+      </Link>
+      <Link href={g ? `/console/devices/${g.id}` : `/console/operators/${o.userId}`} className="relative mx-3.5 block aspect-[16/9] overflow-hidden rounded-[16px] border border-line bg-[#05070d]" aria-label={g ? `Live view of ${g.name}` : 'No glasses assigned'}>
+        {streaming ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={live!.view!} alt={`What ${o.name.split(' ')[0]} sees: ${live!.title ?? ''}`} className="h-full w-full object-contain" />
+        ) : (
+          <span className="grid h-full place-items-center px-6">
+            <GlassesArt state={g ? (o.connected ? 'connected' : 'disconnected') : 'paired'} className="h-16 w-full max-w-[200px] opacity-80" />
+          </span>
+        )}
+        <span className="absolute left-2 top-2 flex items-center gap-1.5">
+          {streaming ? <span className="chip chip-critical h-6 gap-1.5 bg-black/60 px-2 text-[11px] backdrop-blur"><span className="h-1.5 w-1.5 animate-pulse rounded-full bg-critical" aria-hidden />Live</span>
+            : <span className="chip h-6 border-white/15 bg-black/50 px-2 text-[11px] text-white/80 backdrop-blur">{g ? (o.connected ? 'Connected' : 'Glasses offline') : 'No glasses'}</span>}
+        </span>
+        {battery !== null && (
+          <span className="absolute right-2 top-2 chip h-6 gap-1 border-white/15 bg-black/50 px-2 text-[11px] text-white/85 backdrop-blur num" title="Glasses battery">
+            {battery < 20 ? <BatteryLow size={13} className="text-critical" aria-hidden /> : <BatteryMedium size={13} aria-hidden />}{Math.round(battery)}%
+          </span>
+        )}
+        {streaming && live?.title && <span className="absolute inset-x-0 bottom-0 truncate bg-gradient-to-t from-black/80 to-transparent px-3 pb-2 pt-6 text-[12px] text-white/90">{live.title}</span>}
+      </Link>
+      <div className="mt-auto grid grid-cols-[minmax(0,1fr)] gap-2 p-3.5 pt-3 text-[13px]">
+        {o.alarm ? (
+          <Link href={`/console/alarms/${o.alarm.id}`} className="flex items-center gap-2 rounded-xl bg-[rgb(255_40_0/0.06)] px-2.5 py-1.5 hover:bg-[rgb(255_40_0/0.1)]">
+            <Siren size={14} className="flex-none text-critical" aria-hidden /><span className="min-w-0 flex-1 truncate">{o.alarm.title}</span><SeverityChip severity={o.alarm.severity} />
+          </Link>
+        ) : null}
+        {o.current ? (
+          <Link href={o.current.kind === 'maintenance' ? `/console/maintenance/${o.current.id}` : `/console/inspections/${o.current.id}`} className="flex items-center gap-2 text-text-2 hover:text-text">
+            {o.current.kind === 'maintenance' ? <Wrench size={14} className="flex-none" aria-hidden /> : <ClipboardList size={14} className="flex-none" aria-hidden />}
+            <span className="min-w-0 flex-1 truncate">{o.current.status === 'in_progress' ? 'Doing ' : o.current.status === 'paused' ? 'Paused ' : 'Next: '}<span className="text-text">{o.current.title}</span></span>
+            {o.current.status !== 'in_progress' && o.current.dueAt ? <span className="flex-none text-xs text-muted">{until(o.current.dueAt)}</span> : null}
+          </Link>
+        ) : <span className="text-muted">No open work assigned</span>}
+        <div className="flex items-center justify-between gap-2 text-xs text-muted">
+          <span className="num">{o.rounds.todayCompleted}/{o.rounds.todayAssigned} rounds today</span>
+          <span className="num">{o.lastActiveAt ? `active ${ago(o.lastActiveAt)}` : 'not active yet'}</span>
+        </div>
       </div>
-      <StatusStrip cells={cells} ariaLabel={`Last 24 hours: ${clean} hours without a new alarm. ${cells.filter((c) => c.n).map((c) => `${c.hour}: ${c.n}`).join(', ') || 'No alarms raised.'}`}
-        axis={[cells[0]?.hour, cells[12]?.hour, 'now']} />
-      <ul className="chart-legend" aria-hidden>
-        <li><span className="h-2.5 w-2.5 rounded-[3px]" style={{ background: OK_FILL }} />No new alarm</li>
-        {ALARM_SEVERITIES.map((s) => <li key={s}><span className="h-2.5 w-2.5 rounded-[3px]" style={{ background: SEVERITY_COLORS[s] }} />{SEV_LABEL[s]}</li>)}
-      </ul>
-      {alarms.length >= 500 && <p className="text-xs text-muted">Based on the first 500 alarms of this period.</p>}
-    </div>
+    </article>
   );
 }
 
-function HealthBars({ health }: { health: { status: string; n: number }[] }) {
-  const total = health.reduce((a, b) => a + b.n, 0);
-  if (!total) return <EmptyState compact title="No assets registered" />;
-  const data: Datum[] = HEALTH_ORDER.map((k) => ({ key: k, label: ASSET_STATUS_LABELS[k], value: health.find((h) => h.status === k)?.n ?? 0, color: HEALTH_COLOR[k]! }));
-  const up = (data[0]?.value ?? 0) + (data[1]?.value ?? 0);
+/** Blue focal panel: glasses fleet connectivity and battery. */
+function FleetPanel({ d }: { d: Dashboard }) {
+  const f = d.fleet;
+  const pct = f.glasses.total ? Math.round((f.glasses.connected / f.glasses.total) * 100) : null;
   return (
-    <div className="grid gap-4">
-      <div className="flex items-baseline gap-2"><span className="t-kpi-sm">{Math.round((up / total) * 100)}<span className="text-[0.6em] opacity-50">%</span></span><span className="text-sm text-muted">operational or standby</span></div>
-      <StackedBar data={data} legend={false} table ariaLabel={`Asset health: ${data.map((h) => `${h.value} ${h.label.toLowerCase()}`).join(', ')}`} />
-      <ul className="grid gap-2.5">
-        {data.map((h) => (
-          <li key={h.key} className="flex items-center justify-between text-sm">
-            <span className="flex items-center gap-2 text-text-2"><span className="dot" style={{ background: h.color }} aria-hidden />{h.label}</span>
-            <span className="num">{h.value}</span>
-          </li>
-        ))}
-      </ul>
-    </div>
+    <section className="card card-lime" aria-labelledby="fleet">
+      <div className="flex items-center justify-between gap-3">
+        <h2 id="fleet" className="t-section">Fleet status</h2>
+        <Link href="/console/devices" className="chip chip-dark-on-lime">Devices <ArrowUpRight size={13} /></Link>
+      </div>
+      {f.glasses.total ? (
+        <div className="mt-4 grid grid-cols-[auto_1fr] items-center gap-5">
+          <RadialGauge value={pct} unit="%" size={128} thickness={9} tone="#ffffff" label="connected" ariaLabel={`${f.glasses.connected} of ${f.glasses.total} glasses connected`} />
+          <dl className="grid grid-cols-[minmax(0,1fr)] gap-3 text-sm">
+            <div className="flex items-baseline justify-between gap-2"><dt className="opacity-80">Glasses connected</dt><dd className="t-kpi-sm num">{f.glasses.connected}<span className="text-[0.6em] opacity-60">/{f.glasses.total}</span></dd></div>
+            <div className="flex items-baseline justify-between gap-2"><dt className="opacity-80">Streaming live</dt><dd className="num text-[17px]">{f.glasses.streaming}</dd></div>
+            <div className="flex items-baseline justify-between gap-2"><dt className="opacity-80">Average battery</dt><dd className="num text-[17px]">{f.battery.average === null ? <span className="text-[13px] opacity-70">not reported</span> : `${f.battery.average}%`}</dd></div>
+            {(f.battery.low > 0 || f.glasses.unassigned > 0 || f.suspended > 0) && (
+              <div className="flex flex-wrap gap-1.5 pt-1">
+                {f.battery.low > 0 && <span className="chip chip-dark-on-lime h-6 px-2 text-[11.5px]"><BatteryLow size={13} aria-hidden />{f.battery.low} low battery</span>}
+                {f.glasses.unassigned > 0 && <span className="chip chip-outline h-6 px-2 text-[11.5px]">{f.glasses.unassigned} unassigned</span>}
+                {f.suspended > 0 && <span className="chip chip-outline h-6 px-2 text-[11.5px]">{f.suspended} suspended</span>}
+              </div>
+            )}
+          </dl>
+        </div>
+      ) : (
+        <div className="mt-4 flex items-center gap-4">
+          <span className="grid h-12 w-12 flex-none place-items-center rounded-full bg-white/15"><Glasses size={20} aria-hidden /></span>
+          <p className="text-sm opacity-90">No glasses yet. Operators register their glasses from the Hydris Field app, or pair a pair from the Devices page.</p>
+        </div>
+      )}
+    </section>
   );
 }
 
-function OverviewSkeleton() {
+function CommandSkeleton() {
   return (
-    <div className="grid gap-4" role="status" aria-label="Loading overview">
+    <div className="grid grid-cols-[minmax(0,1fr)] gap-4" role="status" aria-label="Loading command center">
       <div className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">{[0, 1, 2, 3].map((i) => <Skeleton key={i} className="h-[148px] rounded-[24px]" />)}</div>
-      <div className="grid gap-4 xl:grid-cols-[1.6fr_1fr]"><Skeleton className="h-[260px] rounded-[24px]" /><Skeleton className="h-[260px] rounded-[24px]" /></div>
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">{[0, 1, 2, 3].map((i) => <Skeleton key={i} className="h-[250px] rounded-[24px]" />)}</div>
-      <div className="grid gap-4 lg:grid-cols-[1.25fr_1fr_1fr]">{[0, 1, 2].map((i) => <Skeleton key={i} className="h-[300px] rounded-[24px]" />)}</div>
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-4 xl:grid-cols-[minmax(0,1.75fr)_minmax(0,1fr)]"><Skeleton className="h-[520px] rounded-[24px]" /><div className="grid grid-cols-[minmax(0,1fr)] gap-4"><Skeleton className="h-[220px] rounded-[24px]" /><Skeleton className="h-[280px] rounded-[24px]" /></div></div>
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-4 lg:grid-cols-3">{[0, 1, 2].map((i) => <Skeleton key={i} className="h-[300px] rounded-[24px]" />)}</div>
     </div>
   );
-}
-
-function dayLabel(day: string) {
-  const d = new Date(`${day}T00:00:00`);
-  return Number.isNaN(d.getTime()) ? day : d.toLocaleDateString(undefined, { day: '2-digit', month: 'short' });
 }
 
 function greeting() {
@@ -328,8 +277,11 @@ function greeting() {
   return h < 12 ? 'morning' : h < 17 ? 'afternoon' : 'evening';
 }
 
-function summaryLine(d: Overview) {
-  if (d.alarms.critical) return `${d.alarms.critical} critical alarm${d.alarms.critical > 1 ? 's' : ''} need attention.`;
-  if (d.alarms.open) return `${d.alarms.open} open alarm${d.alarms.open > 1 ? 's' : ''}, nothing critical.`;
-  return d.inspections.overdue ? `${d.inspections.overdue} inspection${d.inspections.overdue > 1 ? 's are' : ' is'} overdue.` : 'All monitored conditions are normal.';
+function summaryLine(d: Dashboard) {
+  const parts: string[] = [];
+  parts.push(`${d.kpis.onShift} of ${d.kpis.operators} operator${d.kpis.operators === 1 ? '' : 's'} on shift`);
+  if (d.kpis.criticalAlarms) parts.push(`${d.kpis.criticalAlarms} critical alarm${d.kpis.criticalAlarms > 1 ? 's' : ''}`);
+  else if (d.kpis.unownedAlarms) parts.push(`${d.kpis.unownedAlarms} alarm${d.kpis.unownedAlarms > 1 ? 's' : ''} without an owner`);
+  if (d.kpis.approvals) parts.push(`${d.kpis.approvals} awaiting approval`);
+  return `${parts.join(', ')}.`;
 }

@@ -421,6 +421,8 @@ export async function deviceRoutes(app: FastifyInstance, ctx: Ctx, opts: { relax
     screen: z.string().trim().min(1).max(40), title: z.string().trim().max(120),
     summary: z.array(z.string().max(160)).max(12).optional(),
     view: jpegDataUrl.optional(), camera: jpegDataUrl.optional(), cameraActive: z.boolean().default(false),
+    /** Optional device metadata reported by the glasses (percent, 0-100) for the console fleet view. */
+    battery: z.number().min(0).max(100).optional(), charging: z.boolean().optional(),
   });
   interface LiveSnapshot extends Omit<z.infer<typeof liveSchema>, 'summary'> {
     orgId: string; deviceId: string; deviceName: string; operator: { id: string; name: string } | null; summary: string[]; updatedAt: string;
@@ -457,7 +459,7 @@ export async function deviceRoutes(app: FastifyInstance, ctx: Ctx, opts: { relax
   const liveView = (s: LiveSnapshot | null, deviceId: string, deviceName: string, operator: { id: string; name: string } | null) => ({
     deviceId, deviceName, operator: operator ?? s?.operator ?? null,
     screen: s?.screen ?? null, title: s?.title ?? null, summary: s?.summary ?? [], view: s?.view ?? null, camera: s?.cameraActive ? (s.camera ?? null) : null,
-    cameraActive: s?.cameraActive ?? false, updatedAt: s?.updatedAt ?? null, live: !!s && Date.now() - Date.parse(s.updatedAt) < LIVE_FRESH_MS,
+    cameraActive: s?.cameraActive ?? false, battery: s?.battery ?? null, charging: s?.charging ?? null, updatedAt: s?.updatedAt ?? null, live: !!s && Date.now() - Date.parse(s.updatedAt) < LIVE_FRESH_MS,
   });
 
   /** Latest live snapshot of one device (images included). */

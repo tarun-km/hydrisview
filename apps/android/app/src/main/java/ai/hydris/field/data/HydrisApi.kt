@@ -21,6 +21,7 @@ import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody.Companion.asRequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 
@@ -93,6 +94,24 @@ class HydrisApi(private val store: SecureStore, val baseUrl: String = BuildConfi
       val code = lastRefreshError
       onSessionLost?.invoke(code)
       throw ApiException(if (code == "account_suspended" || code == "account_removed") 403 else 401, code ?: "unauthenticated", "Session ended. Please sign in again.")
+    }
+    res.use { it.textOrThrow() }
+  }
+
+  /** Multipart upload (attachments: round photos, maintenance evidence). Fields precede the file, as the API reads them with it. */
+  suspend fun upload(path: String, fields: Map<String, String>, file: java.io.File, mime: String, retry: Boolean = true): String = withContext(Dispatchers.IO) {
+    val form = okhttp3.MultipartBody.Builder().setType(okhttp3.MultipartBody.FORM).apply {
+      fields.forEach { (k, v) -> addFormDataPart(k, v) }
+      addFormDataPart("file", file.name, file.asRequestBody(mime.toMediaType()))
+    }.build()
+    val b = Request.Builder().url("$baseUrl/api$path").header("accept", "application/json")
+    accessToken?.let { b.header("authorization", "Bearer $it") }
+    val res = http.newCall(b.post(form).build()).execute()
+    if (res.code == 401 && retry) {
+      res.close()
+      if (refresh()) return@withContext upload(path, fields, file, mime, retry = false)
+      onSessionLost?.invoke(lastRefreshError)
+      throw ApiException(401, lastRefreshError ?: "unauthenticated", "Session ended. Please sign in again.")
     }
     res.use { it.textOrThrow() }
   }

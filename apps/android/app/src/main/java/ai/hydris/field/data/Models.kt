@@ -51,13 +51,16 @@ import kotlinx.serialization.json.JsonElement
 
 // ---------------- alarms
 @Serializable data class AlarmList(val alarms: List<Alarm>)
-@Serializable data class AlarmEnvelope(val alarm: Alarm)
+@Serializable data class AlarmEnvelope(val alarm: Alarm, val allowedActions: List<String> = emptyList(), val history: List<AlarmHistory> = emptyList())
+@Serializable data class AlarmHistory(val id: String, val action: String, val note: String? = null, val at: String, val actorName: String? = null, val toState: String? = null)
 @Serializable data class Alarm(
   val id: String, val severity: String, val condition: String? = null, val state: String, val title: String,
   val description: String? = null, val recommendedAction: String? = null, val triggerValue: Double? = null, val threshold: Double? = null,
   val unit: String? = null, val peakValue: Double? = null, val triggeredAt: String, val clearedAt: String? = null,
   val acknowledgedAt: String? = null, val assetTag: String? = null, val assetName: String? = null, val sensorTag: String? = null, val assigneeName: String? = null,
-  val synthetic: Boolean = false,
+  val synthetic: Boolean = false, val siteId: String? = null, val siteName: String? = null, val assignedTo: String? = null, val resolutionNote: String? = null,
+  /** Only from /me/work and /me/shift: assigned to the caller, and the transitions the caller may perform now. */
+  val mine: Boolean = false, val allowedActions: List<String> = emptyList(),
 )
 
 // ---------------- work
@@ -65,12 +68,61 @@ import kotlinx.serialization.json.JsonElement
 @Serializable data class InspectionSummary(
   val id: String, val title: String, val status: String, val priority: String = "normal", val dueAt: String? = null,
   val stepCount: Int = 0, val answered: Int = 0, val assetTag: String? = null, val assetName: String? = null, val assigneeName: String? = null, val siteName: String? = null,
+  val siteId: String? = null, val assignedTo: String? = null, val mine: Boolean = false, val startedAt: String? = null, val submittedAt: String? = null,
 )
 @Serializable data class TaskList(val tasks: List<Task>)
 @Serializable data class Task(
   val id: String, val title: String, val description: String? = null, val kind: String = "corrective", val priority: String = "medium", val status: String,
   val checklist: List<ChecklistItem> = emptyList(), val dueAt: String? = null, val assetTag: String? = null, val assetName: String? = null, val assigneeName: String? = null, val siteName: String? = null,
+  val siteId: String? = null, val assignedTo: String? = null, val completionNote: String? = null, val mine: Boolean = false, val allowedActions: List<String> = emptyList(),
 )
+@Serializable data class TaskEnvelope(val task: Task, val activity: List<TaskActivity> = emptyList(), val permissions: TaskPerms = TaskPerms())
+@Serializable data class TaskActivity(val id: String, val action: String, val note: String? = null, val at: String, val actorName: String? = null)
+@Serializable data class TaskPerms(val manage: Boolean = false, val execute: Boolean = false)
+
+// ---------------- rounds (inspection execution, same contract as the glasses)
+@Serializable data class InspectionEnvelope(val inspection: InspectionDetail, val permissions: InspectionPerms = InspectionPerms())
+@Serializable data class InspectionPerms(val execute: Boolean = false, val manage: Boolean = false, val review: Boolean = false)
+@Serializable data class InspectionDetail(
+  val id: String, val title: String, val status: String, val priority: String = "normal", val dueAt: String? = null, val siteId: String? = null,
+  val steps: List<Step> = emptyList(), val safetyNotices: List<String> = emptyList(), val asset: AssetRef? = null, val assignedTo: String? = null,
+  val responses: Map<String, StepResponse> = emptyMap(), val revision: Int = 0, val reviewNote: String? = null, val submittedAt: String? = null,
+)
+@Serializable data class AssetRef(val id: String, val tag: String, val name: String, val type: String? = null, val status: String? = null)
+@Serializable data class Step(
+  val id: String, val kind: String, val title: String, val instruction: String? = null, val caution: String? = null, val required: Boolean = false,
+  val measurand: String? = null, val unit: String? = null, val expectedMin: Double? = null, val expectedMax: Double? = null,
+  val options: List<String> = emptyList(), val abnormalOptions: List<String> = emptyList(),
+)
+@Serializable data class StepResponse(val value: kotlinx.serialization.json.JsonObject, val outcome: String = "ok", val note: String? = null, val recordedAt: String? = null)
+@Serializable data class ResponseOp(val opId: String, val stepId: String, val value: kotlinx.serialization.json.JsonObject, val note: String? = null, val recordedAt: String)
+@Serializable data class ResponseBatch(val ops: List<ResponseOp>)
+@Serializable data class OpConflict(val opId: String, val reason: String)
+@Serializable data class ResponseResult(val applied: Int = 0, val duplicates: Int = 0, val conflicts: List<OpConflict> = emptyList(), val inspection: InspectionDetail)
+@Serializable data class AttachmentEnvelope(val attachment: AttachmentRef)
+@Serializable data class AttachmentRef(val id: String, val filename: String? = null)
+
+// ---------------- field operator ("My shift", /me/*)
+@Serializable data class ProfileEnvelope(val profile: Profile)
+@Serializable data class Profile(
+  val user: ProfileUser, val accountType: String = "operator", val org: ProfileOrg, val title: String? = null, val employeeId: String? = null,
+  val phone: String? = null, val shiftLabel: String? = null, val allSites: Boolean = true, val sites: List<SiteRef> = emptyList(), val glasses: List<AssignedGlasses> = emptyList(),
+)
+@Serializable data class ProfileUser(val id: String, val name: String, val email: String)
+@Serializable data class ProfileOrg(val id: String, val name: String, val isDemo: Boolean = false, val timezone: String = "UTC")
+@Serializable data class AssignedGlasses(val id: String, val name: String, val model: String? = null, val status: String = "active", val lastSeenAt: String? = null)
+@Serializable data class Shift(
+  val profile: Profile, val generatedAt: String, val progress: ShiftProgress = ShiftProgress(), val nextRound: InspectionSummary? = null,
+  val rounds: List<InspectionSummary> = emptyList(), val alarms: ShiftAlarms = ShiftAlarms(), val tasks: ShiftTasks = ShiftTasks(), val plant: List<PlantReading> = emptyList(),
+)
+@Serializable data class ShiftProgress(val done: Int = 0, val assigned: Int = 0, val inProgress: Int = 0, val overdue: Int = 0)
+@Serializable data class ShiftAlarms(val items: List<Alarm> = emptyList(), val open: Int = 0, val mine: Int = 0, val critical: Int = 0)
+@Serializable data class ShiftTasks(val items: List<Task> = emptyList(), val open: Int = 0)
+@Serializable data class PlantReading(
+  val id: String, val tag: String, val name: String, val measurand: String, val unit: String, val value: Double? = null, val ts: String? = null, val source: String? = null,
+  val siteName: String? = null, val assetTag: String? = null, val openAlarms: Int = 0, val freshness: String = "no_data",
+)
+@Serializable data class WorkView(val scope: String = "mine", val sites: List<SiteRef> = emptyList(), val alarms: List<Alarm> = emptyList(), val inspections: List<InspectionSummary> = emptyList(), val tasks: List<Task> = emptyList())
 @Serializable data class ChecklistItem(val id: String, val label: String, val done: Boolean)
 
 // ---------------- telemetry

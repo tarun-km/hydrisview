@@ -2,11 +2,13 @@
 
 import Link from 'next/link';
 import { useMemo, useState } from 'react';
-import { Glasses, MapPin, MonitorSmartphone, Plus, Radio } from 'lucide-react';
+import { Glasses, LayoutGrid, List, MapPin, MonitorSmartphone, Plus, Radio } from 'lucide-react';
 import { useApi } from '@/lib/query';
 import { useCan } from '@/lib/session';
 import { ago } from '@/lib/format';
 import { Avatar, ButtonLink, Capsule, EmptyState, KpiCard, PageHeader, QueryView, Skeleton, cx } from '@/ui';
+import { DevicePolicyCard, OwnershipTable } from '@/console/command/fleet';
+import type { FleetDevice } from '@/console/command/types';
 import { DeviceKindChip, DeviceStateChip, GlassesArt } from '@/console/admin/glasses';
 import { LiveBadge, useFleetLive, type LiveView } from '@/console/admin/live';
 import { NoAccess, type DeviceRow } from '@/console/admin/parts';
@@ -28,7 +30,10 @@ export default function DevicesPage() {
   const allowed = can('device.read');
   const q = useApi<{ devices: DeviceRow[] }>(allowed ? '/devices' : null, { refetchInterval: 20_000 });
   const [filter, setFilter] = useState<Filter>('all');
+  const [view, setView] = useState<'cards' | 'table'>('cards');
   const live = useFleetLive(allowed);
+  const fleet = useApi<{ devices: FleetDevice[] }>(allowed && can('console.access') ? '/command/fleet' : null, { refetchInterval: 20_000 });
+  const fleetBy = useMemo(() => new Map((fleet.data?.devices ?? []).map((d) => [d.id, d])), [fleet.data]);
 
   const counts = useMemo(() => {
     const out = {} as Record<Filter, number>;
@@ -39,9 +44,9 @@ export default function DevicesPage() {
   return (
     <>
       <PageHeader
-        eyebrow="People & devices"
-        title="Field glasses"
-        subtitle="Every pair of glasses paired to this organization, who wears it, and whether it is reachable right now."
+        eyebrow="Team"
+        title="Devices"
+        subtitle="Every pair of glasses in this organization: who owns it, whether it is reachable right now, battery and firmware. Reassign or revoke from here."
         actions={<>
           <ButtonLink href="/simulator" icon={<MonitorSmartphone size={16} aria-hidden />}>Open simulator</ButtonLink>
           {can('device.pair') && <ButtonLink href="/pair" variant="primary" icon={<Plus size={16} aria-hidden />}>Pair new glasses</ButtonLink>}
@@ -53,15 +58,21 @@ export default function DevicesPage() {
             const active = devices.filter((d) => d.status !== 'revoked');
             const shown = devices.filter(FILTERS.find((f) => f.value === filter)!.test);
             return (
-              <div className="grid gap-5 fade-in">
-                <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+              <div className="grid grid-cols-[minmax(0,1fr)] gap-5 fade-in">
+                <div className="grid grid-cols-[minmax(0,1fr)] gap-4 sm:grid-cols-2 xl:grid-cols-4">
                   <FleetRing devices={active} />
                   <KpiCard tone="dark" label="Assigned to an operator" value={counts.assigned} sub={`${active.filter((d) => d.status === 'active' && !d.assignee).length} active without an operator`} />
                   <KpiCard tone="dark" label="Suspended" value={counts.suspended} accent={counts.suspended ? 'high' : undefined} sub="Signed out until reactivated" />
                   <KpiCard tone="dark" label="Simulators" value={active.filter((d) => d.kind === 'simulator').length} sub={`${active.filter((d) => d.kind === 'hardware').length} hardware devices`} />
                 </div>
 
-                <Capsule label="Filter glasses by state" value={filter} onChange={setFilter} options={FILTERS.map((f) => ({ value: f.value, label: f.label, count: counts[f.value] }))} />
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <Capsule label="Filter glasses by state" value={filter} onChange={setFilter} options={FILTERS.map((f) => ({ value: f.value, label: f.label, count: counts[f.value] }))} />
+                  <div className="capsule" role="group" aria-label="Layout">
+                    <button type="button" aria-pressed={view === 'cards'} data-active={view === 'cards'} onClick={() => setView('cards')}><LayoutGrid size={15} aria-hidden /><span className="max-sm:sr-only">Cards</span></button>
+                    <button type="button" aria-pressed={view === 'table'} data-active={view === 'table'} onClick={() => setView('table')}><List size={15} aria-hidden /><span className="max-sm:sr-only">Ownership</span></button>
+                  </div>
+                </div>
 
                 {!devices.length ? (
                   <EmptyState icon={<Glasses size={20} aria-hidden />} title="No glasses paired yet"
@@ -69,11 +80,14 @@ export default function DevicesPage() {
                     action={can('device.pair') ? <ButtonLink href="/pair" variant="primary" icon={<Plus size={16} aria-hidden />}>Pair new glasses</ButtonLink> : undefined} />
                 ) : !shown.length ? (
                   <EmptyState title="No glasses in this state" body="Choose another filter to see the rest of the fleet." />
+                ) : view === 'table' ? (
+                  <OwnershipTable devices={shown} fleet={fleetBy} live={live} canManage={can('device.manage')} />
                 ) : (
-                  <ul className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-                    {shown.map((d) => <li key={d.id}><DeviceCard d={d} live={live.get(d.id)} /></li>)}
+                  <ul className="grid grid-cols-[minmax(0,1fr)] gap-4 md:grid-cols-2 xl:grid-cols-3">
+                    {shown.map((d) => <li key={d.id}><DeviceCard d={d} live={live.get(d.id)} battery={fleetBy.get(d.id)?.battery ?? live.get(d.id)?.battery ?? null} /></li>)}
                   </ul>
                 )}
+                {can('org.manage') && <DevicePolicyCard />}
               </div>
             );
           }}
@@ -83,7 +97,7 @@ export default function DevicesPage() {
   );
 }
 
-function DeviceCard({ d, live }: { d: DeviceRow; live?: LiveView }) {
+function DeviceCard({ d, live, battery }: { d: DeviceRow; live?: LiveView; battery: number | null }) {
   const off = d.state === 'revoked' || d.state === 'suspended';
   const streaming = !off && !!live?.live;
   return (
@@ -106,12 +120,13 @@ function DeviceCard({ d, live }: { d: DeviceRow; live?: LiveView }) {
         <div className="truncate text-[26px] leading-tight tracking-[-0.03em]">{d.name}</div>
         <div className="t-label mt-1 truncate">{d.model ?? (d.kind === 'simulator' ? 'Hydris browser simulator' : 'Model not reported')}</div>
       </div>
-      <div className="mt-auto grid gap-2.5 border-t border-line pt-4 text-sm">
+      <div className="mt-auto grid grid-cols-[minmax(0,1fr)] gap-2.5 border-t border-line pt-4 text-sm">
         <div className="flex items-center gap-2.5">
           {d.assignee ? <Avatar name={d.assignee.name ?? '?'} size={28} tone="cobalt" /> : <span className="grid h-7 w-7 place-items-center rounded-full border border-dashed border-line-2 text-muted" aria-hidden>–</span>}
           <span className="min-w-0 flex-1 truncate">{d.assignee?.name ? <><span className="text-text-2">Worn by </span>{d.assignee.name}</> : <span className="text-muted">No operator assigned</span>}</span>
         </div>
         {streaming && live?.title && <div className="truncate text-[13px] text-text-2" title={live.title}>Looking at <span className="text-text">{live.title}</span></div>}
+        {(battery !== null || d.firmwareVersion) && <div className="flex items-center justify-between gap-3 text-[13px] text-text-2 num"><span>{battery !== null ? `Battery ${Math.round(battery)}%` : 'Battery not reported'}</span><span className="truncate text-muted">{d.firmwareVersion ? `FW ${d.firmwareVersion}` : d.appVersion ? `App ${d.appVersion}` : ''}</span></div>}
         <div className="flex items-center justify-between gap-3 text-[13px] text-text-2">
           <span className="flex min-w-0 items-center gap-1.5"><MapPin size={14} className="flex-none text-muted" aria-hidden /><span className="truncate">{d.siteName ?? 'No site'}</span></span>
           <span className="flex flex-none items-center gap-1.5 num" title={d.lastSeenAt ? new Date(d.lastSeenAt).toLocaleString() : 'Never connected'}>
@@ -145,9 +160,9 @@ function FleetRing({ devices }: { devices: DeviceRow[] }) {
 
 function FleetSkeleton() {
   return (
-    <div className="grid gap-5">
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">{[0, 1, 2, 3].map((i) => <Skeleton key={i} className="h-[148px] rounded-[24px]" />)}</div>
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{[0, 1, 2].map((i) => <Skeleton key={i} className="h-[340px] rounded-[24px]" />)}</div>
+    <div className="grid grid-cols-[minmax(0,1fr)] gap-5">
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-4 sm:grid-cols-2 xl:grid-cols-4">{[0, 1, 2, 3].map((i) => <Skeleton key={i} className="h-[148px] rounded-[24px]" />)}</div>
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-4 md:grid-cols-2 xl:grid-cols-3">{[0, 1, 2].map((i) => <Skeleton key={i} className="h-[340px] rounded-[24px]" />)}</div>
     </div>
   );
 }

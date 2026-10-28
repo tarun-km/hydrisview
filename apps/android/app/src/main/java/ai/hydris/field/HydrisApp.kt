@@ -9,6 +9,7 @@ import ai.hydris.field.glasses.GlassesPrefs
 import kotlinx.coroutines.flow.MutableStateFlow
 import ai.hydris.field.voice.VoiceEngine
 import android.app.Application
+import kotlinx.coroutines.launch
 import android.app.NotificationChannel
 import android.app.NotificationManager
 
@@ -20,13 +21,26 @@ class HydrisApp : Application() {
   lateinit var voice: VoiceEngine; private set
   lateinit var prefs: GlassesPrefs; private set
   lateinit var captures: CaptureStore; private set
+  lateinit var outbox: ai.hydris.field.data.Outbox; private set
+  lateinit var connectivity: ai.hydris.field.data.Connectivity; private set
+  private val appScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Main)
+
+  /** Replay the round outbox now (if online) and schedule a WorkManager retry for whatever remains. */
+  fun sync() {
+    if (outbox.pendingCount == 0) return
+    ai.hydris.field.data.SyncWorker.enqueue(this)
+    if (connectivity.online.value && api.accessToken != null) appScope.launch { runCatching { outbox.flush(repo) } }
+  }
   /** Hand-off to the Scan tab from elsewhere (Glasses quick action, gallery "Send to audit scan"). */
   val scanRequest = MutableStateFlow<ScanRequest?>(null)
 
   override fun onCreate() {
     super.onCreate()
     api = HydrisApi(SecureStore(this))
-    repo = Repository(api)
+    outbox = ai.hydris.field.data.Outbox(this)
+    repo = Repository(api, outbox)
+    connectivity = ai.hydris.field.data.Connectivity(this)
+    connectivity.start { sync() }
     prefs = GlassesPrefs(this)
     captures = CaptureStore(this)
     glasses = GlassesManager(this, prefs)

@@ -118,6 +118,8 @@ export const organizations = pgTable(
     emailDomain: text('email_domain'),
     /** Set when an administrator finishes the console setup wizard. */
     setupCompletedAt: ts('setup_completed_at'),
+    /** Organization policies (console Settings / Devices). See OrgSettings in modules/command.ts. */
+    settings: jsonb('settings').$type<{ requireDeviceApproval?: boolean }>().notNull().default({}),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },

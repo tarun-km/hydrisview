@@ -186,6 +186,9 @@ private fun Main(activity: MainActivity, session: Session, onSignOut: () -> Unit
   val liveRoute by rememberUpdatedState(route)
   LaunchedEffect(session.user.id) { ai.hydris.field.data.LiveShare(app.api).run({ liveRoute }, app.glasses.frame) { app.prefs.value.shareLive } }
 
+  // Replay anything recorded offline in an earlier session.
+  LaunchedEffect(session.user.id) { app.sync() }
+
   // Realtime: alarms created anywhere on the account → system notification + live refresh.
   LaunchedEffect(session.user.id) {
     val nm = activity.getSystemService(NotificationManager::class.java)
@@ -225,7 +228,10 @@ private fun Main(activity: MainActivity, session: Session, onSignOut: () -> Unit
         popEnterTransition = { fadeIn(tween(dur, easing = HxMotion.EaseOut)) },
         popExitTransition = { fadeOut(tween(if (reduced) 0 else HxMotion.Fast)) + slideOutVertically(tween(dur, easing = HxMotion.EaseOut)) { (it * 0.02f).toInt() } },
       ) {
-        composable("home") { HomeScreen(session, nav, onSignOut) }
+        composable("home") { HomeScreen(session, nav) }
+        composable("profile") { CompositionLocalProvider(LocalNavScope provides this) { ai.hydris.field.ui.screens.ProfileScreen(session, nav, onSignOut) } }
+        composable("round/{id}", listOf(navArgument("id") { type = NavType.StringType })) { ai.hydris.field.ui.screens.RoundScreen(it.arguments!!.getString("id")!!, nav) }
+        composable("task/{id}", listOf(navArgument("id") { type = NavType.StringType })) { ai.hydris.field.ui.screens.TaskScreen(it.arguments!!.getString("id")!!, nav) }
         composable("work") { WorkScreen(nav) }
         composable("scan") { ScanScreen(activity) }
         composable("ask") { AskScreen(activity) }
@@ -260,7 +266,9 @@ private fun Main(activity: MainActivity, session: Session, onSignOut: () -> Unit
       val tabRoute = when {
         route == null -> "home"
         route == "captures" || route.startsWith("capture/") -> "glasses"
-        route.startsWith("alarm") || route.startsWith("sensor") -> nav.previousBackStackEntry?.destination?.route ?: "work"
+        route == "profile" -> "home"
+        route.startsWith("alarm") || route.startsWith("sensor") || route.startsWith("round/") || route.startsWith("task/") ->
+          nav.previousBackStackEntry?.destination?.route?.takeIf { r -> TABS.any { it.route == r } } ?: "work"
         else -> route
       }
       // The full-screen capture viewer hides the navigation (immersive photo).

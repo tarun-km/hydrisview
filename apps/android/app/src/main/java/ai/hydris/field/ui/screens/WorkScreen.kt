@@ -10,6 +10,8 @@ import ai.hydris.field.ui.components.HButton
 import ai.hydris.field.ui.components.HField
 import ai.hydris.field.ui.components.HSecondaryButton
 import ai.hydris.field.ui.components.NavSpacer
+import ai.hydris.field.ui.components.OfflineBanner
+import androidx.compose.runtime.collectAsState
 import ai.hydris.field.ui.components.PageHeader
 import ai.hydris.field.ui.components.PaperCard
 import ai.hydris.field.ui.components.SeverityChip
@@ -73,20 +75,34 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import kotlinx.coroutines.launch
+import ai.hydris.field.HydrisApp
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.platform.LocalContext
 
-private val TABS = listOf("Alarms", "Inspections", "Maintenance", "Sensors", "Audit docs")
+private val TABS = listOf("Alarms", "Rounds", "Maintenance", "Sensors", "Audit docs")
+private typealias WorkData = Loadable<ai.hydris.field.data.WorkView>
 
 @Composable
 fun WorkScreen(nav: NavController) {
   var tab by rememberSaveable { mutableIntStateOf(0) }
+  var scope by rememberSaveable { mutableStateOf("mine") }
+  val app = LocalContext.current.applicationContext as HydrisApp
+  val outboxRev by app.outbox.revision.collectAsState()
+  val online by app.connectivity.online.collectAsState()
+  val work = rememberLoad(scope, refreshMs = 15_000) { work(scope) }
+  LaunchedEffect(outboxRev, online) { work.reload() }
+  val view = remember(work.data.value) { mutableStateOf(work.data.value?.value) }
+  val w: WorkData = Loadable(view, work.error, work.nonce)
   Column(Modifier.fillMaxSize().statusBarsPadding()) {
     PageHeader("Operate · field work", "Work", modifier = Modifier.padding(horizontal = 16.dp).padding(top = 12.dp))
+    if (tab <= 2) Capsule(listOf("mine" to "Mine", "site" to "My sites"), scope, { scope = it }, Modifier.padding(horizontal = 16.dp).padding(bottom = 10.dp))
     Capsule(TABS.indices.map { it to TABS[it] }, tab, { tab = it }, Modifier.padding(horizontal = 16.dp).horizontalScroll(rememberScrollState()))
     Spacer(Modifier.height(12.dp))
+    OfflineBanner(Modifier.padding(horizontal = 16.dp), cachedAt = work.data.value?.cachedAt)
     when (tab) {
-      0 -> AlarmsTab(nav)
-      1 -> InspectionsTab()
-      2 -> MaintenanceTab()
+      0 -> AlarmsTab(nav, w, scope, onChanged = { work.reload() })
+      1 -> RoundsTab(nav, w, scope)
+      2 -> MaintenanceTab(nav, w, scope)
       3 -> SensorsTab(nav)
       else -> AuditDocsTab()
     }
@@ -94,12 +110,12 @@ fun WorkScreen(nav: NavController) {
 }
 
 @Composable
-private fun <T> ListOf(l: Loadable<List<T>>, empty: String, row: @Composable (T) -> Unit) {
+private fun <T> ListOf(l: Loadable<List<T>>, empty: String, emptyBody: String? = null, row: @Composable (T) -> Unit) {
   val data = l.data.value
   when {
     data == null && l.error.value != null -> ErrorNote(l.error.value!!, Modifier.padding(16.dp))
     data == null -> Loading()
-    data.isEmpty() -> EmptyState(empty, modifier = Modifier.padding(16.dp))
+    data.isEmpty() -> EmptyState(empty, emptyBody, modifier = Modifier.padding(16.dp))
     else -> LazyColumn(Modifier.fillMaxSize().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
       item { Spacer(Modifier.height(4.dp)) }
       itemsIndexed(data) { i, it -> Box(Modifier.appear(i)) { row(it) } }
@@ -109,68 +125,91 @@ private fun <T> ListOf(l: Loadable<List<T>>, empty: String, row: @Composable (T)
 }
 
 @Composable
-private fun AlarmsTab(nav: NavController) {
-  val l = rememberLoad(refreshMs = 15_000) { alarms().filter { it.state != "closed" } }
-  ListOf(l, "No open alarms.") { a -> AlarmRow(a) { nav.navigate("alarm/${a.id}") } }
+private fun <T> derived(w: WorkData, pick: (ai.hydris.field.data.WorkView) -> List<T>): Loadable<List<T>> {
+  val v = w.data.value
+  return Loadable(remember(v) { mutableStateOf(v?.let(pick)) }, w.error, w.nonce)
 }
 
 @Composable
-fun AlarmRow(a: Alarm, onClick: () -> Unit) {
+private fun AlarmsTab(nav: NavController, w: WorkData, scope: String, onChanged: () -> Unit) {
+  val r = repo()
+  val cs = rememberCoroutineScope()
+  var busy by remember { mutableStateOf<String?>(null) }
+  var err by remember { mutableStateOf<String?>(null) }
+  Column {
+    err?.let { ErrorNote(it, Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) }
+    ListOf(derived(w) { it.alarms }, if (scope == "mine") "No alarms assigned to you" else "No open alarms on your sites",
+      if (scope == "mine") "Switch to My sites to see every open alarm where you work." else null) { a ->
+      AlarmRow(a, onClick = { nav.navigate("alarm/${a.id}") }) {
+        // Quick transitions straight from the list (rendered from the API's allowedActions); resolving needs a note, so it opens the alarm.
+        val quick = a.allowedActions.filter { it == "acknowledge" || it == "investigate" }
+        if (quick.isNotEmpty() || "resolve" in a.allowedActions) Row(Modifier.padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+          quick.forEach { act ->
+            HButton({
+              cs.launch { busy = a.id; err = null; runCatching { r.alarmAction(a.id, act) }.onFailure { err = it.message }; busy = null; onChanged() }
+            }, Modifier.height(40.dp), enabled = busy == null) { Text(actionLabel(act), fontSize = 14.sp) }
+          }
+          if ("resolve" in a.allowedActions) HSecondaryButton({ nav.navigate("alarm/${a.id}") }, Modifier.height(40.dp)) { Text("Resolve…", fontSize = 14.sp) }
+        }
+      }
+    }
+  }
+}
+
+fun actionLabel(a: String) = when (a) {
+  "acknowledge" -> "Acknowledge"; "investigate" -> "Investigate"; "resolve" -> "Resolve"; "close" -> "Close"
+  "start" -> "Start"; "hold" -> "Put on hold"; "complete" -> "Complete"; else -> label(a)
+}
+
+@Composable
+fun AlarmRow(a: Alarm, onClick: () -> Unit, extra: @Composable () -> Unit = {}) {
   HCard(Modifier.fillMaxWidth(), onClick = onClick, accent = if (a.severity == "critical" && a.state == "active") Hx.Alert else null, padding = 14.dp) {
     Row(verticalAlignment = Alignment.CenterVertically) {
-      Dot(Hx.severity(a.severity), 10.dp)
+      Dot(Hx.severity(a.severity), 10.dp, pulse = a.severity == "critical" && a.state == "active")
       Column(Modifier.weight(1f).padding(start = 12.dp)) {
         Text(a.title, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
-        Text("${label(a.state)} · ${ago(a.triggeredAt)}${a.assigneeName?.let { " · $it" } ?: ""}", color = Hx.Muted, style = MaterialTheme.typography.bodySmall)
+        Text(listOfNotNull(label(a.state), ago(a.triggeredAt), if (a.mine) "you" else a.assigneeName, a.siteName).joinToString(" · "), color = Hx.Muted, style = MaterialTheme.typography.bodySmall, maxLines = 1)
       }
       SeverityChip(a.severity)
     }
+    extra()
   }
 }
 
 @Composable
-private fun InspectionsTab() {
-  val l = rememberLoad { inspections() }
-  ListOf(l, "No inspections.") { i ->
-    HCard(Modifier.fillMaxWidth(), padding = 16.dp) {
+private fun RoundsTab(nav: NavController, w: WorkData, scope: String) {
+  val app = LocalContext.current.applicationContext as HydrisApp
+  val entries by app.outbox.entries.collectAsState()
+  ListOf(derived(w) { it.inspections }, "No rounds", "Rounds assigned to you appear here.") { i ->
+    val queued = entries.count { it.inspectionId == i.id && it.kind == "response" && it.state == "pending" }
+    val submitQueued = entries.any { it.inspectionId == i.id && it.action == "submit" && it.state == "pending" }
+    val answered = (i.answered + queued).coerceAtMost(i.stepCount)
+    val overdue = i.dueAt?.let { runCatching { java.time.Instant.parse(it).isBefore(java.time.Instant.now()) }.getOrDefault(false) } == true && i.status != "submitted" && i.status != "approved"
+    HCard(Modifier.fillMaxWidth(), onClick = { nav.navigate("round/${i.id}") }, accent = if (overdue) Hx.High else null, padding = 16.dp) {
       Row(verticalAlignment = Alignment.CenterVertically) {
         Text(i.title, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f), maxLines = 2, overflow = TextOverflow.Ellipsis)
-        Chip(label(i.status), if (i.status == "submitted" || i.status == "approved") Hx.OkSoft else Hx.SignalText)
+        Chip(if (submitQueued) "Submit queued" else label(i.status), when { submitQueued -> Hx.Accent; i.status == "submitted" || i.status == "approved" -> Hx.OkSoft; i.status == "rejected" -> Hx.High; else -> Hx.SignalText })
       }
-      Text("${i.assigneeName ?: "Unassigned"} · ${i.siteName ?: ""}${i.dueAt?.let { " · due ${ago(it).replace(" ago", " overdue")}" }?.takeIf { java.time.Instant.parse(i.dueAt).isBefore(java.time.Instant.now()) } ?: ""}",
-        color = Hx.Muted, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 4.dp, bottom = 8.dp))
-      ProgressBar(if (i.stepCount > 0) i.answered.toFloat() / i.stepCount else 0f, if (i.priority == "high") Hx.High else Hx.Signal)
-      Text("${i.answered}/${i.stepCount} steps", color = Hx.Muted, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 4.dp))
+      Text(listOfNotNull(if (scope == "site" && !i.mine) i.assigneeName ?: "Unassigned" else null, i.assetName, i.siteName, if (overdue) "overdue" else null).joinToString(" · "),
+        color = if (overdue) Hx.HighText else Hx.Muted, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 4.dp, bottom = 8.dp))
+      ProgressBar(if (i.stepCount > 0) answered.toFloat() / i.stepCount else 0f, if (i.priority == "high") Hx.High else Hx.Signal)
+      Text("$answered/${i.stepCount} steps${if (queued > 0) " · $queued waiting to sync" else ""}", color = Hx.Muted, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 4.dp))
     }
   }
 }
 
 @Composable
-private fun MaintenanceTab() {
-  val r = repo()
-  val l = rememberLoad { tasks().filter { it.status != "completed" && it.status != "cancelled" } }
-  val scope = rememberCoroutineScope()
-  ListOf(l, "No open maintenance tasks.") { t ->
-    var expanded by remember(t.id) { mutableStateOf(false) }
-    HCard(Modifier.fillMaxWidth(), onClick = { expanded = !expanded }, accent = if (t.priority == "urgent") Hx.Alert else null, padding = 16.dp) {
+private fun MaintenanceTab(nav: NavController, w: WorkData, scope: String) {
+  ListOf(derived(w) { it.tasks }, if (scope == "mine") "No maintenance assigned to you" else "No open maintenance on your sites") { t ->
+    HCard(Modifier.fillMaxWidth(), onClick = { nav.navigate("task/${t.id}") }, accent = if (t.priority == "urgent") Hx.Alert else null, padding = 16.dp) {
       Row(verticalAlignment = Alignment.CenterVertically) {
-        Text(t.title, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f), maxLines = if (expanded) 4 else 2, overflow = TextOverflow.Ellipsis)
+        Text(t.title, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f), maxLines = 2, overflow = TextOverflow.Ellipsis)
         Chip(label(t.priority), when (t.priority) { "urgent" -> Hx.Critical; "high" -> Hx.High; else -> Hx.Text2 })
       }
       val done = t.checklist.count { it.done }
-      Text("${label(t.status)} · ${t.assigneeName ?: "Unassigned"} · $done/${t.checklist.size} checks", color = Hx.Muted, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(vertical = 6.dp))
-      ProgressBar(if (t.checklist.isEmpty()) 0f else done.toFloat() / t.checklist.size, Hx.OkSoft)
-      if (expanded) {
-        t.description?.let { Text(it, color = Hx.Text2, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 10.dp)) }
-        t.checklist.forEach { c ->
-          Row(Modifier.fillMaxWidth().clickable {
-            scope.launch { runCatching { r.toggleChecklist(t.id, c.id, !c.done) }; l.reload() }
-          }.padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(if (c.done) Icons.Outlined.CheckBox else Icons.Outlined.CheckBoxOutlineBlank, null, tint = if (c.done) Hx.OkSoft else Hx.Muted)
-            Text("  ${c.label}", color = if (c.done) Hx.Muted else Hx.Text)
-          }
-        }
-      }
+      Text(listOfNotNull(label(t.status), if (t.mine) "you" else t.assigneeName ?: "Unassigned", t.assetTag, if (t.checklist.isNotEmpty()) "$done/${t.checklist.size} checks" else null).joinToString(" · "),
+        color = Hx.Muted, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(vertical = 6.dp))
+      if (t.checklist.isNotEmpty()) ProgressBar(done.toFloat() / t.checklist.size, Hx.OkSoft)
     }
   }
 }
@@ -212,13 +251,14 @@ private fun AuditDocsTab() {
 @Composable
 fun AlarmDetailScreen(id: String, nav: NavController) {
   val r = repo()
-  val l = rememberLoad(id) { alarm(id) }
+  val l = rememberLoad(id) { alarmDetail(id) }
   val scope = rememberCoroutineScope()
   var busy by remember { mutableStateOf(false) }
   var err by remember { mutableStateOf<String?>(null) }
   Column(Modifier.fillMaxSize().statusBarsPadding().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
     BackButton { nav.popBackStack() }
-    val a = l.data.value ?: run { if (l.error.value != null) ErrorNote(l.error.value!!) else Loading(); return@Column }
+    val env = l.data.value
+    val a = env?.alarm ?: run { if (l.error.value != null) ErrorNote(l.error.value!!) else Loading(); return@Column }
     Eyebrow("Alarm · ${a.assetTag ?: a.sensorTag ?: "plant"}")
     Text(a.title, style = HxType.Page)
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { SeverityChip(a.severity); Chip(label(a.state)); if (a.synthetic) Chip("Synthetic", Hx.Purple) }
@@ -236,15 +276,28 @@ fun AlarmDetailScreen(id: String, nav: NavController) {
     }
     a.recommendedAction?.let { BrandCard(Modifier.fillMaxWidth()) { Eyebrow("Recommended action", Color.White.copy(alpha = 0.85f)); Spacer(Modifier.height(8.dp)); Text(it, color = Color.White, fontSize = 15.sp, lineHeight = 22.sp) } }
     err?.let { ErrorNote(it) }
-    val next = when (a.state) { "active" -> listOf("acknowledge" to "Acknowledge"); "acknowledged" -> listOf("investigate" to "Investigate", "resolve" to "Resolve"); "investigating" -> listOf("resolve" to "Resolve"); "resolved" -> listOf("close" to "Close"); else -> emptyList() }
+    // Actions come from the API's allowedActions (state machine + this person's permissions).
+    val allowed = env.allowedActions
     // Resolving requires a note describing what was done (the API rejects it without one).
     var note by remember(a.state) { mutableStateOf("") }
-    if (next.any { it.first == "resolve" }) HField("What was done (needed to resolve)", note, { note = it }, Modifier.fillMaxWidth(), singleLine = false, minLines = 2)
-    next.forEachIndexed { i, (action, text) ->
+    if ("resolve" in allowed) HField("What was done (needed to resolve)", note, { note = it }, Modifier.fillMaxWidth(), singleLine = false, minLines = 3)
+    if (allowed.isEmpty() && a.state != "closed") Text("No actions available to you for this alarm.", color = Hx.Muted, style = MaterialTheme.typography.bodySmall)
+    a.resolutionNote?.let { HCard(Modifier.fillMaxWidth(), padding = 16.dp) { Eyebrow("Resolution"); Text(it, color = Hx.Text, modifier = Modifier.padding(top = 6.dp)) } }
+    allowed.forEachIndexed { i, action ->
       val needsNote = action == "resolve" && note.isBlank()
       val click: () -> Unit = { scope.launch { busy = true; err = null; runCatching { r.alarmAction(id, action, note.trim().ifEmpty { null }) }.onFailure { err = it.message }; l.reload(); busy = false } }
-      if (i == 0) HButton(click, enabled = !busy && !needsNote, modifier = Modifier.fillMaxWidth().height(52.dp)) { Text(text) }
-      else HSecondaryButton(click, enabled = !busy && !needsNote, modifier = Modifier.fillMaxWidth().height(52.dp)) { Text(text) }
+      if (i == 0) HButton(click, enabled = !busy && !needsNote, modifier = Modifier.fillMaxWidth().height(52.dp)) { Text(actionLabel(action)) }
+      else HSecondaryButton(click, enabled = !busy && !needsNote, modifier = Modifier.fillMaxWidth().height(52.dp)) { Text(actionLabel(action)) }
+    }
+    if (env.history.isNotEmpty()) HCard(Modifier.fillMaxWidth(), padding = 16.dp) {
+      Text("History", style = HxType.Card)
+      env.history.takeLast(8).reversed().forEach { e ->
+        Column(Modifier.padding(top = 10.dp)) {
+          Text("${label(e.action)}${e.actorName?.let { " · $it" } ?: ""}", color = Hx.Text, fontSize = 14.sp)
+          e.note?.let { Text(it, color = Hx.Text2, fontSize = 13.sp) }
+          Text(ago(e.at), color = Hx.Muted, fontSize = 12.sp)
+        }
+      }
     }
     NavSpacer()
   }
