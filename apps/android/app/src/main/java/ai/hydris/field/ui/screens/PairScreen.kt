@@ -8,7 +8,6 @@ import ai.hydris.field.ui.components.ErrorNote
 import ai.hydris.field.ui.components.Eyebrow
 import ai.hydris.field.ui.components.HButton
 import ai.hydris.field.ui.components.HCard
-import ai.hydris.field.ui.components.HField
 import ai.hydris.field.ui.components.HSecondaryButton
 import ai.hydris.field.ui.components.NavSpacer
 import ai.hydris.field.ui.components.PageHeader
@@ -46,7 +45,20 @@ import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.ContentPaste
 import androidx.compose.material.icons.outlined.HourglassTop
 import androidx.compose.material.icons.outlined.QrCodeScanner
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Icon
+import androidx.compose.material3.TextButton
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -81,15 +93,18 @@ import kotlinx.coroutines.launch
 fun pairingCodeFrom(payload: String): String? {
   val s = payload.trim()
   val raw = Regex("[?&]code=([^&#\\s]+)", RegexOption.IGNORE_CASE).find(s)?.groupValues?.get(1)?.let { android.net.Uri.decode(it) } ?: s
-  val alphabet = "23456789ABCDEFGHJKMNPQRSTVWXYZ"
-  val c = raw.uppercase().filter { it in alphabet }
+  val c = raw.uppercase().filter { it in CODE_ALPHABET }
   return if (c.length == 8) "${c.take(4)}-${c.drop(4)}" else null
 }
 
+/** Pairing code alphabet (packages/domain PAIRING_CODE_ALPHABET): no 0/O, 1/I/L, U. */
+private const val CODE_ALPHABET = "23456789ABCDEFGHJKMNPQRSTVWXYZ"
+
 /**
- * Pair glasses that show a QR (Meta Ray-Ban Display / browser glasses app): scan it with the phone camera
- * (CameraX + ML Kit barcode scanning) and the glasses are approved for the signed-in person at once. The typed
- * code and a pasted / deep-linked payload (hydrisfield://pair?code=…) are the fallbacks.
+ * Pair glasses by their code. Head-worn displays are only visible to the wearer, so a phone can never scan the
+ * lens: the typed 8-character code (XXXX-XXXX) is the default path, auto-submitted once complete. A pasted link
+ * or a deep / App Link (hydrisfield://pair?code=..., https://.../pair?code=...) also works. The QR scanner remains
+ * as a secondary option for the browser simulator / desktop glasses page. Native Ray-Ban Meta glasses need no code.
  */
 @SuppressLint("UnsafeOptInUsageError")
 @Composable
@@ -98,18 +113,22 @@ fun PairScreen(activity: MainActivity, nav: NavController, initial: String?) {
   val scope = rememberCoroutineScope()
   val view = LocalView.current
   val clipboard = LocalClipboardManager.current
+  var scanning by remember { mutableStateOf(false) }
   var cameraOk by remember { mutableStateOf<Boolean?>(null) }
-  var code by remember { mutableStateOf(initial?.let { pairingCodeFrom(it) } ?: "") }
+  // Raw code characters (max 8, alphabet only); the dash is drawn between the two groups.
+  var chars by remember { mutableStateOf(initial?.let { pairingCodeFrom(it) }?.replace("-", "") ?: "") }
   var busy by remember { mutableStateOf(false) }
   var err by remember { mutableStateOf<String?>(null) }
   var done by remember { mutableStateOf<Pair<String, Boolean>?>(null) } // device name, waiting for admin
   val handled = remember { AtomicBoolean(false) }
+  val focus = remember { FocusRequester() }
+  val code = if (chars.length > 4) "${chars.take(4)}-${chars.drop(4)}" else chars
 
   fun approve(payload: String) {
     val c = pairingCodeFrom(payload)
-    if (c == null) { err = "That is not a Hydris pairing code."; handled.set(false); return }
+    if (c == null) { err = "That is not a Hydris pairing code. It has 8 characters, like ABCD-2345."; handled.set(false); return }
     if (busy) return
-    code = c; busy = true; err = null
+    chars = c.replace("-", ""); busy = true; err = null
     scope.launch {
       runCatching { app.repo.approvePairing(c) }
         .onSuccess { r ->
@@ -118,9 +137,14 @@ fun PairScreen(activity: MainActivity, nav: NavController, initial: String?) {
         }
         .onFailure { e ->
           handled.set(false)
-          err = when ((e as? ApiException)?.code) {
-            "not_found" -> "Code not found or expired. Ask the glasses for a new code."
-            "device_owned_elsewhere" -> "These glasses belong to another organization."
+          view.performHapticFeedback(HapticFeedbackConstants.REJECT)
+          val api = e as? ApiException
+          err = when {
+            api?.code == "invalid_code" -> "Invalid code. Check the 8 characters shown on the glasses."
+            api?.code == "already_used" -> "This code was already used. Ask the glasses for a new code."
+            api?.code == "not_found" || api?.status == 404 -> "Code expired or not recognised. Choose New code on the glasses and try again."
+            api?.code == "device_owned_elsewhere" -> "These glasses belong to another organization."
+            api?.status == 429 -> "Too many attempts. Wait a minute, then try again."
             else -> e.message ?: "Could not pair"
           }
         }
@@ -128,14 +152,29 @@ fun PairScreen(activity: MainActivity, nav: NavController, initial: String?) {
     }
   }
 
+  fun onInput(text: String) {
+    if (busy) return
+    // Paste detection: a pasted link or formatted code is parsed as a whole.
+    if (text.length - chars.length > 1 || text.contains("code=", ignoreCase = true) || text.contains("://")) {
+      val c = pairingCodeFrom(text)
+      if (c != null) { chars = c.replace("-", ""); err = null; if (handled.compareAndSet(false, true)) approve(c); return }
+    }
+    val next = text.uppercase().filter { it in CODE_ALPHABET }.take(8)
+    err = null
+    chars = next
+    if (next.length < 8) handled.set(false)
+    else if (handled.compareAndSet(false, true)) approve(next)
+  }
+
   LaunchedEffect(Unit) {
     if (initial != null && pairingCodeFrom(initial) != null && handled.compareAndSet(false, true)) approve(initial)
-    cameraOk = activity.ensurePhonePermission(Manifest.permission.CAMERA)
+    else runCatching { focus.requestFocus() }
   }
+  LaunchedEffect(scanning) { if (scanning && cameraOk != true) cameraOk = activity.ensurePhonePermission(Manifest.permission.CAMERA) }
 
   Column(Modifier.fillMaxSize().statusBarsPadding().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
     BackButton { nav.popBackStack() }
-    PageHeader("Glasses", "Pair glasses", "Scan the QR shown on the glasses. They sign in as you straight away.", modifier = Modifier.appear())
+    PageHeader("Glasses", "Pair glasses", "Enter the code shown on the glasses. They sign in as you straight away.", modifier = Modifier.appear())
 
     val d = done
     if (d != null) {
@@ -154,38 +193,66 @@ fun PairScreen(activity: MainActivity, nav: NavController, initial: String?) {
         Spacer(Modifier.height(14.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
           HButton({ nav.popBackStack() }, Modifier.weight(1f)) { Text("Done") }
-          HSecondaryButton({ done = null; code = ""; handled.set(false) }, Modifier.weight(1f)) { Text("Pair another") }
+          HSecondaryButton({ done = null; chars = ""; handled.set(false) }, Modifier.weight(1f)) { Text("Pair another") }
         }
       }
     } else {
-      Box(
-        Modifier.fillMaxWidth().aspectRatio(1f).clip(HxShape.Xl).background(Color.Black).border(1.dp, Hx.Line2, HxShape.Xl).appear(1),
-        contentAlignment = Alignment.Center,
-      ) {
-        if (cameraOk == true) QrCamera { raw -> if (handled.compareAndSet(false, true)) approve(raw) }
-        else Column(horizontalAlignment = Alignment.CenterHorizontally) {
-          Icon(Icons.Outlined.QrCodeScanner, null, tint = Hx.Muted, modifier = Modifier.size(48.dp))
-          Text(if (cameraOk == false) "Camera permission is off. Type the code below." else "Starting camera…", color = Hx.Muted, fontSize = 14.sp, modifier = Modifier.padding(top = 10.dp))
-        }
-        // Viewfinder frame
-        Box(Modifier.fillMaxWidth(0.62f).aspectRatio(1f).border(3.dp, Hx.Signal.copy(alpha = 0.9f), HxShape.Lg))
-        if (busy) Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.55f)), contentAlignment = Alignment.Center) { Text("Pairing…", color = Color.White, fontWeight = FontWeight.SemiBold) }
-      }
-      HCard(Modifier.fillMaxWidth().appear(2), padding = 16.dp) {
-        Eyebrow("No camera? Type the code")
-        Spacer(Modifier.height(8.dp))
-        HField(null, code, { code = it.uppercase().take(40) }, placeholder = "XXXX-XXXX")
-        Spacer(Modifier.height(10.dp))
+      HCard(Modifier.fillMaxWidth().appear(1), padding = 16.dp) {
+        Eyebrow("Code on the glasses")
+        Spacer(Modifier.height(12.dp))
+        BasicTextField(
+          value = chars,
+          onValueChange = { onInput(it) },
+          enabled = !busy,
+          singleLine = true,
+          keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Characters, autoCorrectEnabled = false, keyboardType = KeyboardType.Ascii, imeAction = ImeAction.Done),
+          keyboardActions = KeyboardActions(onDone = { if (chars.length == 8) approve(chars) }),
+          cursorBrush = SolidColor(Color.Transparent),
+          modifier = Modifier.fillMaxWidth().focusRequester(focus).semantics { contentDescription = "Pairing code, 8 characters" },
+          decorationBox = { _ ->
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+              for (i in 0 until 8) {
+                if (i == 4) Text("-", color = Hx.Signal, fontSize = 28.sp, fontWeight = FontWeight.Bold)
+                val ch = chars.getOrNull(i)
+                val active = i == chars.length && !busy
+                Box(
+                  Modifier.weight(1f).height(56.dp).clip(HxShape.Lg).background(Color.White.copy(alpha = 0.06f))
+                    .border(if (active) 2.dp else 1.dp, if (err != null) Hx.Critical else if (active) Hx.Signal else Hx.Line2, HxShape.Lg),
+                  contentAlignment = Alignment.Center,
+                ) { Text(ch?.toString() ?: "", color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.SemiBold, fontFamily = FontFamily.Monospace) }
+              }
+            }
+          },
+        )
+        Spacer(Modifier.height(12.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-          HButton({ approve(code) }, Modifier.weight(1f), enabled = !busy && pairingCodeFrom(code) != null) { Text(if (busy) "Pairing…" else "Pair") }
-          HSecondaryButton({ clipboard.getText()?.text?.let { approve(it) } }, Modifier.weight(1f), enabled = !busy) {
-            Icon(Icons.Outlined.ContentPaste, null, Modifier.size(18.dp)); Text(" Paste link", maxLines = 1)
+          HButton({ approve(chars) }, Modifier.weight(1f), enabled = !busy && chars.length == 8) { Text(if (busy) "Pairing…" else "Pair") }
+          HSecondaryButton({ clipboard.getText()?.text?.let { onInput(it) } }, Modifier.weight(1f), enabled = !busy) {
+            Icon(Icons.Outlined.ContentPaste, null, Modifier.size(18.dp)); Text(" Paste", maxLines = 1)
           }
         }
       }
+      err?.let { ErrorNote(it) }
+      if (scanning) {
+        Box(
+          Modifier.fillMaxWidth().aspectRatio(1f).clip(HxShape.Xl).background(Color.Black).border(1.dp, Hx.Line2, HxShape.Xl),
+          contentAlignment = Alignment.Center,
+        ) {
+          if (cameraOk == true) QrCamera { raw -> if (handled.compareAndSet(false, true)) approve(raw) }
+          else Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Icon(Icons.Outlined.QrCodeScanner, null, tint = Hx.Muted, modifier = Modifier.size(48.dp))
+            Text(if (cameraOk == false) "Camera permission is off. Type the code above." else "Starting camera…", color = Hx.Muted, fontSize = 14.sp, modifier = Modifier.padding(top = 10.dp))
+          }
+          Box(Modifier.fillMaxWidth(0.62f).aspectRatio(1f).border(3.dp, Hx.Signal.copy(alpha = 0.9f), HxShape.Lg))
+          if (busy) Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.55f)), contentAlignment = Alignment.Center) { Text("Pairing…", color = Color.White, fontWeight = FontWeight.SemiBold) }
+        }
+      }
+      TextButton({ scanning = !scanning }) {
+        Icon(Icons.Outlined.QrCodeScanner, null, Modifier.size(18.dp), tint = Hx.Text2)
+        Text(if (scanning) "  Hide scanner" else "  Scan QR (simulator / desktop)", color = Hx.Text2)
+      }
     }
-    err?.let { ErrorNote(it) }
-    Text("The QR holds a single-use code that expires in 5 minutes - never a password. Administrators can also pair at /pair in the console.",
+    Text("The code is single-use and expires in 5 minutes - never a password. Ray-Ban Meta glasses pair automatically from the Glasses screen. Administrators can also pair at /pair in the console.",
       color = Hx.Muted, style = HxType.Label)
     NavSpacer()
   }

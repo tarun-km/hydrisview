@@ -55,6 +55,14 @@
         <category android:name="android.intent.category.DEFAULT" />
         <data android:scheme="hydrisfield" />
       </intent-filter>
+      <!-- App Link: the glasses' pairing QR (https://hydrisview.vercel.app/pair?code=…) opens Pair glasses directly.
+           Verified by apps/web/public/.well-known/assetlinks.json. -->
+      <intent-filter android:autoVerify="true">
+        <action android:name="android.intent.action.VIEW" />
+        <category android:name="android.intent.category.BROWSABLE" />
+        <category android:name="android.intent.category.DEFAULT" />
+        <data android:scheme="https" android:host="hydrisview.vercel.app" android:pathPrefix="/pair" />
+      </intent-filter>
     </activity>
   </application>
 </manifest>

@@ -192,12 +192,14 @@ test('canonical hardware id: case variants and both pairing paths resolve to one
   await assert.rejects(withSystem(h.database.db, (tx) => tx.insert(devices).values({ orgId: h.demo.orgId, name: 'dupe', kind: 'hardware', hardwareId: id.toLowerCase() })));
 });
 
-test('QR pairing: the glasses QR encodes the Hydris Field deep link; an operator scan approves it for themselves', async () => {
+test('QR pairing: the glasses QR encodes the https /pair link; an operator scan approves it for themselves', async () => {
   const anon = new Client(h.app);
   const ch = (await anon.req('POST', '/api/pairing/challenges', { hardwareId: 'hg-qrpairing0000000000000001', device: { kind: 'hardware', model: 'Web viewport', display: { width: 600, height: 600 } } })).json();
-  assert.equal(ch.qrPayload, pairingDeepLink(ch.userCode));
-  assert.ok(ch.qrPayload.startsWith('hydrisfield://pair?code='));
+  assert.equal(ch.qrPayload, ch.verificationUriComplete);
+  assert.ok(/^https?:\/\/[^/]+\/pair\?code=/.test(ch.qrPayload));
   assert.equal(pairingCodeFromPayload(ch.qrPayload), ch.userCode);
+  // Legacy custom-scheme payloads keep working.
+  assert.equal(pairingCodeFromPayload(pairingDeepLink(ch.userCode)), ch.userCode);
   assert.equal(pairingCodeFromPayload(`https://x.test/pair?code=${ch.userCode}`), ch.userCode);
   assert.equal(pairingCodeFromPayload('hydrisfield://pair?code=nope'), null);
 

@@ -1,0 +1,10 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "ai.hydris.field",
+      "sha256_cert_fingerprints": ["8F:3C:ED:C3:D5:71:B8:D0:C8:03:8E:8D:D7:A6:69:CD:3C:E2:B6:CF:64:F0:47:68:0E:6A:35:42:AD:E5:CC:94"]
+    }
+  }
+]

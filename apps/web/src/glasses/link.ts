@@ -45,7 +45,7 @@ export interface PairingChallenge {
   pollIntervalS: number;
   verificationUri: string;
   verificationUriComplete: string;
-  /** hydrisfield://pair?code=… — what the QR encodes (opens Pair glasses in the Hydris Field app). */
+  /** https://<app>/pair?code=… — what the QR encodes (App Link into Hydris Field, else the /pair page). */
   qrPayload?: string;
 }
 

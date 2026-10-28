@@ -43,6 +43,8 @@ const nextConfig: NextConfig = {
           { key: 'Permissions-Policy', value: 'camera=(self), microphone=(self), geolocation=()' },
         ],
       },
+      // Android App Links verification (Hydris Field opens https://<app>/pair links).
+      { source: '/.well-known/assetlinks.json', headers: [{ key: 'Content-Type', value: 'application/json' }] },
       { source: '/((?!glasses|simulator).*)', headers: [{ key: 'X-Frame-Options', value: 'DENY' }] },
       { source: '/(glasses|simulator)(.*)', headers: [{ key: 'X-Frame-Options', value: 'SAMEORIGIN' }] },
     ];

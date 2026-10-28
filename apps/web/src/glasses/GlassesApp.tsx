@@ -475,6 +475,9 @@ function PairingScreen({ link, simulator, online, onPaired }: { link: DeviceLink
   const [left, setLeft] = useState(0);
   const [err, setErr] = useState<string | null>(null);
   const expiresAt = useRef<number>(0);
+  // Head-worn displays are visible only to the wearer, so nobody can scan a QR off the lens: on real glasses
+  // the typed code is the only path. The QR is kept for the simulator and wide desktop browsers.
+  const [showQr] = useState(() => simulator || (typeof window !== 'undefined' && !(window as { HydrisNative?: unknown }).HydrisNative && window.innerWidth >= 1000));
 
   const start = useCallback(async () => {
     setStatus('requesting');
@@ -484,15 +487,16 @@ function PairingScreen({ link, simulator, online, onPaired }: { link: DeviceLink
       setC(ch);
       expiresAt.current = new Date(ch.expiresAt).getTime();
       setLeft(Math.max(0, Math.round((expiresAt.current - Date.now()) / 1000)));
-      // The QR opens Hydris Field (Pair glasses) on the operator's phone; older APIs fall back to the /pair URL.
-      setQr(await QRCode.toDataURL(ch.qrPayload ?? ch.verificationUriComplete, { margin: 1, width: 560, color: { dark: '#ffffff', light: '#000000' }, errorCorrectionLevel: 'M' }));
+      // QR only where a phone camera can actually see the screen (simulator / desktop). It encodes the https
+      // /pair link (App Link into Hydris Field, else the web page), drawn dark-on-light with a quiet zone so scanners read it.
+      setQr(showQr ? await QRCode.toDataURL(ch.verificationUriComplete, { margin: 2, width: 560, color: { dark: '#000000', light: '#ffffff' }, errorCorrectionLevel: 'M' }) : null);
       setStatus('waiting');
       emitToHost('pairing.challenge', { code: ch.userCode, url: ch.verificationUriComplete, qr: ch.qrPayload, expiresAt: ch.expiresAt });
     } catch (e) {
       setStatus('error');
       setErr(e instanceof Error ? e.message : 'Could not start pairing');
     }
-  }, [link, simulator]);
+  }, [link, simulator, showQr]);
 
   // Deferred so a mount that is immediately torn down (dev StrictMode, fast navigation) never issues a challenge.
   useEffect(() => {
@@ -534,15 +538,53 @@ function PairingScreen({ link, simulator, online, onPaired }: { link: DeviceLink
   const ttl = 300; // PAIRING_TTL_S
   const pct = status === 'waiting' ? Math.min(100, (left / ttl) * 100) : 0;
 
+  const pills = (
+    <div className="mt-3 flex flex-wrap items-center gap-2">
+      {status === 'waiting' && <HudPill tone={left < 60 ? 'high' : 'line'}>expires in {mm}</HudPill>}
+      {status === 'awaiting_admin' && <HudPill tone="high">awaiting administrator</HudPill>}
+      {status === 'approved' && <HudPill tone="ok"><Check size={18} /> approved</HudPill>}
+      {status === 'expired' && <HudPill tone="high">expired · press New code</HudPill>}
+      {status === 'denied' && <HudPill tone="critical">denied</HudPill>}
+      {status === 'error' && <HudPill tone="critical">{err}</HudPill>}
+      <HudPill tone={online ? 'ok' : 'high'}>{online ? <Wifi size={17} /> : <WifiOff size={17} />}{online ? 'online' : 'offline'}</HudPill>
+    </div>
+  );
+
+  if (!showQr) {
+    const code = c?.userCode ?? '····-····';
+    const [a, b] = code.split('-');
+    return (
+      <div className="flex h-full flex-col" data-testid="pairing-screen">
+        <div className="flex items-center gap-3 text-[20px]"><span className="grid h-10 w-10 place-items-center rounded-full bg-lime text-[#141714]"><Glasses size={22} /></span> hydris<span className="text-white/45">/glasses</span></div>
+        <div className="mt-5 text-[26px] leading-[1.15] tracking-[-0.02em]">{status === 'awaiting_admin' ? 'Waiting for approval' : 'Pair these glasses'}</div>
+        {status === 'awaiting_admin'
+          ? <p className="mt-2 text-[20px] leading-snug text-white/70">Your administrator must approve these glasses. They will sign in on their own as soon as it is done.</p>
+          : <p className="mt-2 text-[20px] leading-snug text-white/80">Open <span className="text-white">Hydris Field</span> on your phone → <span className="text-white">Glasses</span> → <span className="text-white">Pair glasses</span> → enter this code</p>}
+        <div className="my-auto flex items-center justify-center gap-4 py-2 font-mono font-semibold text-white" data-testid="pairing-code" aria-label={`Pairing code ${code}`}>
+          <span className="text-[92px] leading-none tracking-[0.08em]">{a}</span>
+          <span className="text-[64px] leading-none text-lime">-</span>
+          <span className="text-[92px] leading-none tracking-[0.08em]">{b ?? ''}</span>
+        </div>
+        {status === 'waiting' && (
+          <div className="h-[8px] w-full overflow-hidden rounded-full bg-white/10" aria-hidden><div className="h-full rounded-full bg-lime transition-[width] duration-1000" style={{ width: `${pct}%` }} /></div>
+        )}
+        <div className="flex items-end justify-between gap-3">
+          {pills}
+          <div className="shrink-0"><HudItem active={cursor === 0} onClick={regen}><RefreshCw size={22} /><span>New code</span></HudItem></div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="grid h-full grid-cols-[1fr_auto] gap-6" data-testid="pairing-screen">
       <div className="flex min-w-0 flex-col">
         <div className="flex items-center gap-3 text-[20px]"><span className="grid h-10 w-10 place-items-center rounded-full bg-lime text-[#141714]"><Glasses size={22} /></span> hydris<span className="text-white/45">/glasses</span></div>
-        <div className="mt-7 text-[34px] leading-[1.05] tracking-[-0.03em]">{status === 'awaiting_admin' ? 'Waiting for approval' : 'Scan with the Hydris Field app'}</div>
+        <div className="mt-7 text-[34px] leading-[1.05] tracking-[-0.03em]">{status === 'awaiting_admin' ? 'Waiting for approval' : 'Pair these glasses'}</div>
         <p className="mt-3 text-[19px] leading-snug text-white/65">
           {status === 'awaiting_admin'
             ? 'Your administrator must approve these glasses. They will sign in on their own as soon as it is done.'
-            : <>Open <span className="text-white">Hydris Field</span> on your phone → <span className="text-white">Pair glasses</span>, and point the camera at the code.</>}
+            : <>Open <span className="text-white">Hydris Field</span> on your phone → <span className="text-white">Glasses</span> → <span className="text-white">Pair glasses</span> → enter the code, or scan it with your phone camera.</>}
         </p>
         <div className="mt-auto">
           <div className="text-[15px] uppercase tracking-[0.14em] text-white/50">Or type the code</div>
@@ -550,19 +592,11 @@ function PairingScreen({ link, simulator, online, onPaired }: { link: DeviceLink
           {status === 'waiting' && (
             <div className="mt-2 h-[6px] w-full overflow-hidden rounded-full bg-white/10" aria-hidden><div className="h-full rounded-full bg-lime transition-[width] duration-1000" style={{ width: `${pct}%` }} /></div>
           )}
-          <div className="mt-3 flex flex-wrap items-center gap-2">
-            {status === 'waiting' && <HudPill tone={left < 60 ? 'high' : 'line'}>expires in {mm}</HudPill>}
-            {status === 'awaiting_admin' && <HudPill tone="high">awaiting administrator</HudPill>}
-            {status === 'approved' && <HudPill tone="ok"><Check size={18} /> approved</HudPill>}
-            {status === 'expired' && <HudPill tone="high">expired · new code below</HudPill>}
-            {status === 'denied' && <HudPill tone="critical">denied</HudPill>}
-            {status === 'error' && <HudPill tone="critical">{err}</HudPill>}
-            <HudPill tone={online ? 'ok' : 'high'}>{online ? <Wifi size={17} /> : <WifiOff size={17} />}{online ? 'online' : 'offline'}</HudPill>
-          </div>
+          {pills}
         </div>
       </div>
       <div className="flex w-[256px] flex-col items-center justify-between gap-3">
-        <div className="grid h-[256px] w-[256px] place-items-center rounded-[24px] border-2 border-white/15 p-3" aria-label={c ? `QR code for Hydris Field with code ${c.userCode}` : 'QR code loading'} data-testid="pairing-qr">
+        <div className={`grid h-[256px] w-[256px] place-items-center rounded-[24px] border-2 border-white/15 p-2 ${qr && status === 'waiting' ? 'bg-white' : ''}`} aria-label={c ? `QR code for Hydris Field with code ${c.userCode}` : 'QR code loading'} data-testid="pairing-qr">
           {qr && status === 'waiting' ? <img src={qr} alt="" className="h-full w-full" />
             : status === 'awaiting_admin' ? <RefreshCw size={56} className="animate-spin text-white/40" />
             : <span className="text-[18px] text-white/40">{status === 'requesting' ? 'Generating…' : '—'}</span>}

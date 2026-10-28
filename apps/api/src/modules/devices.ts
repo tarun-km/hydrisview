@@ -3,7 +3,7 @@ import { and, asc, desc, eq, gt, inArray, isNull, sql } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import {
-  INSPECTION_EDITABLE, MEASURAND_DEFS, OPEN_ALARM_STATES, actionAllowed, applyMeasurementProfile, freshness, screenEnabled, type Role, PAIRING_POLL_INTERVAL_S, PAIRING_TTL_S, deriveDeviceState, formatPairingCode, isValidPairingCode, normalizePairingCode, canonicalHardwareId, HARDWARE_ID_PATTERN, pairingDeepLink, pairingCodeFromPayload,
+  INSPECTION_EDITABLE, MEASURAND_DEFS, OPEN_ALARM_STATES, actionAllowed, applyMeasurementProfile, freshness, screenEnabled, type Role, PAIRING_POLL_INTERVAL_S, PAIRING_TTL_S, deriveDeviceState, formatPairingCode, isValidPairingCode, normalizePairingCode, canonicalHardwareId, HARDWARE_ID_PATTERN, pairingCodeFromPayload,
 } from '@hydris/domain';
 import { TTL, accessTokenTtl } from '../config';
 import { decodeDemoDeviceRefresh, demoDeviceClaims, encodeDemoDeviceRefresh, ensureDemoDevice, isDemoDeviceRefresh } from '../core/demo-auth';
@@ -137,7 +137,8 @@ export async function deviceRoutes(app: FastifyInstance, ctx: Ctx, opts: { relax
       // The QR encodes only this URL: a short-lived, single-use code - never a credential.
       verificationUriComplete: `${ctx.config.PUBLIC_APP_URL}/pair?code=${display}`,
       // What the glasses render as the QR: opens Hydris Field (Pair glasses) on the operator's phone.
-      qrPayload: pairingDeepLink(display),
+      // https so any phone camera can open it (App Link into Hydris Field, else the /pair page).
+      qrPayload: `${ctx.config.PUBLIC_APP_URL}/pair?code=${display}`,
     });
   });
 

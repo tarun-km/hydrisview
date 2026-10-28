@@ -115,7 +115,7 @@ export function canonicalHardwareId(raw: string): string {
   return raw.trim().toLowerCase();
 }
 
-/** Deep link the pairing QR encodes: opens Hydris Field (Pair glasses) on a phone; also accepted by the /pair web page. */
+/** Legacy custom-scheme pairing link (the QR now encodes the https /pair URL); still opens Pair glasses in Hydris Field and is still accepted by pairingCodeFromPayload. */
 export const PAIRING_DEEP_LINK_SCHEME = 'hydrisfield://pair';
 export function pairingDeepLink(code: string): string {
   return `${PAIRING_DEEP_LINK_SCHEME}?code=${encodeURIComponent(formatPairingCode(code))}`;

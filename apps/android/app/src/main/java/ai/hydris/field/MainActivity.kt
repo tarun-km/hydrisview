@@ -55,11 +55,13 @@ class MainActivity : ComponentActivity() {
    * hydrisfield://login?email=… (from the web operator page). Root consumes and clears it.
    */
   val authLink = MutableStateFlow<Uri?>(null)
-  /** hydrisfield://pair?code=XXXX-XXXX (the glasses' pairing QR, opened by the phone camera or adb). Consumed once signed in. */
+  /** hydrisfield://pair?code=… or https://hydrisview.vercel.app/pair?code=… (the glasses' pairing QR, opened by the phone camera or adb). Consumed once signed in. */
   val pairLink = MutableStateFlow<String?>(null)
 
   private fun takeAuthLink(intent: Intent?) {
     val data = intent?.data ?: return
+    // https App Link from the glasses' pairing QR: https://hydrisview.vercel.app/pair?code=XXXX-XXXX
+    if (data.scheme == "https" && data.host == "hydrisview.vercel.app" && data.path?.startsWith("/pair") == true) { pairLink.value = data.toString(); return }
     if (data.scheme != "hydrisfield") return
     if (data.host == "auth-callback" || data.host == "login") authLink.value = data
     else if (data.host == "pair") pairLink.value = data.toString()
