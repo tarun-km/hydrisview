@@ -47,10 +47,13 @@ app reads them from environment variables only.
 
 1. Project → **Connect** (top bar) → **Connection string** → **URI**.
 2. For the app on Vercel use the **Transaction pooler** (Supavisor, port **6543**):
-   `postgresql://postgres.<project-ref>:<password>@aws-0-ap-south-1.pooler.supabase.com:6543/postgres?sslmode=require`
+   `postgresql://postgres.<project-ref>:<password>@aws-0-ap-south-1.pooler.supabase.com:6543/postgres?sslmode=require&uselibpqcompat=true`
    This is `DATABASE_URL` in Vercel. The app keeps the pool small on serverless (3 connections) and
    uses transaction-scoped settings only (`SET LOCAL ROLE`, `set_config(..., true)`), which the
    transaction pooler supports.
+   **SSL:** append `?sslmode=require&uselibpqcompat=true`. Without `uselibpqcompat`, node-postgres
+   treats `sslmode=require` as full certificate verification and fails with
+   `SELF_SIGNED_CERT_IN_CHAIN` (Supabase's pooler uses its own CA). The connection is still encrypted.
 3. For **migrations** use the **Session pooler** (port **5432** on the same host) or the direct
    connection: the migrator holds a session-level advisory lock, which needs a session connection.
 
@@ -79,7 +82,7 @@ demo mode.
 From your machine, with the **session** pooler URL (port 5432):
 
 ```bash
-DATABASE_URL='postgresql://postgres.<ref>:<password>@aws-0-ap-south-1.pooler.supabase.com:5432/postgres?sslmode=require' \
+DATABASE_URL='postgresql://postgres.<ref>:<password>@aws-0-ap-south-1.pooler.supabase.com:5432/postgres?sslmode=require&uselibpqcompat=true' \
 JWT_SECRET='any-32-plus-character-local-value-xxxxxxxx' DATA_KEY=$(openssl rand -hex 32) \
 npm run db:migrate
 ```
