@@ -338,6 +338,8 @@ class MainActivity : ComponentActivity() {
     @JavascriptInterface fun speak(text: String) { tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "hydris-${System.nanoTime()}") }
     @JavascriptInterface fun connectGlasses() = runOnUiThread { Wearables.startRegistration(this@MainActivity) }
     @JavascriptInterface fun status(): String = Wearables.registrationState.value.toString()
+    /** Canonical hardware id of the linked glasses (same derivation as the Hydris Field app), or null before DAT links them. */
+    @JavascriptInterface fun hardwareId(): String? = Wearables.devices.value.firstOrNull()?.let { GlassesId.canonical(it.toString()) }
   }
 
   private fun js(code: String) = runOnUiThread { web.evaluateJavascript(code, null) }

@@ -466,12 +466,15 @@ function AlertInterrupt({ a }: { a: GAlarm }) {
 }
 
 // ---------------- pairing ----------------
+type PairStatus = 'requesting' | 'waiting' | 'awaiting_admin' | 'approved' | 'expired' | 'denied' | 'error';
+
 function PairingScreen({ link, simulator, online, onPaired }: { link: DeviceLink; simulator: boolean; online: boolean; onPaired: () => Promise<void> }) {
   const [c, setC] = useState<PairingChallenge | null>(null);
   const [qr, setQr] = useState<string | null>(null);
-  const [status, setStatus] = useState<'requesting' | 'waiting' | 'approved' | 'expired' | 'denied' | 'error'>('requesting');
+  const [status, setStatus] = useState<PairStatus>('requesting');
   const [left, setLeft] = useState(0);
   const [err, setErr] = useState<string | null>(null);
+  const expiresAt = useRef<number>(0);
 
   const start = useCallback(async () => {
     setStatus('requesting');
@@ -479,9 +482,12 @@ function PairingScreen({ link, simulator, online, onPaired }: { link: DeviceLink
     try {
       const ch = await link.createChallenge({ kind: simulator ? 'simulator' : 'hardware', model: simulator ? 'Hydris browser simulator' : 'Web viewport', appVersion: APP_VERSION, display: { width: 600, height: 600 } });
       setC(ch);
-      setQr(await QRCode.toDataURL(ch.verificationUriComplete, { margin: 1, width: 360, color: { dark: '#ffffff', light: '#000000' }, errorCorrectionLevel: 'M' }));
+      expiresAt.current = new Date(ch.expiresAt).getTime();
+      setLeft(Math.max(0, Math.round((expiresAt.current - Date.now()) / 1000)));
+      // The QR opens Hydris Field (Pair glasses) on the operator's phone; older APIs fall back to the /pair URL.
+      setQr(await QRCode.toDataURL(ch.qrPayload ?? ch.verificationUriComplete, { margin: 1, width: 560, color: { dark: '#ffffff', light: '#000000' }, errorCorrectionLevel: 'M' }));
       setStatus('waiting');
-      emitToHost('pairing.challenge', { code: ch.userCode, url: ch.verificationUriComplete, expiresAt: ch.expiresAt });
+      emitToHost('pairing.challenge', { code: ch.userCode, url: ch.verificationUriComplete, qr: ch.qrPayload, expiresAt: ch.expiresAt });
     } catch (e) {
       setStatus('error');
       setErr(e instanceof Error ? e.message : 'Could not start pairing');
@@ -494,10 +500,11 @@ function PairingScreen({ link, simulator, online, onPaired }: { link: DeviceLink
     return () => clearTimeout(t);
   }, [start]);
 
+  const polling = status === 'waiting' || status === 'awaiting_admin';
   useEffect(() => {
-    if (!c || status !== 'waiting') return;
+    if (!c || !polling) return;
     let stop = false;
-    const tick = setInterval(() => setLeft(Math.max(0, Math.round((new Date(c.expiresAt).getTime() - Date.now()) / 1000))), 1000);
+    const tick = setInterval(() => setLeft(Math.max(0, Math.round((expiresAt.current - Date.now()) / 1000))), 1000);
     const poll = async () => {
       while (!stop) {
         await new Promise((r) => setTimeout(r, c.pollIntervalS * 1000));
@@ -505,6 +512,11 @@ function PairingScreen({ link, simulator, online, onPaired }: { link: DeviceLink
         try {
           const r = await link.poll(c);
           if (r.status === 'completed') { setStatus('approved'); emitToHost('pairing.completed'); await onPaired(); return; }
+          if (r.status === 'awaiting_approval') {
+            if (r.expiresAt) expiresAt.current = new Date(r.expiresAt).getTime();
+            setStatus((s) => (s === 'awaiting_admin' ? s : 'awaiting_admin'));
+            continue;
+          }
           if (r.status === 'expired' || r.status === 'cancelled') { setStatus('expired'); return; }
           if (r.status === 'denied') { setStatus('denied'); return; }
         } catch {
@@ -514,40 +526,49 @@ function PairingScreen({ link, simulator, online, onPaired }: { link: DeviceLink
     };
     void poll();
     return () => { stop = true; clearInterval(tick); };
-  }, [c, status, link, onPaired]);
+  }, [c, polling, link, onPaired]);
 
-  const cursor = useHud({ actions: [{ key: 'regen', onSelect: () => { if (c) void link.cancelChallenge(c); void start(); } }] });
+  const regen = () => { if (c) void link.cancelChallenge(c); void start(); };
+  const cursor = useHud({ actions: [{ key: 'regen', onSelect: regen }] });
   const mm = `${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}`;
+  const ttl = 300; // PAIRING_TTL_S
+  const pct = status === 'waiting' ? Math.min(100, (left / ttl) * 100) : 0;
 
   return (
-    <div className="grid h-full grid-cols-[1fr_auto] gap-6">
-      <div className="flex flex-col">
+    <div className="grid h-full grid-cols-[1fr_auto] gap-6" data-testid="pairing-screen">
+      <div className="flex min-w-0 flex-col">
         <div className="flex items-center gap-3 text-[20px]"><span className="grid h-10 w-10 place-items-center rounded-full bg-lime text-[#141714]"><Glasses size={22} /></span> hydris<span className="text-white/45">/glasses</span></div>
-        <div className="mt-8 text-[36px] leading-[1.05] tracking-[-0.03em]">Pair these glasses</div>
-        <ol className="mt-5 grid gap-2 text-[19px] text-white/70">
-          <li>1 · Sign in to Hydris on your phone</li>
-          <li>2 · Scan the code, or open <span className="text-white">/pair</span></li>
-          <li>3 · Check the code matches, then approve</li>
-        </ol>
+        <div className="mt-7 text-[34px] leading-[1.05] tracking-[-0.03em]">{status === 'awaiting_admin' ? 'Waiting for approval' : 'Scan with the Hydris Field app'}</div>
+        <p className="mt-3 text-[19px] leading-snug text-white/65">
+          {status === 'awaiting_admin'
+            ? 'Your administrator must approve these glasses. They will sign in on their own as soon as it is done.'
+            : <>Open <span className="text-white">Hydris Field</span> on your phone → <span className="text-white">Pair glasses</span>, and point the camera at the code.</>}
+        </p>
         <div className="mt-auto">
-          <div className="text-[16px] uppercase tracking-[0.14em] text-white/50">Pairing code</div>
-          <div className="num mt-1 whitespace-nowrap text-[44px] font-light tracking-[0.06em] text-lime">{c?.userCode ?? '····-····'}</div>
-          <div className="mt-2 flex flex-wrap items-center gap-2">
-            {status === 'waiting' && <HudPill tone={left < 60 ? 'high' : 'line'}>expires {mm}</HudPill>}
+          <div className="text-[15px] uppercase tracking-[0.14em] text-white/50">Or type the code</div>
+          <div className="num mt-1 whitespace-nowrap text-[40px] font-light tracking-[0.06em] text-lime" data-testid="pairing-code">{c?.userCode ?? '····-····'}</div>
+          {status === 'waiting' && (
+            <div className="mt-2 h-[6px] w-full overflow-hidden rounded-full bg-white/10" aria-hidden><div className="h-full rounded-full bg-lime transition-[width] duration-1000" style={{ width: `${pct}%` }} /></div>
+          )}
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            {status === 'waiting' && <HudPill tone={left < 60 ? 'high' : 'line'}>expires in {mm}</HudPill>}
+            {status === 'awaiting_admin' && <HudPill tone="high">awaiting administrator</HudPill>}
             {status === 'approved' && <HudPill tone="ok"><Check size={18} /> approved</HudPill>}
-            {status === 'expired' && <HudPill tone="high">expired</HudPill>}
+            {status === 'expired' && <HudPill tone="high">expired · new code below</HudPill>}
             {status === 'denied' && <HudPill tone="critical">denied</HudPill>}
             {status === 'error' && <HudPill tone="critical">{err}</HudPill>}
             <HudPill tone={online ? 'ok' : 'high'}>{online ? <Wifi size={17} /> : <WifiOff size={17} />}{online ? 'online' : 'offline'}</HudPill>
           </div>
         </div>
       </div>
-      <div className="flex w-[230px] flex-col items-center justify-between">
-        <div className="grid h-[230px] w-[230px] place-items-center rounded-[28px] border-2 border-white/15 p-3" aria-label={c ? `QR code linking to ${c.verificationUri} with code ${c.userCode}` : 'QR code loading'}>
-          {qr && status === 'waiting' ? <img src={qr} alt="" className="h-full w-full" /> : <span className="text-[18px] text-white/40">{status === 'requesting' ? 'Generating…' : '—'}</span>}
+      <div className="flex w-[256px] flex-col items-center justify-between gap-3">
+        <div className="grid h-[256px] w-[256px] place-items-center rounded-[24px] border-2 border-white/15 p-3" aria-label={c ? `QR code for Hydris Field with code ${c.userCode}` : 'QR code loading'} data-testid="pairing-qr">
+          {qr && status === 'waiting' ? <img src={qr} alt="" className="h-full w-full" />
+            : status === 'awaiting_admin' ? <RefreshCw size={56} className="animate-spin text-white/40" />
+            : <span className="text-[18px] text-white/40">{status === 'requesting' ? 'Generating…' : '—'}</span>}
         </div>
-        <p className="text-center text-[15px] leading-snug text-white/45">Single-use · short-lived · contains no credentials</p>
-        <HudItem active={cursor === 0} onClick={() => { if (c) void link.cancelChallenge(c); void start(); }}><RefreshCw size={22} /><span>New code</span></HudItem>
+        <p className="text-center text-[14px] leading-snug text-white/45">Single-use · short-lived · no credentials</p>
+        <HudItem active={cursor === 0} onClick={regen}><RefreshCw size={22} /><span>New code</span></HudItem>
       </div>
     </div>
   );
@@ -556,15 +577,23 @@ function PairingScreen({ link, simulator, online, onPaired }: { link: DeviceLink
 function ReadyScreen({ ctx, online, onEnter }: { ctx: GContext | null; online: boolean; onEnter: () => void }) {
   const cursor = useHud({ actions: [{ key: 'enter', onSelect: onEnter }] });
   return (
-    <div className="flex h-full flex-col">
-      <HudTitle eyebrow="Paired · ready">{ctx ? `Hello, ${ctx.operator.name.split(' ')[0]}` : 'Paired'}</HudTitle>
-      {ctx ? (
-        <dl className="grid grid-cols-2 gap-x-6 gap-y-4 text-[20px]">
-          <Kv k="Operator" v={ctx.operator.name} /><Kv k="Organization" v={ctx.organization.name} />
-          <Kv k="Site" v={ctx.site?.name ?? 'All assigned sites'} /><Kv k="Device" v={ctx.device.name} />
-          <Kv k="Connection" v={online ? 'Online' : 'Offline'} /><Kv k="Session" v="Active · device-bound" />
-        </dl>
-      ) : <p className="text-[20px] text-white/60">Context will load when the connection returns.</p>}
+    <div className="flex h-full flex-col" data-testid="welcome-card">
+      <div className="rounded-[28px] border-2 border-lime/40 bg-lime/[0.06] p-6">
+        <div className="flex items-center gap-4">
+          <span className="grid h-16 w-16 shrink-0 place-items-center rounded-full bg-lime text-[26px] font-medium text-[#141714]">{ctx ? ctx.operator.name.split(' ').map((w) => w[0]).slice(0, 2).join('') : <Check size={30} />}</span>
+          <div className="min-w-0">
+            <div className="text-[16px] uppercase tracking-[0.14em] text-lime">Paired · welcome</div>
+            <div className="truncate text-[36px] leading-[1.1] tracking-[-0.03em]">{ctx ? `Welcome, ${ctx.operator.name.split(' ')[0]}` : 'Paired'}</div>
+          </div>
+        </div>
+        {ctx ? (
+          <dl className="mt-5 grid grid-cols-2 gap-x-6 gap-y-3 text-[19px]">
+            <Kv k="Operator" v={ctx.operator.name} /><Kv k="Organization" v={ctx.organization.name} />
+            <Kv k="Site" v={ctx.site?.name ?? 'All assigned sites'} /><Kv k="Device" v={ctx.device.name} />
+          </dl>
+        ) : <p className="mt-4 text-[19px] text-white/60">Context will load when the connection returns.</p>}
+      </div>
+      <div className="mt-3 flex gap-2"><HudPill tone={online ? 'ok' : 'high'}>{online ? 'online' : 'offline'}</HudPill><HudPill tone="line">session · device-bound</HudPill></div>
       <div className="mt-auto"><HudItem active={cursor === 0} tone="lime" onClick={onEnter}><span className="mx-auto font-medium">Enter viewport</span><ChevronRight /></HudItem></div>
     </div>
   );

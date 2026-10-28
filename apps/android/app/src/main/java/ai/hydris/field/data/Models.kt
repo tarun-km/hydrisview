@@ -173,3 +173,15 @@ import kotlinx.serialization.json.JsonElement
 
 @Serializable data class ApiErrorBody(val error: ApiErrorDetail? = null)
 @Serializable data class ApiErrorDetail(val code: String? = null, val message: String? = null, val detail: JsonElement? = null)
+
+// ---------------- Phase 4 pairing: auto-registration (claim) and QR approval
+@Serializable data class ClaimRequest(val hardwareId: String, val kind: String = "hardware", val model: String? = null, val name: String? = null, val firmware: String? = null, val appVersion: String? = null)
+@Serializable data class ClaimedDevice(val id: String, val name: String, val model: String? = null, val status: String? = null, val approvalState: String? = null)
+@Serializable data class PersonRef(val id: String, val name: String)
+@Serializable data class ClaimResult(
+  val status: String, val device: ClaimedDevice, val owner: PersonRef? = null, val transferred: Boolean = false,
+  val accessToken: String? = null, val refreshToken: String? = null, val pollIntervalS: Int = 5,
+)
+@Serializable data class PairApprove(val code: String)
+@Serializable data class PairApproval(val ok: Boolean = false, val needsAdminApproval: Boolean = false, val device: PairedDevice? = null)
+@Serializable data class PairedDevice(val name: String, val kind: String? = null)

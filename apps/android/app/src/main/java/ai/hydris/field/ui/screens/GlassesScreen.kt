@@ -94,6 +94,8 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.material.icons.outlined.QrCodeScanner
+import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
@@ -140,7 +142,8 @@ fun GlassesScreen(activity: MainActivity, nav: NavController) {
   val lens by app.glasses.display.state.collectAsState()
   val prefs by app.prefs.settings.collectAsState()
   val captures by app.captures.items.collectAsState()
-  var registered by remember { mutableStateOf(app.api.hasDevice()) }
+  val reg by app.registration.state.collectAsState()
+  val registered = reg.status == "active"
   var busy by remember { mutableStateOf<String?>(null) }
   var err by remember { mutableStateOf<String?>(null) }
   var note by remember { mutableStateOf<String?>(null) }
@@ -183,7 +186,19 @@ fun GlassesScreen(activity: MainActivity, nav: NavController) {
       PageHeader("People & devices", "Field glasses", if (connected) "Connected and ready." else if (g.registered) "Linked · waiting for glasses." else "Not connected yet.",
         subColor = if (connected) Hx.Text2 else Hx.Muted)
 
-      HeroCard(g, look, lens, registered, app.api.deviceName, Modifier.appear(1))
+      HeroCard(g, look, lens, registered, reg, Modifier.appear(1))
+
+      // Display glasses / the browser glasses app show a QR: scan it to pair them to you.
+      HCard(Modifier.fillMaxWidth().appear(2), onClick = { nav.navigate("pair") }, padding = 16.dp) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+          Icon(Icons.Outlined.QrCodeScanner, null, tint = Hx.Signal, modifier = Modifier.size(26.dp))
+          Column(Modifier.weight(1f).padding(start = 12.dp)) {
+            Text("Pair glasses", style = HxType.Card)
+            Text("Scan the QR on display glasses or the web glasses app", color = Hx.Muted, style = HxType.Label)
+          }
+          Icon(Icons.Outlined.ChevronRight, null, tint = Hx.Text2)
+        }
+      }
 
       // quick actions
       Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).appear(2), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -255,8 +270,7 @@ fun GlassesScreen(activity: MainActivity, nav: NavController) {
         onRegister = {
           act("register") {
             val hw = app.glasses.hardwareId() ?: throw IllegalStateException("Connect the glasses first (step 1)")
-            app.repo.registerGlasses(hw, g.deviceName ?: "Ray-Ban Meta", g.deviceModel ?: "Ray-Ban Meta")
-            registered = true; note = "Registered - your glasses now appear in the console."
+            app.registration.claim(hw, g.deviceName ?: "Ray-Ban Meta", g.deviceModel ?: "Ray-Ban Meta", g.firmware, manual = true)
           }
         },
       )
@@ -319,7 +333,7 @@ fun GlassesScreen(activity: MainActivity, nav: NavController) {
           TextButton({
             confirm = null
             if (what == "disconnect") { app.glasses.endSession(); app.glasses.disconnect(activity) }
-            else act("unregister") { app.repo.unregisterGlasses(); registered = false; note = "Unregistered from Hydris." }
+            else act("unregister") { app.repo.unregisterGlasses(); app.registration.dropped(null, app.glasses.hardwareId()); note = "Unregistered from Hydris." }
           }) { Text(if (what == "disconnect") "Disconnect" else "Unregister", color = Hx.CriticalText, fontWeight = FontWeight.SemiBold) }
         },
         dismissButton = { TextButton({ confirm = null }) { Text("Cancel", color = Hx.Text2) } },
@@ -347,7 +361,7 @@ private fun showLensTest(app: HydrisApp, act: (String, suspend () -> Unit) -> An
 // ------------------------------------------------------------------ hero
 
 @Composable
-private fun HeroCard(g: GlassesState, look: GlassesLook, lens: String, registered: Boolean, consoleName: String?, modifier: Modifier) {
+private fun HeroCard(g: GlassesState, look: GlassesLook, lens: String, registered: Boolean, reg: ai.hydris.field.data.RegistrationState, modifier: Modifier) {
   Column(
     modifier.fillMaxWidth().clip(HxShape.Xl)
       .drawBehind {
@@ -388,10 +402,24 @@ private fun HeroCard(g: GlassesState, look: GlassesLook, lens: String, registere
     Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
       StatusChip("Meta link · ${label(g.registration.lowercase())}", if (g.registered) Hx.Ok else Hx.Muted)
       StatusChip("Session · ${label(g.session.lowercase())}", if (g.session.equals("started", true)) Hx.Ok else Hx.Muted)
-      if (registered) StatusChip("In Hydris console", Hx.Signal) else StatusChip("Not in console", Hx.Muted)
+      when (reg.status) {
+        "active" -> StatusChip("In Hydris console", Hx.Signal)
+        "pending" -> StatusChip("Awaiting approval", Hx.High)
+        "registering" -> StatusChip("Registering…", Hx.Medium)
+        "denied" -> StatusChip("Registration declined", Hx.CriticalText)
+        else -> StatusChip("Not in console", Hx.Muted)
+      }
       g.compatibility?.takeIf { !it.equals("compatible", true) }?.let { StatusChip(it, Hx.High) }
     }
-    if (registered && consoleName != null) Text("Registered as “$consoleName”", color = Hx.Muted, style = HxType.Label, modifier = Modifier.padding(top = 10.dp))
+    // Auto-registration status, live as it happens.
+    val regLine = when (reg.status) {
+      "active" -> "Registered to ${reg.ownerName ?: "you"}" + (reg.deviceName?.let { " · “$it”" } ?: "")
+      "registering" -> "Registering to your account…"
+      "pending" -> "Waiting for administrator approval"
+      else -> reg.message
+    }
+    if (regLine != null) Text(regLine, color = if (reg.status == "active") Hx.Text2 else if (reg.status == "pending") Hx.High else Hx.Muted,
+      style = HxType.Label, modifier = Modifier.padding(top = 10.dp))
   }
 }
 
@@ -531,8 +559,8 @@ private fun SetupStepper(
             HSecondaryButton(onTestMic, enabled = g.registered && busy == null) { Text(if (busy == "mic") "Testing…" else "Test mic") }
           }
         }
-        Step(3, "Register in the Hydris console", if (registered) "Registered. Supervisors see the glasses under Field glasses; scans are attributed to them." else "Adds these glasses to your organization so the console shows them.", steps[2], true) {
-          if (!registered) HButton(onRegister, enabled = g.registered && busy == null) { Text(if (busy == "register") "Registering…" else "Register glasses") }
+        Step(3, "Register in the Hydris console", if (registered) "Registered automatically. Supervisors see the glasses under Devices; scans are attributed to them." else "Happens automatically once the glasses are linked and you are signed in.", steps[2], true) {
+          if (!registered && g.registered) HButton(onRegister, enabled = g.registered && busy == null) { Text(if (busy == "register") "Registering…" else "Register glasses") }
         }
       }
     }

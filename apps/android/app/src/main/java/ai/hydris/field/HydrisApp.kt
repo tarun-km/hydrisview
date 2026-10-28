@@ -21,6 +21,7 @@ class HydrisApp : Application() {
   lateinit var voice: VoiceEngine; private set
   lateinit var prefs: GlassesPrefs; private set
   lateinit var captures: CaptureStore; private set
+  lateinit var registration: ai.hydris.field.data.GlassesRegistration; private set
   lateinit var outbox: ai.hydris.field.data.Outbox; private set
   lateinit var connectivity: ai.hydris.field.data.Connectivity; private set
   private val appScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Main)
@@ -39,6 +40,7 @@ class HydrisApp : Application() {
     api = HydrisApi(SecureStore(this))
     outbox = ai.hydris.field.data.Outbox(this)
     repo = Repository(api, outbox)
+    registration = ai.hydris.field.data.GlassesRegistration(repo)
     connectivity = ai.hydris.field.data.Connectivity(this)
     connectivity.start { sync() }
     prefs = GlassesPrefs(this)

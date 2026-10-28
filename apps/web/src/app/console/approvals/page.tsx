@@ -11,9 +11,11 @@ import { ago, fmtDateTime } from '@/lib/format';
 import { Avatar, Button, Capsule, Card, Chip, EmptyState, KpiCard, PageHeader, QueryView, Skeleton, StateChip, SyntheticBadge } from '@/ui';
 import { ConfirmDialog } from '@/ui/overlay';
 import { NoAccess } from '@/console/admin/parts';
+import { PendingDevicesCard, type PendingDevice } from '@/console/command/pending';
 
 interface Approvals {
   inspections: { id: string; title: string; submittedAt: string | null; submittedVia: string | null; siteName: string; assetTag: string | null; by: string | null; byId: string | null; priority: string; synthetic: boolean }[];
+  devices?: PendingDevice[];
   documents: { id: string; title: string; status: 'in_review' | 'verified'; docType: string; createdAt: string; pageCount: number; capturedVia: string; siteName: string | null; by: string | null; byId: string | null; verifiedAt: string | null }[];
 }
 
@@ -45,7 +47,7 @@ export default function ApprovalsPage() {
   return (
     <>
       <PageHeader eyebrow="Work" title="Approvals"
-        subtitle="Everything your field team has submitted that needs an administrator's sign-off: scanned audit documents and completed inspections. Oldest first." />
+        subtitle="Everything your field team has submitted that needs an administrator's sign-off: new or transferred glasses, scanned audit documents and completed inspections. Oldest first." />
       {!allowed ? <NoAccess what="approvals" /> : (
         <QueryView q={q} loading={<div className="grid grid-cols-[minmax(0,1fr)] gap-4"><div className="grid grid-cols-2 gap-3 xl:grid-cols-4">{[0, 1, 2, 3].map((i) => <Skeleton key={i} className="h-[148px] rounded-[24px]" />)}</div><Skeleton className="h-[420px] rounded-[24px]" /></div>}>
           {(d) => {
@@ -64,11 +66,12 @@ export default function ApprovalsPage() {
             return (
               <div className="grid grid-cols-[minmax(0,1fr)] gap-4 fade-in">
                 <div className="stagger grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
-                  <KpiCard label="Awaiting approval" value={items.length} accent={items.length ? 'high' : undefined} sub={items.length ? `oldest ${ago(items[0]!.at)}` : 'Queue is clear'} />
+                  <KpiCard label="Awaiting approval" value={items.length + (d.devices?.length ?? 0)} accent={items.length + (d.devices?.length ?? 0) ? 'high' : undefined} sub={items.length ? `oldest ${ago(items[0]!.at)}` : 'Queue is clear'} />
                   <KpiCard label="Scans to review" value={d.documents.filter((x) => x.status === 'in_review').length} href="/console/audit-docs" sub="Field review not yet verified" />
                   <KpiCard label="Scans ready to approve" value={d.documents.filter((x) => x.status === 'verified').length} sub="Verified, waiting for final sign-off" />
                   <KpiCard label="Waiting over 24 h" value={old} accent={old ? 'critical' : undefined} sub={`${d.inspections.length} inspections in review`} />
                 </div>
+                <PendingDevicesCard devices={d.devices ?? []} />
                 <Card>
                   <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
                     <Capsule label="Approval type" value={tab} onChange={setTab} options={[

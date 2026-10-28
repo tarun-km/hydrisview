@@ -49,6 +49,8 @@ declare global {
       startPreview(): void; stopPreview(): void; capturePhoto(requestId: string): void; deviceName?(): string;
       /** Glasses microphone via DAT Speech + phone TextToSpeech (see voice.ts). */
       startSpeech?(): void; stopSpeech?(): void; speak?(text: string): void;
+      /** Canonical DAT-derived hardware id (see canonicalHardwareId); null until the glasses are linked. */
+      hardwareId?(): string | null;
     };
     HydrisWearables?: { capturePhoto(): Promise<{ dataUrl: string }>; startPreview?(onFrame: (dataUrl: string) => void): void; stopPreview?(): void; deviceName?: string };
     ReactNativeWebView?: { postMessage(msg: string): void };

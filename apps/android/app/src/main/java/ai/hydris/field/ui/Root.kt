@@ -88,6 +88,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -123,6 +124,7 @@ fun Root(activity: MainActivity) {
     val blocked = code == "account_suspended" || code == "account_removed"
     app.api.clearSession()
     if (blocked) { app.api.forgetDevice(); ended = code }
+    app.registration.signedOut()
     session = null
   }
 
@@ -158,7 +160,7 @@ fun Root(activity: MainActivity) {
         onSignedIn = { linkError = null; session = it },
         onBlocked = { code -> endAccount(code) },
       )
-      else -> Main(activity, session!!, onSignOut = { scope.launch { app.voice.stop(); app.api.logout(); session = null } }, onAccountEnded = { code -> scope.launch { app.voice.stop(); endAccount(code) } })
+      else -> Main(activity, session!!, onSignOut = { scope.launch { app.voice.stop(); app.api.logout(); app.registration.signedOut(); session = null } }, onAccountEnded = { code -> scope.launch { app.voice.stop(); endAccount(code) } })
     }
   }
 }
@@ -189,6 +191,23 @@ private fun Main(activity: MainActivity, session: Session, onSignOut: () -> Unit
   // Replay anything recorded offline in an earlier session.
   LaunchedEffect(session.user.id) { app.sync() }
 
+  // Auto-registration: signed in + Ray-Ban Meta linked through DAT (Meta link registered, device present)
+  // → the glasses are registered to this person, no button and no code (POST /devices/claim).
+  val glassesState by app.glasses.state.collectAsState()
+  val hw = if (glassesState.registered && glassesState.devices.isNotEmpty()) app.glasses.hardwareId() else null
+  LaunchedEffect(session.user.id, hw, glassesState.firmware) {
+    if (hw != null) app.registration.claim(hw, glassesState.deviceName ?: "Ray-Ban Meta", glassesState.deviceModel ?: "Ray-Ban Meta", glassesState.firmware)
+  }
+
+  // QR pairing deep link (hydrisfield://pair?code=…): open Pair glasses with the payload.
+  LaunchedEffect(session.user.id) {
+    activity.pairLink.collect { link ->
+      if (link == null) return@collect
+      activity.pairLink.value = null
+      nav.navigate("pair?payload=${android.net.Uri.encode(link)}") { launchSingleTop = true }
+    }
+  }
+
   // Realtime: alarms created anywhere on the account → system notification + live refresh.
   LaunchedEffect(session.user.id) {
     val nm = activity.getSystemService(NotificationManager::class.java)
@@ -198,6 +217,16 @@ private fun Main(activity: MainActivity, session: Session, onSignOut: () -> Unit
         val code = runCatching { app.api.json.parseToJsonElement(data).jsonObject["code"]?.jsonPrimitive?.content }.getOrNull() ?: "account_suspended"
         onAccountEnded(code)
         return@collect
+      }
+      // Glasses ownership (Phase 4): approval decided, or someone else took these glasses over.
+      when (event) {
+        "device.claim_approved" -> { app.registration.retry(); return@collect }
+        "device.claim_denied" -> { app.registration.retry(); return@collect }
+        "device.transferred" -> {
+          val to = runCatching { app.api.json.parseToJsonElement(data).jsonObject["to"]?.jsonPrimitive?.content }.getOrNull()
+          app.registration.dropped("These glasses are now registered to ${to ?: "another operator"}.", app.glasses.hardwareId())
+          return@collect
+        }
       }
       if (event != "alarm.created") return@collect
       val o = runCatching { app.api.json.parseToJsonElement(data).jsonObject }.getOrNull() ?: return@collect
@@ -235,6 +264,9 @@ private fun Main(activity: MainActivity, session: Session, onSignOut: () -> Unit
         composable("work") { WorkScreen(nav) }
         composable("scan") { ScanScreen(activity) }
         composable("ask") { AskScreen(activity) }
+        composable("pair?payload={payload}", listOf(navArgument("payload") { type = NavType.StringType; nullable = true; defaultValue = null })) {
+          ai.hydris.field.ui.screens.PairScreen(activity, nav, it.arguments?.getString("payload"))
+        }
         composable("glasses") { CompositionLocalProvider(LocalNavScope provides this) { GlassesScreen(activity, nav) } }
         composable("captures") { CompositionLocalProvider(LocalNavScope provides this) { CapturesScreen(nav) } }
         composable("capture/{id}", listOf(navArgument("id") { type = NavType.StringType })) {
@@ -267,6 +299,7 @@ private fun Main(activity: MainActivity, session: Session, onSignOut: () -> Unit
         route == null -> "home"
         route == "captures" || route.startsWith("capture/") -> "glasses"
         route == "profile" -> "home"
+        route.startsWith("pair") -> "glasses"
         route.startsWith("alarm") || route.startsWith("sensor") || route.startsWith("round/") || route.startsWith("task/") ->
           nav.previousBackStackEntry?.destination?.route?.takeIf { r -> TABS.any { it.route == r } } ?: "work"
         else -> route

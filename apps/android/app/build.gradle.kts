@@ -72,6 +72,8 @@ dependencies {
   implementation("androidx.camera:camera-lifecycle:$camerax")
   implementation("androidx.camera:camera-view:$camerax")
   implementation("com.google.mlkit:text-recognition:16.0.1")
+  // QR pairing of display glasses / the web glasses app
+  implementation("com.google.mlkit:barcode-scanning:17.3.0")
   implementation("androidx.exifinterface:exifinterface:1.4.2")
   // Meta Wearables Device Access Toolkit (Ray-Ban Meta)
   val mwdat = "1.0.1"

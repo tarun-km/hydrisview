@@ -182,8 +182,7 @@ class GlassesManager(private val appContext: Context, val prefs: GlassesPrefs) {
   /** Stable, non-reversible hardware id for registering these glasses with Hydris. */
   fun hardwareId(): String? {
     val raw = _state.value.devices.firstOrNull() ?: return null
-    val h = MessageDigest.getInstance("SHA-256").digest(("hydris-glasses:$raw").toByteArray())
-    return "rbm-" + h.take(16).joinToString("") { "%02x".format(it) }
+    return GlassesId.canonical(raw)
   }
 
   private suspend fun ensurePermission(p: Permission): Boolean {

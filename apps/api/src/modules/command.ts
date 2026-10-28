@@ -26,6 +26,7 @@ import { randomToken, sha256 } from '../core/crypto';
 import { passwordResetMail } from '../core/mail-templates';
 import { TTL } from '../config';
 import { createInspection } from './inspections';
+import { pendingDevices } from './devices';
 
 /** Organization policies. Stored in organizations.settings (jsonb). */
 export interface OrgSettings {
@@ -74,7 +75,7 @@ export async function commandRoutes(app: FastifyInstance, ctx: Ctx) {
     const live = await liveSnapshots(p.orgId);
     const rows = await tx.select({
       id: devices.id, name: devices.name, kind: devices.kind, model: devices.model, status: devices.status, firmwareVersion: devices.firmwareVersion, appVersion: devices.appVersion,
-      lastSeenAt: devices.lastSeenAt, siteId: devices.siteId, siteName: sites.name, ownerId: deviceAssignments.userId, ownerName: users.name, assignedAt: deviceAssignments.assignedAt, pairedAt: devices.pairedAt,
+      lastSeenAt: devices.lastSeenAt, siteId: devices.siteId, siteName: sites.name, approvalState: devices.approvalState, pendingUserId: devices.pendingUserId, ownerId: deviceAssignments.userId, ownerName: users.name, assignedAt: deviceAssignments.assignedAt, pairedAt: devices.pairedAt,
     }).from(devices).leftJoin(sites, eq(sites.id, devices.siteId))
       .leftJoin(deviceAssignments, and(eq(deviceAssignments.deviceId, devices.id), isNull(deviceAssignments.unassignedAt)))
       .leftJoin(users, eq(users.id, deviceAssignments.userId))
@@ -192,6 +193,7 @@ export async function commandRoutes(app: FastifyInstance, ctx: Ctx) {
       inspections: sql<number>`(select count(*)::int from inspections i where i.status = 'submitted')`,
       scans: sql<number>`(select count(*)::int from audit_documents d where d.status in ('in_review','verified'))`,
       scansVerified: sql<number>`(select count(*)::int from audit_documents d where d.status = 'verified')`,
+      devices: sql<number>`(select count(*)::int from devices v where v.approval_state = 'pending' and v.status <> 'revoked')`,
     }).from(organizations).where(eq(organizations.id, p.orgId));
     const approvalItems = [
       ...(await tx.select({ id: inspections.id, title: inspections.title, at: inspections.submittedAt, by: users.name }).from(inspections).leftJoin(users, eq(users.id, inspections.assignedTo))
@@ -213,7 +215,7 @@ export async function commandRoutes(app: FastifyInstance, ctx: Ctx) {
         openAlarms: openAlarmRows.length, criticalAlarms: openAlarmRows.filter((a) => a.severity === 'critical').length,
         unownedAlarms: openAlarmRows.filter((a) => !a.assignedTo && !a.acknowledgedBy).length,
         roundsAssigned: roundsTotal.assigned, roundsCompleted: roundsTotal.completed,
-        approvals: (approvals?.inspections ?? 0) + (approvals?.scans ?? 0),
+        approvals: (approvals?.inspections ?? 0) + (approvals?.scans ?? 0) + (approvals?.devices ?? 0),
       },
       onShift,
       alarms: openAlarmRows.slice(0, 8).map((a) => {
@@ -222,10 +224,10 @@ export async function commandRoutes(app: FastifyInstance, ctx: Ctx) {
       }),
       rounds: operators.filter((o) => o.rounds.todayAssigned > 0).map((o) => ({ userId: o.userId, name: o.name, assigned: o.rounds.todayAssigned, completed: o.rounds.todayCompleted, overdue: o.rounds.overdue }))
         .sort((a, b) => b.assigned - a.assigned),
-      approvals: { inspections: approvals?.inspections ?? 0, scans: approvals?.scans ?? 0, scansVerified: approvals?.scansVerified ?? 0, items: approvalItems },
+      approvals: { inspections: approvals?.inspections ?? 0, scans: approvals?.scans ?? 0, devices: approvals?.devices ?? 0, scansVerified: approvals?.scansVerified ?? 0, items: approvalItems },
       fleet: {
         glasses: { total: glasses.length, connected: glasses.filter((d) => d.connected).length, streaming: glasses.filter((d) => d.streaming).length, unassigned: glasses.filter((d) => !d.owner).length },
-        suspended: devs.filter((d) => d.status === 'suspended').length,
+        suspended: devs.filter((d) => d.status === 'suspended').length, pending: devs.filter((d) => d.approvalState === 'pending').length,
         battery: { reported: batteries.length, average: batteries.length ? Math.round(batteries.reduce((a, b) => a + b, 0) / batteries.length) : null, low: batteries.filter((b) => b < 20).length },
       },
       activity,
@@ -405,7 +407,7 @@ export async function commandRoutes(app: FastifyInstance, ctx: Ctx) {
     const docs = await tx.select({ id: auditDocuments.id, title: auditDocuments.title, status: auditDocuments.status, docType: auditDocuments.docType, createdAt: auditDocuments.createdAt, pageCount: auditDocuments.pageCount, capturedVia: auditDocuments.capturedVia, siteId: auditDocuments.siteId, siteName: sites.name, by: users.name, byId: auditDocuments.capturedBy, verifiedAt: auditDocuments.verifiedAt })
       .from(auditDocuments).leftJoin(sites, eq(sites.id, auditDocuments.siteId)).leftJoin(users, eq(users.id, auditDocuments.capturedBy))
       .where(inArray(auditDocuments.status, ['in_review', 'verified'])).orderBy(asc(auditDocuments.createdAt)).limit(200);
-    return { inspections: insp, documents: docs.filter((d) => !d.siteId || p.allSites || p.siteIds.includes(d.siteId)) };
+    return { inspections: insp, documents: docs.filter((d) => !d.siteId || p.allSites || p.siteIds.includes(d.siteId)), devices: await pendingDevices(tx, p) };
   }));
 
   // ================= Organization settings (policies) =================

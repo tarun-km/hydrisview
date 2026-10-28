@@ -61,6 +61,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
+import androidx.compose.material.icons.outlined.QrCodeScanner
+import androidx.compose.foundation.layout.size
 
 /** Profile (behind the avatar on Home): who I am, where I work, my glasses and captures, app version, sign out. */
 @Composable
@@ -128,6 +130,15 @@ fun ProfileScreen(session: Session, nav: NavController, onSignOut: () -> Unit) {
           }
         }
         if (p.glasses.isEmpty()) Text("No glasses assigned to you in the console.", color = Hx.Muted, fontSize = 13.sp, modifier = Modifier.padding(top = 8.dp))
+      }
+      HCard(Modifier.fillMaxWidth().appear(3), onClick = { nav.navigate("pair") }, padding = 16.dp) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+          Icon(Icons.Outlined.QrCodeScanner, null, tint = Hx.Signal, modifier = Modifier.size(24.dp))
+          Column(Modifier.weight(1f).padding(start = 12.dp)) {
+            Text("Pair glasses", color = Hx.Text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+            Text("Scan the QR shown on the glasses", color = Hx.Muted, fontSize = 13.sp)
+          }
+        }
       }
       HCard(Modifier.fillMaxWidth().appear(4), onClick = { nav.navigate("captures") }, padding = 16.dp) {
         Row(verticalAlignment = Alignment.CenterVertically) {

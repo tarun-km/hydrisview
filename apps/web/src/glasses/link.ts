@@ -45,6 +45,8 @@ export interface PairingChallenge {
   pollIntervalS: number;
   verificationUri: string;
   verificationUriComplete: string;
+  /** hydrisfield://pair?code=… — what the QR encodes (opens Pair glasses in the Hydris Field app). */
+  qrPayload?: string;
 }
 
 type Listener = () => void;
@@ -75,6 +77,12 @@ export class DeviceLink {
   }
 
   hardwareId(): string {
+    // Hosted by the Hydris WebView bridge on Ray-Ban Meta: use the canonical DAT-derived id, the same one
+    // the Hydris Field app registers, so both resolve to one device record (see canonicalHardwareId).
+    try {
+      const native = typeof window !== 'undefined' ? (window as { HydrisNative?: { hardwareId?: () => string | null } }).HydrisNative?.hardwareId?.() : null;
+      if (native && /^[a-z0-9_-]{16,80}$/.test(native)) return native;
+    } catch { /* older bridge without hardwareId() */ }
     let id = this.store.get(K.hw);
     if (!id) {
       id = `hg-${crypto.randomUUID().replace(/-/g, '')}`;
@@ -124,8 +132,8 @@ export class DeviceLink {
     return this.fetchJson<PairingChallenge>('/pairing/challenges', { method: 'POST', json: { hardwareId: this.hardwareId(), device } }, false);
   }
 
-  async poll(c: PairingChallenge): Promise<{ status: string }> {
-    const r = await this.fetchJson<{ status: string; accessToken?: string; refreshToken?: string }>(`/pairing/challenges/${c.challengeId}/poll`, { method: 'POST', json: { pollSecret: c.pollSecret } }, false);
+  async poll(c: PairingChallenge): Promise<{ status: string; expiresAt?: string }> {
+    const r = await this.fetchJson<{ status: string; accessToken?: string; refreshToken?: string; expiresAt?: string }>(`/pairing/challenges/${c.challengeId}/poll`, { method: 'POST', json: { pollSecret: c.pollSecret } }, false);
     if (r.status === 'completed' && r.accessToken && r.refreshToken) {
       this.access = r.accessToken;
       this.store.set(K.refresh, r.refreshToken);

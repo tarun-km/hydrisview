@@ -716,10 +716,23 @@ export const devices = pgTable(
     revokedAt: ts('revoked_at'),
     revokedBy: uuid('revoked_by').references(() => users.id),
     revokeReason: text('revoke_reason'),
+    /**
+     * Ownership approval (org policy requireDeviceApproval). 'pending': a claim / QR pairing by
+     * [pendingUserId] waits for an administrator; 'denied': a first claim was refused.
+     */
+    approvalState: text('approval_state').$type<'approved' | 'pending' | 'denied'>().notNull().default('approved'),
+    pendingUserId: uuid('pending_user_id').references(() => users.id, { onDelete: 'set null' }),
+    pendingSince: ts('pending_since'),
+    /** Last user whose claim an administrator denied (their app stops retrying). */
+    claimDeniedUserId: uuid('claim_denied_user_id').references(() => users.id, { onDelete: 'set null' }),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
-  (t) => [index('devices_org_idx').on(t.orgId, t.status), index('devices_hw_idx').on(t.hardwareId)],
+  (t) => [
+    index('devices_org_idx').on(t.orgId, t.status), index('devices_hw_idx').on(t.hardwareId),
+    // One live record per physical device (canonical hardware id) per organization.
+    uniqueIndex('devices_org_hw_live_uq').on(t.orgId, t.hardwareId).where(sql`${t.status} <> 'revoked'`),
+  ],
 );
 
 export const deviceAssignments = pgTable(
@@ -760,6 +773,8 @@ export const pairingChallenges = pgTable(
     deviceId: uuid('device_id').references(() => devices.id, { onDelete: 'set null' }),
     completedAt: ts('completed_at'),
     requesterIp: text('requester_ip'),
+    /** Approved by a non-administrator while the org requires device approval: completes after an admin approves the device. */
+    needsAdmin: boolean('needs_admin').notNull().default(false),
     createdAt: createdAt(),
   },
   (t) => [uniqueIndex('pairing_code_active_uq').on(t.codeHash).where(sql`${t.status} IN ('pending','approved')`), index('pairing_expires_idx').on(t.expiresAt)],

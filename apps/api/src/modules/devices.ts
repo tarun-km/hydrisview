@@ -3,7 +3,7 @@ import { and, asc, desc, eq, gt, inArray, isNull, sql } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import {
-  INSPECTION_EDITABLE, MEASURAND_DEFS, OPEN_ALARM_STATES, actionAllowed, applyMeasurementProfile, freshness, screenEnabled, type Role, PAIRING_POLL_INTERVAL_S, PAIRING_TTL_S, deriveDeviceState, formatPairingCode, isValidPairingCode, normalizePairingCode,
+  INSPECTION_EDITABLE, MEASURAND_DEFS, OPEN_ALARM_STATES, actionAllowed, applyMeasurementProfile, freshness, screenEnabled, type Role, PAIRING_POLL_INTERVAL_S, PAIRING_TTL_S, deriveDeviceState, formatPairingCode, isValidPairingCode, normalizePairingCode, canonicalHardwareId, HARDWARE_ID_PATTERN, pairingDeepLink, pairingCodeFromPayload,
 } from '@hydris/domain';
 import { TTL, accessTokenTtl } from '../config';
 import { decodeDemoDeviceRefresh, demoDeviceClaims, encodeDemoDeviceRefresh, ensureDemoDevice, isDemoDeviceRefresh } from '../core/demo-auth';
@@ -17,7 +17,8 @@ import { withSystem, withTenant } from '../db/tenant';
 import { badRequest, conflict, forbidden, HttpError, notFound, unauthorized } from '../core/errors';
 import { has, requirePerm, requireSite, siteScope, type Principal } from '../core/principal';
 import { pairingCode, randomToken, safeEqual, sha256 } from '../core/crypto';
-import { audit } from '../core/services';
+import { audit, notify } from '../core/services';
+import { orgSettings } from './command';
 import { effectiveProfile } from './ui-profiles';
 import { ensureGuest } from '../core/demo-guests';
 import { demoShared } from '../core/demo-shared';
@@ -29,6 +30,11 @@ const deviceInfoSchema = z.object({
   kind: z.enum(['hardware', 'simulator']), model: z.string().max(80).optional(), appVersion: z.string().max(40).optional(), firmwareVersion: z.string().max(40).optional(),
   display: z.object({ width: z.number().int().min(100).max(4000), height: z.number().int().min(100).max(4000) }).optional(), name: z.string().max(60).optional(),
 });
+
+/** Canonical hardware id (see canonicalHardwareId in @hydris/domain): trimmed, lower case. */
+const hardwareIdSchema = z.string().trim().min(16).max(80).regex(/^[A-Za-z0-9_-]+$/).transform(canonicalHardwareId).pipe(z.string().regex(HARDWARE_ID_PATTERN));
+/** How long glasses approved by an operator wait for an administrator (org policy requireDeviceApproval). */
+const ADMIN_WAIT_S = 30 * 60;
 
 /** Bump the session version so outstanding device access tokens stop working immediately. */
 async function invalidateDeviceTokens(tx: Tx, deviceId: string) {
@@ -84,13 +90,14 @@ export async function deviceRoutes(app: FastifyInstance, ctx: Ctx, opts: { relax
     const open = (st: string) => st === 'pending' || st === 'approved';
     if (local.status === 'pending' && row.status === 'approved') {
       await tx.update(pairingChallenges).set({
-        status: 'approved', approvedBy: row.approvedBy, approvedAt: row.approvedAt, orgId: row.orgId, siteId: row.siteId, assigneeUserId: row.assigneeUserId, deviceInfo: row.deviceInfo,
+        status: 'approved', approvedBy: row.approvedBy, approvedAt: row.approvedAt, orgId: row.orgId, siteId: row.siteId, assigneeUserId: row.assigneeUserId, deviceInfo: row.deviceInfo, needsAdmin: !!row.needsAdmin, expiresAt: row.expiresAt,
       }).where(eq(pairingChallenges.id, id));
     } else if (open(local.status) && !open(row.status)) {
       await tx.update(pairingChallenges).set({ status: row.status, completedAt: row.completedAt }).where(eq(pairingChallenges.id, id));
     }
   }
   async function hydrateByCode(tx: Tx, rawCode: string) {
+    rawCode = pairingCodeFromPayload(rawCode) ?? rawCode;
     if (!ctx.config.demoMode || !isValidPairingCode(rawCode)) return;
     const id = await demoShared().get<string>(pcKey(sha256(normalizePairingCode(rawCode))));
     if (id) await hydrateChallenge(tx, id);
@@ -103,7 +110,7 @@ export async function deviceRoutes(app: FastifyInstance, ctx: Ctx, opts: { relax
 
   // =================== Pairing: device side (unauthenticated, rate limited) ===================
   app.post('/pairing/challenges', limit(10), async (req, reply) => {
-    const body = z.object({ hardwareId: z.string().min(16).max(80).regex(/^[A-Za-z0-9_-]+$/), device: deviceInfoSchema }).parse(req.body);
+    const body = z.object({ hardwareId: hardwareIdSchema, device: deviceInfoSchema }).parse(req.body);
     const pollSecret = randomToken(32);
     const out = await withSystem(ctx.db, async (tx) => {
       // Any open challenge from the same install is superseded (regeneration).
@@ -129,6 +136,8 @@ export async function deviceRoutes(app: FastifyInstance, ctx: Ctx, opts: { relax
       verificationUri: `${ctx.config.PUBLIC_APP_URL}/pair`,
       // The QR encodes only this URL: a short-lived, single-use code - never a credential.
       verificationUriComplete: `${ctx.config.PUBLIC_APP_URL}/pair?code=${display}`,
+      // What the glasses render as the QR: opens Hydris Field (Pair glasses) on the operator's phone.
+      qrPayload: pairingDeepLink(display),
     });
   });
 
@@ -149,6 +158,25 @@ export async function deviceRoutes(app: FastifyInstance, ctx: Ctx, opts: { relax
       await tx.update(pairingChallenges).set({ lastPolledAt: now }).where(eq(pairingChallenges.id, id));
       if (c.status === 'pending') return { status: 'pending' as const, expiresAt: c.expiresAt };
 
+      // Approved by a non-administrator while the org requires approval: the glasses wait for an admin.
+      if (c.needsAdmin) {
+        const r = await withTenantInside(tx, c.orgId!, () => claimDevice(tx, {
+          orgId: c.orgId!, userId: c.assigneeUserId!, actorId: c.approvedBy!, hardwareId: c.hardwareId, siteId: c.siteId, info: c.deviceInfo, needsApproval: true, via: 'qr', ip: req.ip,
+        }));
+        await tx.execute(sql`select set_config('app.bypass', 'on', true)`);
+        if (r.status === 'denied') {
+          await tx.update(pairingChallenges).set({ status: 'denied', completedAt: now }).where(eq(pairingChallenges.id, id));
+          await shareById(tx, id);
+          return { status: 'denied' as const };
+        }
+        if (r.status === 'pending') {
+          // Keep the challenge alive while the request sits in the administrators' queue.
+          const until = new Date(now.getTime() + ADMIN_WAIT_S * 1000);
+          if (c.expiresAt < until) { await tx.update(pairingChallenges).set({ expiresAt: until }).where(eq(pairingChallenges.id, id)); await shareById(tx, id); }
+          return { status: 'awaiting_approval' as const, expiresAt: c.expiresAt < until ? until : c.expiresAt, pollIntervalS: PAIRING_POLL_INTERVAL_S };
+        }
+      }
+
       // Approved: consume the challenge exactly once.
       const [claimed] = await tx.update(pairingChallenges).set({ status: 'completed', completedAt: now })
         .where(and(eq(pairingChallenges.id, id), eq(pairingChallenges.status, 'approved'))).returning();
@@ -157,14 +185,17 @@ export async function deviceRoutes(app: FastifyInstance, ctx: Ctx, opts: { relax
       const orgId = claimed.orgId!;
       return withTenantInside(tx, orgId, async () => {
         // Re-pairing the same install within the same org reuses the device record (handover/recovery).
-        let device: typeof devices.$inferSelect | undefined = (await tx.select().from(devices).where(and(eq(devices.hardwareId, claimed.hardwareId), eq(devices.orgId, orgId))))[0];
+        let device: typeof devices.$inferSelect | undefined = (await tx.select().from(devices).where(and(eq(devices.hardwareId, claimed.hardwareId), eq(devices.orgId, orgId), sql`${devices.status} <> 'revoked'`)))[0];
         const info = claimed.deviceInfo;
-        if (device && device.status === 'revoked') device = undefined;
+        const prevOwner = device ? await currentOwner(tx, device.id) : null;
         if (device) {
           [device] = await tx.update(devices).set({
             status: 'active', siteId: claimed.siteId, sessionVersion: device.sessionVersion + 1, pairedAt: now, pairedBy: claimed.approvedBy,
             appVersion: info.appVersion ?? device.appVersion, firmwareVersion: info.firmwareVersion ?? device.firmwareVersion, suspendedAt: null, updatedAt: now,
+            approvalState: 'approved', pendingUserId: null, pendingSince: null, claimDeniedUserId: null,
           }).where(eq(devices.id, device.id)).returning();
+          // Whoever held these glasses before is signed out of them now.
+          ctx.bus.publish({ type: 'session.revoked', orgId, deviceIds: [device!.id], payload: { reason: 're-paired' } });
           await tx.update(deviceSessions).set({ revokedAt: now }).where(and(eq(deviceSessions.deviceId, device!.id), isNull(deviceSessions.revokedAt)));
         } else {
           [device] = await tx.insert(devices).values({
@@ -174,8 +205,10 @@ export async function deviceRoutes(app: FastifyInstance, ctx: Ctx, opts: { relax
           }).returning();
         }
         const d = device!;
-        await tx.update(deviceAssignments).set({ unassignedAt: now, reason: 're-paired' }).where(and(eq(deviceAssignments.deviceId, d.id), isNull(deviceAssignments.unassignedAt)));
+        const transferred = !!prevOwner && prevOwner !== claimed.assigneeUserId;
+        await tx.update(deviceAssignments).set({ unassignedAt: now, reason: transferred ? 'transferred' : 're-paired' }).where(and(eq(deviceAssignments.deviceId, d.id), isNull(deviceAssignments.unassignedAt)));
         await tx.insert(deviceAssignments).values({ orgId, deviceId: d.id, userId: claimed.assigneeUserId!, assignedBy: claimed.approvedBy });
+        if (transferred) await announceTransfer(tx, d, prevOwner!, claimed.assigneeUserId!, claimed.approvedBy!, 'qr');
         await tx.update(pairingChallenges).set({ deviceId: d.id }).where(eq(pairingChallenges.id, id));
         await audit(tx, { userId: claimed.approvedBy, deviceId: d.id }, { orgId, action: 'device.paired', entityType: 'device', entityId: d.id, summary: d.name, metadata: { challengeId: id, assignee: claimed.assigneeUserId, ip: req.ip } });
         ctx.bus.publish({ type: 'device.paired', orgId, siteId: d.siteId, permission: 'device.read', payload: { id: d.id, name: d.name } });
@@ -207,6 +240,7 @@ export async function deviceRoutes(app: FastifyInstance, ctx: Ctx, opts: { relax
 
   // =================== Pairing: companion (authenticated person) ===================
   async function findPending(tx: Tx, rawCode: string) {
+    rawCode = pairingCodeFromPayload(rawCode) ?? rawCode;
     if (!isValidPairingCode(rawCode)) throw badRequest('invalid_code', 'Enter the 8-character code shown on the glasses');
     const [c] = await tx.select().from(pairingChallenges).where(and(eq(pairingChallenges.codeHash, sha256(normalizePairingCode(rawCode))), eq(pairingChallenges.status, 'pending'), gt(pairingChallenges.expiresAt, new Date())));
     if (!c) throw notFound('Pairing code (it may have expired - generate a new one on the glasses)');
@@ -237,13 +271,17 @@ export async function deviceRoutes(app: FastifyInstance, ctx: Ctx, opts: { relax
   });
 
   app.post('/pairing/approve', { ...auth, ...limit(10) }, async (req) => {
-    const body = z.object({ code: z.string().max(20), siteId: z.uuid(), assigneeUserId: z.uuid().optional(), deviceName: z.string().trim().min(2).max(60).optional() }).parse(req.body);
+    // siteId is optional: a QR scan in Hydris Field pairs to the operator's own (first) site.
+    const body = z.object({ code: z.string().max(200), siteId: z.uuid().optional(), assigneeUserId: z.uuid().optional(), deviceName: z.string().trim().min(2).max(60).optional() }).parse(req.body);
     const p = req.principal!;
     requirePerm(p, 'device.pair');
-    requireSite(p, body.siteId, 'Site');
+    if (body.siteId) requireSite(p, body.siteId, 'Site');
     const assignee = body.assigneeUserId ?? p.userId;
     if (assignee !== p.userId && !has(p, 'device.manage')) throw forbidden('You can only pair glasses to yourself');
     return withTenant(ctx.db, p.orgId, async (tx) => {
+      const siteId = body.siteId ?? await defaultSite(tx, p);
+      if (!siteId) throw badRequest('no_site', 'Your account has no site to assign the glasses to');
+      body.siteId = siteId;
       const [site] = await tx.select({ id: sites.id }).from(sites).where(eq(sites.id, body.siteId));
       if (!site) throw notFound('Site');
       const [m] = await tx.select({ id: memberships.id, allSites: memberships.allSites, status: memberships.status }).from(memberships).where(eq(memberships.userId, assignee));
@@ -255,19 +293,20 @@ export async function deviceRoutes(app: FastifyInstance, ctx: Ctx, opts: { relax
       await tx.execute(sql`select set_config('app.bypass', 'on', true)`);
       await hydrateByCode(tx, body.code);
       const c = await findPending(tx, body.code);
-      const [existing] = await tx.select().from(devices).where(eq(devices.hardwareId, c.hardwareId));
-      if (existing && existing.orgId !== p.orgId && existing.status !== 'revoked') {
+      const elsewhere = await tx.select({ id: devices.id }).from(devices).where(and(eq(devices.hardwareId, c.hardwareId), sql`${devices.orgId} <> ${p.orgId}`, sql`${devices.status} <> 'revoked'`));
+      if (elsewhere.length) {
         throw conflict('device_owned_elsewhere', 'These glasses are registered to another organization. They must be revoked there first.');
       }
+      const needsAdmin = !has(p, 'device.manage') && (await orgSettings(tx, p.orgId)).requireDeviceApproval;
       const [ok] = await tx.update(pairingChallenges).set({
-        status: 'approved', approvedBy: p.userId, approvedAt: new Date(), orgId: p.orgId, siteId: body.siteId, assigneeUserId: assignee,
+        status: 'approved', approvedBy: p.userId, approvedAt: new Date(), orgId: p.orgId, siteId: body.siteId, assigneeUserId: assignee, needsAdmin,
         deviceInfo: body.deviceName ? { ...c.deviceInfo, name: body.deviceName } : c.deviceInfo,
       }).where(and(eq(pairingChallenges.id, c.id), eq(pairingChallenges.status, 'pending'))).returning();
       await tx.execute(sql`select set_config('app.bypass', 'off', true)`);
       if (!ok) throw conflict('already_used', 'This pairing code was already used');
       await shareChallenge(ok);
-      await audit(tx, p, { orgId: p.orgId, action: 'device.pairing_approved', entityType: 'pairing', entityId: c.id, metadata: { siteId: body.siteId, assignee, device: c.deviceInfo }, ip: req.ip });
-      return { ok: true, challengeId: c.id };
+      await audit(tx, p, { orgId: p.orgId, action: 'device.pairing_approved', entityType: 'pairing', entityId: c.id, metadata: { siteId: body.siteId, assignee, device: c.deviceInfo, needsAdmin }, ip: req.ip });
+      return { ok: true, challengeId: c.id, needsAdminApproval: needsAdmin, device: { name: body.deviceName ?? c.deviceInfo.name ?? c.deviceInfo.model ?? 'Field glasses', kind: c.deviceInfo.kind } };
     });
   });
 
@@ -498,6 +537,206 @@ export async function deviceRoutes(app: FastifyInstance, ctx: Ctx, opts: { relax
     });
   });
 
+  // =================== Ownership: auto-registration (claim), transfer, admin approval ===================
+  type DeviceRow = typeof devices.$inferSelect;
+  type DeviceInfo = { kind: 'hardware' | 'simulator'; model?: string; appVersion?: string; firmwareVersion?: string; display?: { width: number; height: number }; name?: string };
+  interface ClaimInput {
+    orgId: string; userId: string; actorId: string; hardwareId: string; siteId: string | null; info: DeviceInfo;
+    /** Org requires administrator approval and the caller is not an administrator. */
+    needsApproval: boolean; via: 'claim' | 'qr'; ip?: string;
+  }
+  type ClaimOutcome =
+    | { status: 'active'; device: DeviceRow; created: boolean; transferredFrom: string | null }
+    | { status: 'pending'; device: DeviceRow }
+    | { status: 'denied'; device: DeviceRow };
+
+  async function currentOwner(tx: Tx, deviceId: string): Promise<string | null> {
+    const [a] = await tx.select({ userId: deviceAssignments.userId }).from(deviceAssignments).where(and(eq(deviceAssignments.deviceId, deviceId), isNull(deviceAssignments.unassignedAt)));
+    return a?.userId ?? null;
+  }
+  async function adminIds(tx: Tx, orgId: string): Promise<string[]> {
+    const rows = await tx.select({ id: memberships.userId }).from(memberships).where(and(eq(memberships.orgId, orgId), eq(memberships.role, 'admin'), eq(memberships.status, 'active')));
+    return rows.map((r) => r.id);
+  }
+  async function userName(tx: Tx, id: string | null) {
+    if (!id) return null;
+    const [u] = await tx.select({ name: users.name }).from(users).where(eq(users.id, id));
+    return u?.name ?? 'Member';
+  }
+  /** First site (by name) the principal may use; null when the account has none. */
+  async function defaultSite(tx: Tx, p: Principal): Promise<string | null> {
+    const [s] = await tx.select({ id: sites.id }).from(sites).where(and(siteScope(p, sites.id), isNull(sites.archivedAt))).orderBy(asc(sites.name)).limit(1);
+    return s?.id ?? null;
+  }
+
+  /**
+   * Side effects of a change of owner (assignment rows are written by the caller): the previous
+   * owner's device session is already revoked; tell their phone app and their glasses, write the
+   * audit entry and notify the administrators.
+   */
+  async function announceTransfer(tx: Tx, d: DeviceRow, from: string, to: string, actorId: string, via: 'claim' | 'qr' | 'approval') {
+    const [fromName, toName] = [await userName(tx, from), await userName(tx, to)];
+    await audit(tx, { userId: actorId }, { orgId: d.orgId, action: 'device.transferred', entityType: 'device', entityId: d.id, summary: `${d.name}: ${fromName} → ${toName}`, metadata: { from, to, via } });
+    ctx.bus.publish({ type: 'session.revoked', orgId: d.orgId, deviceIds: [d.id], payload: { reason: 'transferred' } });
+    ctx.bus.publish({ type: 'device.transferred', orgId: d.orgId, userIds: [from], payload: { deviceId: d.id, name: d.name, to: toName } });
+    await notify(tx, ctx.bus, {
+      orgId: d.orgId, userIds: (await adminIds(tx, d.orgId)).filter((id) => id !== actorId), kind: 'device.transferred', severity: 'info',
+      title: `${d.name} moved to ${toName}`, body: `Previously registered to ${fromName}. Their glasses session was signed out.`, link: '/console/devices', entityType: 'device', entityId: d.id,
+    });
+  }
+
+  /** Give a device to [to] now: end the current assignment and sessions, assign, and announce a transfer. */
+  async function assignOwner(tx: Tx, d: DeviceRow, to: string, actorId: string, via: 'claim' | 'qr' | 'approval'): Promise<{ device: DeviceRow; from: string | null }> {
+    const now = new Date();
+    const from = await currentOwner(tx, d.id);
+    const transfer = !!from && from !== to;
+    if (from !== to) {
+      await tx.update(deviceAssignments).set({ unassignedAt: now, reason: transfer ? 'transferred' : 'reassigned' }).where(and(eq(deviceAssignments.deviceId, d.id), isNull(deviceAssignments.unassignedAt)));
+      await tx.insert(deviceAssignments).values({ orgId: d.orgId, deviceId: d.id, userId: to, assignedBy: actorId, reason: via === 'approval' ? 'approved by administrator' : `registered (${via})` });
+    }
+    const patch: Partial<DeviceRow> = { approvalState: 'approved', pendingUserId: null, pendingSince: null, claimDeniedUserId: null, updatedAt: now };
+    if (transfer) {
+      await tx.update(deviceSessions).set({ revokedAt: now }).where(and(eq(deviceSessions.deviceId, d.id), isNull(deviceSessions.revokedAt)));
+      patch.sessionVersion = d.sessionVersion + 1;
+      patch.pairedAt = now;
+      patch.pairedBy = actorId;
+    }
+    const [u] = await tx.update(devices).set(patch).where(eq(devices.id, d.id)).returning();
+    if (transfer) await announceTransfer(tx, u!, from!, to, actorId, via);
+    return { device: u!, from: transfer ? from : null };
+  }
+
+  async function requestApproval(tx: Tx, d: DeviceRow, userId: string, via: 'claim' | 'qr', transfer: boolean) {
+    const name = await userName(tx, userId);
+    await audit(tx, { userId }, { orgId: d.orgId, action: 'device.claim_requested', entityType: 'device', entityId: d.id, summary: `${d.name} → ${name}`, metadata: { via, transfer } });
+    ctx.bus.publish({ type: 'device.pending', orgId: d.orgId, siteId: d.siteId, permission: 'device.manage', payload: { id: d.id, name: d.name, requestedBy: name, transfer } });
+    await notify(tx, ctx.bus, {
+      orgId: d.orgId, userIds: await adminIds(tx, d.orgId), kind: 'device.approval_requested', severity: 'warning',
+      title: transfer ? `${name} asks to take over ${d.name}` : `${name} registered new glasses`, body: 'Approve or deny in Approvals.', link: '/console/approvals', entityType: 'device', entityId: d.id,
+    });
+  }
+
+  /**
+   * Register a physical device (by canonical hardware id) to [userId] in the current tenant transaction.
+   * Same owner: refreshes metadata. Other owner: transfers (or, under the approval policy, queues the request).
+   */
+  async function claimDevice(tx: Tx, a: ClaimInput): Promise<ClaimOutcome> {
+    const now = new Date();
+    const [existing] = await tx.select().from(devices).where(and(eq(devices.orgId, a.orgId), eq(devices.hardwareId, a.hardwareId), sql`${devices.status} <> 'revoked'`));
+    if (existing) {
+      if (existing.status === 'suspended') throw new HttpError(403, 'device_suspended', 'These glasses are suspended. Contact your administrator.');
+      const owner = await currentOwner(tx, existing.id);
+      const meta: Partial<DeviceRow> = {
+        firmwareVersion: a.info.firmwareVersion ?? existing.firmwareVersion, appVersion: a.info.appVersion ?? existing.appVersion,
+        model: a.info.model ?? existing.model, updatedAt: now,
+      };
+      if (owner === a.userId && existing.approvalState !== 'pending') {
+        const [d] = await tx.update(devices).set({ ...meta, approvalState: 'approved', claimDeniedUserId: null }).where(eq(devices.id, existing.id)).returning();
+        return { status: 'active', device: d!, created: false, transferredFrom: null };
+      }
+      if (owner === a.userId && existing.approvalState === 'pending' && existing.pendingUserId !== a.userId) {
+        // Owner reclaims while someone else's transfer request waits: owner keeps it; request stays queued.
+        const [d] = await tx.update(devices).set(meta).where(eq(devices.id, existing.id)).returning();
+        return { status: 'active', device: d!, created: false, transferredFrom: null };
+      }
+      if (a.needsApproval) {
+        if (existing.claimDeniedUserId === a.userId && existing.pendingUserId !== a.userId) return { status: 'denied', device: existing };
+        if (existing.approvalState === 'pending' && existing.pendingUserId === a.userId) return { status: 'pending', device: existing };
+        const [d] = await tx.update(devices).set({ ...meta, approvalState: 'pending', pendingUserId: a.userId, pendingSince: now }).where(eq(devices.id, existing.id)).returning();
+        await requestApproval(tx, d!, a.userId, a.via, !!owner);
+        return { status: 'pending', device: d! };
+      }
+      await tx.update(devices).set(meta).where(eq(devices.id, existing.id));
+      const r = await assignOwner(tx, { ...existing, ...meta } as DeviceRow, a.userId, a.actorId, a.via);
+      ctx.bus.publish({ type: 'device.updated', orgId: a.orgId, siteId: r.device.siteId, permission: 'device.read', payload: { id: r.device.id } });
+      return { status: 'active', device: r.device, created: false, transferredFrom: r.from };
+    }
+
+    const name = a.info.name || (a.info.kind === 'simulator' ? 'Browser simulator' : a.info.model ?? 'Field glasses');
+    const [d] = await tx.insert(devices).values({
+      orgId: a.orgId, siteId: a.siteId, name, kind: a.info.kind, model: a.info.model ?? null, hardwareId: a.hardwareId,
+      appVersion: a.info.appVersion, firmwareVersion: a.info.firmwareVersion, displayInfo: a.info.display ?? null, pairedBy: a.actorId,
+      ...(a.needsApproval ? { approvalState: 'pending' as const, pendingUserId: a.userId, pendingSince: now } : {}),
+    }).returning();
+    if (a.needsApproval) {
+      await requestApproval(tx, d!, a.userId, a.via, false);
+      return { status: 'pending', device: d! };
+    }
+    await tx.insert(deviceAssignments).values({ orgId: a.orgId, deviceId: d!.id, userId: a.userId, assignedBy: a.actorId, reason: `registered (${a.via})` });
+    await audit(tx, { userId: a.actorId }, { orgId: a.orgId, action: 'device.registered', entityType: 'device', entityId: d!.id, summary: d!.name, metadata: { via: a.via, owner: a.userId, ip: a.ip } });
+    ctx.bus.publish({ type: 'device.paired', orgId: a.orgId, siteId: d!.siteId, permission: 'device.read', payload: { id: d!.id, name: d!.name } });
+    return { status: 'active', device: d!, created: true, transferredFrom: null };
+  }
+
+  const claimSchema = z.object({
+    hardwareId: hardwareIdSchema, kind: z.enum(['hardware', 'simulator']).default('hardware'),
+    model: z.string().trim().max(80).optional(), name: z.string().trim().min(2).max(60).optional(),
+    firmware: z.string().trim().max(40).optional(), appVersion: z.string().trim().max(40).optional(),
+  });
+
+  /**
+   * Auto-registration: the signed-in user's app registers the glasses it is linked to (Ray-Ban Meta via
+   * DAT) to that user and receives device tokens in the same call. Idempotent: the app calls it on every
+   * sign-in / link, and polls it (or listens for device.claim_approved) while approval is pending.
+   */
+  app.post('/devices/claim', { ...auth, ...limit(30) }, async (req) => {
+    const body = claimSchema.parse(req.body);
+    const p = req.principal!;
+    if (p.kind !== 'user') throw forbidden('User session required');
+    requirePerm(p, 'device.pair');
+    return withTenant(ctx.db, p.orgId, async (tx) => {
+      await tx.execute(sql`select set_config('app.bypass', 'on', true)`);
+      const elsewhere = await tx.select({ id: devices.id }).from(devices).where(and(eq(devices.hardwareId, body.hardwareId), sql`${devices.orgId} <> ${p.orgId}`, sql`${devices.status} <> 'revoked'`));
+      await tx.execute(sql`select set_config('app.bypass', 'off', true)`);
+      if (elsewhere.length) throw conflict('device_owned_elsewhere', 'These glasses are registered to another organization. They must be revoked there first.');
+      const [existing] = await tx.select({ siteId: devices.siteId }).from(devices).where(and(eq(devices.hardwareId, body.hardwareId), sql`${devices.status} <> 'revoked'`));
+      const siteId = existing?.siteId && (p.allSites || p.siteIds.includes(existing.siteId)) ? existing.siteId : await defaultSite(tx, p);
+      if (!siteId) throw badRequest('no_site', 'Your account has no site to assign the glasses to');
+      const needsApproval = !has(p, 'device.manage') && (await orgSettings(tx, p.orgId)).requireDeviceApproval;
+      const r = await claimDevice(tx, {
+        orgId: p.orgId, userId: p.userId, actorId: p.userId, hardwareId: body.hardwareId, siteId, needsApproval, via: 'claim', ip: req.ip,
+        info: { kind: body.kind, model: body.model, name: body.name, firmwareVersion: body.firmware, appVersion: body.appVersion },
+      });
+      const [me] = await tx.select({ id: users.id, name: users.name }).from(users).where(eq(users.id, p.userId));
+      const device = { id: r.device.id, name: r.device.name, model: r.device.model, status: r.device.status, approvalState: r.device.approvalState };
+      if (r.status !== 'active') return { status: r.status, device, owner: me, pollIntervalS: 5 };
+      return { status: 'active' as const, device, owner: me, created: r.created, transferred: !!r.transferredFrom, ...(await issueDeviceTokens(tx, r.device)) };
+    });
+  });
+
+  /** Administrator decision on a pending registration / transfer request. */
+  for (const decision of ['approve', 'deny'] as const) {
+    app.post(`/devices/:id/${decision}`, auth, async (req) => tenant(ctx, req, async (tx, p) => {
+      requirePerm(p, 'device.manage');
+      const { id } = z.object({ id: z.uuid() }).parse(req.params);
+      const [d] = await tx.select().from(devices).where(eq(devices.id, id));
+      if (!d) throw notFound('Device');
+      requireSite(p, d.siteId, 'Device');
+      if (d.approvalState !== 'pending' || !d.pendingUserId) throw conflict('not_pending', 'This device has no pending request');
+      const requester = d.pendingUserId;
+      const requesterName = await userName(tx, requester);
+      if (decision === 'approve') {
+        const [m] = await tx.select({ status: memberships.status }).from(memberships).where(eq(memberships.userId, requester));
+        if (m?.status !== 'active') throw badRequest('invalid_assignee', 'The requester is no longer an active member');
+        const r = await assignOwner(tx, d, requester, p.userId, 'approval');
+        await audit(tx, p, { orgId: p.orgId, action: 'device.claim_approved', entityType: 'device', entityId: id, summary: `${d.name} → ${requesterName}`, metadata: { owner: requester, transferredFrom: r.from } });
+      } else {
+        const owner = await currentOwner(tx, id);
+        await tx.update(devices).set({ approvalState: owner ? 'approved' : 'denied', pendingUserId: null, pendingSince: null, claimDeniedUserId: requester, updatedAt: new Date() }).where(eq(devices.id, id));
+        await audit(tx, p, { orgId: p.orgId, action: 'device.claim_denied', entityType: 'device', entityId: id, summary: `${d.name} ✕ ${requesterName}`, metadata: { requester } });
+      }
+      ctx.bus.publish({ type: decision === 'approve' ? 'device.claim_approved' : 'device.claim_denied', orgId: p.orgId, userIds: [requester], payload: { deviceId: id, name: d.name } });
+      ctx.bus.publish({ type: 'device.updated', orgId: p.orgId, siteId: d.siteId, permission: 'device.read', payload: { id, approvalState: decision === 'approve' ? 'approved' : 'denied' } });
+      return { ok: true };
+    }));
+  }
+
+  /** Pending registration / transfer requests (Approvals queue, Devices). */
+  app.get('/devices/pending', auth, async (req) => tenant(ctx, req, async (tx, p) => {
+    requirePerm(p, 'device.manage');
+    return { devices: await pendingDevices(tx, p) };
+  }));
+
   // =================== Fleet management (console) ===================
   async function deviceRows(tx: Tx, p: Principal, where?: ReturnType<typeof eq>) {
     const rows = await tx.select({ d: devices, siteName: sites.name, assigneeId: deviceAssignments.userId, assigneeName: users.name, assignedAt: deviceAssignments.assignedAt })
@@ -608,6 +847,21 @@ export async function deviceRoutes(app: FastifyInstance, ctx: Ctx, opts: { relax
       return { ok: true, status };
     }));
   }
+}
+
+/** Devices waiting for an administrator: first registrations and ownership transfers (org policy requireDeviceApproval). */
+export async function pendingDevices(tx: Tx, p: Principal) {
+  const rows = await tx.select({ id: devices.id, name: devices.name, model: devices.model, kind: devices.kind, siteId: devices.siteId, siteName: sites.name, pendingUserId: devices.pendingUserId, pendingSince: devices.pendingSince, requesterName: users.name })
+    .from(devices).leftJoin(sites, eq(sites.id, devices.siteId)).leftJoin(users, eq(users.id, devices.pendingUserId))
+    .where(and(eq(devices.approvalState, 'pending'), sql`${devices.status} <> 'revoked'`, p.allSites ? undefined : siteScope(p, devices.siteId)))
+    .orderBy(asc(devices.pendingSince));
+  const out = [];
+  for (const r of rows) {
+    const [cur] = await tx.select({ id: users.id, name: users.name }).from(deviceAssignments).innerJoin(users, eq(users.id, deviceAssignments.userId))
+      .where(and(eq(deviceAssignments.deviceId, r.id), isNull(deviceAssignments.unassignedAt)));
+    out.push({ ...r, currentOwner: cur ?? null, transfer: !!cur });
+  }
+  return out;
 }
 
 export type { FastifyRequest };

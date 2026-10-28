@@ -6,17 +6,19 @@ import { Glasses, LayoutGrid, List, MapPin, MonitorSmartphone, Plus, Radio } fro
 import { useApi } from '@/lib/query';
 import { useCan } from '@/lib/session';
 import { ago } from '@/lib/format';
-import { Avatar, ButtonLink, Capsule, EmptyState, KpiCard, PageHeader, QueryView, Skeleton, cx } from '@/ui';
+import { Avatar, ButtonLink, Capsule, Chip, EmptyState, KpiCard, PageHeader, QueryView, Skeleton, cx } from '@/ui';
 import { DevicePolicyCard, OwnershipTable } from '@/console/command/fleet';
 import type { FleetDevice } from '@/console/command/types';
 import { DeviceKindChip, DeviceStateChip, GlassesArt } from '@/console/admin/glasses';
 import { LiveBadge, useFleetLive, type LiveView } from '@/console/admin/live';
 import { NoAccess, type DeviceRow } from '@/console/admin/parts';
 import { Donut, type Datum } from '@/ui/charts';
+import { PendingDevicesCard } from '@/console/command/pending';
 
-type Filter = 'all' | 'connected' | 'disconnected' | 'assigned' | 'suspended' | 'revoked';
+type Filter = 'all' | 'pending' | 'connected' | 'disconnected' | 'assigned' | 'suspended' | 'revoked';
 const FILTERS: { value: Filter; label: string; test: (d: DeviceRow) => boolean }[] = [
   { value: 'all', label: 'All', test: () => true },
+  { value: 'pending', label: 'Pending approval', test: (d) => d.approvalState === 'pending' && d.status !== 'revoked' },
   { value: 'connected', label: 'Connected', test: (d) => d.state === 'connected' },
   { value: 'disconnected', label: 'Disconnected', test: (d) => d.state === 'disconnected' },
   // Any active device with an operator, connected or not.
@@ -59,6 +61,7 @@ export default function DevicesPage() {
             const shown = devices.filter(FILTERS.find((f) => f.value === filter)!.test);
             return (
               <div className="grid grid-cols-[minmax(0,1fr)] gap-5 fade-in">
+                {can('device.manage') && <PendingDevicesCard />}
                 <div className="grid grid-cols-[minmax(0,1fr)] gap-4 sm:grid-cols-2 xl:grid-cols-4">
                   <FleetRing devices={active} />
                   <KpiCard tone="dark" label="Assigned to an operator" value={counts.assigned} sub={`${active.filter((d) => d.status === 'active' && !d.assignee).length} active without an operator`} />
@@ -104,7 +107,7 @@ function DeviceCard({ d, live, battery }: { d: DeviceRow; live?: LiveView; batte
     <Link href={`/console/devices/${d.id}`} className="card group relative flex h-full flex-col gap-4 overflow-hidden transition-colors hover:border-line-2 hover:bg-surface-2/60">
       <div className="flex items-center justify-between gap-2">
         <DeviceKindChip kind={d.kind} />
-        <DeviceStateChip state={d.state} />
+        {d.approvalState === 'pending' && d.status !== 'revoked' ? <Chip tone="outline">Pending approval</Chip> : <DeviceStateChip state={d.state} />}
       </div>
       <div className={cx('relative', off && 'opacity-60 grayscale')}>
         {streaming && live?.view ? (

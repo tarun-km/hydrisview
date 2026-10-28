@@ -171,8 +171,16 @@ class HydrisApi(private val store: SecureStore, val baseUrl: String = BuildConfi
     res.use { json.decodeFromString(de, it.textOrThrow()) }
   }
   fun saveDeviceTokens(access: String, refresh: String) { store.put("device.access", access); store.put("device.refresh", refresh) }
-  fun forgetDevice() = store.clear("device.access", "device.refresh", "device.id", "device.name")
+  fun forgetDevice() = store.clear("device.access", "device.refresh", "device.id", "device.name", "device.owner")
   fun hasDevice() = store.get("device.refresh") != null
+  /** Glasses another person took over: not auto-claimed back (manual "Register to me" clears it). */
+  var releasedHardwareId: String?
+    get() = store.get("device.released")
+    set(v) = store.put("device.released", v)
+  /** Who the glasses are registered to (shown as "Registered to …"). */
+  var deviceOwner: String?
+    get() = store.get("device.owner")
+    set(v) = store.put("device.owner", v)
   var deviceName: String?
     get() = store.get("device.name")
     set(v) = store.put("device.name", v)

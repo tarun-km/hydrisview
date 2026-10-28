@@ -101,3 +101,29 @@ export const GLASSES_DISPLAY = {
   /** Additive display: pure black is rendered as transparent. */
   additive: true,
 } as const;
+
+/**
+ * Canonical hardware id: the single key a physical device is deduplicated by (per organization).
+ *
+ * Ray-Ban Meta (DAT): both the Hydris Field app (GlassesManager.hardwareId) and the WebView bridge
+ * (apps/glasses-bridge-android) derive `rbm-` + the first 16 bytes, hex, of
+ * SHA-256("hydris-glasses:" + DAT device identifier). Browser / display glasses without a native
+ * host use a random per-install `hg-` id. The server stores the trimmed, lower-case form.
+ */
+export const HARDWARE_ID_PATTERN = /^[a-z0-9_-]{16,80}$/;
+export function canonicalHardwareId(raw: string): string {
+  return raw.trim().toLowerCase();
+}
+
+/** Deep link the pairing QR encodes: opens Hydris Field (Pair glasses) on a phone; also accepted by the /pair web page. */
+export const PAIRING_DEEP_LINK_SCHEME = 'hydrisfield://pair';
+export function pairingDeepLink(code: string): string {
+  return `${PAIRING_DEEP_LINK_SCHEME}?code=${encodeURIComponent(formatPairingCode(code))}`;
+}
+/** Extract a pairing code from a scanned QR payload (deep link, /pair?code= URL or a bare code). */
+export function pairingCodeFromPayload(payload: string): string | null {
+  const s = payload.trim();
+  const m = /[?&]code=([^&#\s]+)/i.exec(s);
+  const candidate = m ? decodeURIComponent(m[1]!) : s;
+  return isValidPairingCode(candidate) ? formatPairingCode(candidate) : null;
+}

@@ -326,7 +326,8 @@ function EditDialog({ device, onClose }: { device: DeviceRow; onClose: () => voi
 
 const EVENT_LABELS: Record<string, string> = {
   'device.paired': 'Paired', 'device.updated': 'Details updated', 'device.reassigned': 'Reassigned', 'device.suspended': 'Suspended',
-  'device.reactivated': 'Reactivated', 'device.revoked': 'Revoked', 'device.refresh_reuse_detected': 'Token reuse detected, sessions ended',
+  'device.reactivated': 'Reactivated', 'device.revoked': 'Revoked', 'device.registered': 'Registered from Hydris Field', 'device.transferred': 'Transferred to a new owner',
+  'device.claim_requested': 'Approval requested', 'device.claim_approved': 'Approved by administrator', 'device.claim_denied': 'Request denied', 'device.refresh_reuse_detected': 'Token reuse detected, sessions ended',
 };
 const eventTitle = (a: string) => EVENT_LABELS[a] ?? a.replace(/^device\./, '').replace(/[._]/g, ' ').replace(/^\w/, (c) => c.toUpperCase());
 

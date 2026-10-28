@@ -104,6 +104,23 @@ class Repository(val api: HydrisApi, val outbox: Outbox) {
     throw ApiException(408, "timeout", "Pairing timed out")
   }
 
+  /**
+   * Auto-registration: register the linked glasses to the signed-in user and receive the device tokens in one
+   * call (POST /devices/claim). Pending (org approval policy) and denied results carry no tokens.
+   */
+  suspend fun claimGlasses(hardwareId: String, name: String, model: String?, firmware: String?): ClaimResult {
+    val r: ClaimResult = api.post("/devices/claim", ClaimRequest(hardwareId, "hardware", model, name, firmware, "android-${ai.hydris.field.BuildConfig.VERSION_NAME}"))
+    if (r.status == "active" && r.accessToken != null && r.refreshToken != null) {
+      api.saveDeviceTokens(r.accessToken, r.refreshToken)
+      api.deviceName = r.device.name
+      api.deviceOwner = r.owner?.name
+    }
+    return r
+  }
+
+  /** QR / code pairing of display glasses or the web glasses app: approves the challenge for the signed-in user. */
+  suspend fun approvePairing(codeOrPayload: String): PairApproval = api.post("/pairing/approve", PairApprove(codeOrPayload))
+
   suspend fun unregisterGlasses() {
     runCatching { api.deviceCall("/device/logout", "POST", "{}", kotlinx.serialization.json.JsonElement.serializer()) }
     api.forgetDevice()

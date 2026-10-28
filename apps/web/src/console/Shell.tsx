@@ -54,6 +54,7 @@ const EVENT_PATHS: Record<string, string[]> = {
   'maintenance.updated': ['/maintenance', '/overview', '/assets/', '/command'],
   'device.updated': ['/devices', '/overview', '/command'],
   'device.paired': ['/devices', '/overview', '/command'],
+  'device.pending': ['/devices', '/overview', '/command'],
   'device.live': ['/devices/live'],
   'auditdoc.updated': ['/audit-docs', '/command'],
   'asset.updated': ['/assets', '/hierarchy', '/overview', '/sites'],

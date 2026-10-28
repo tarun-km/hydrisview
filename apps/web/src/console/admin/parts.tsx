@@ -17,6 +17,8 @@ export interface DeviceRow {
   suspendedAt: string | null; revokedAt: string | null; revokeReason: string | null; createdAt: string;
   siteName: string | null; assignee: { id: string; name: string | null; since: string | null } | null;
   streamOpen: boolean; state: DeviceState;
+  /** Ownership approval (org policy requireDeviceApproval). */
+  approvalState?: 'approved' | 'pending' | 'denied'; pendingUserId?: string | null;
 }
 
 export interface MemberRow {
