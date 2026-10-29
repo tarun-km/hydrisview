@@ -20,8 +20,8 @@ android {
     applicationId = "ai.hydris.field"
     minSdk = 31 // Android 12+, matches Meta DAT
     targetSdk = 36
-    versionCode = 1
-    versionName = "1.0.0"
+    versionCode = 3
+    versionName = "1.2.0"
     buildConfigField("String", "HYDRIS_URL", "\"${localProperties.getProperty("hydris_url", "https://hydrisview.vercel.app")}\"")
     // Meta Wearables DAT. Developer Mode in the Meta AI app: 0/0. Production: Wearables Developer Center values.
     // Exactly as Meta's DAT docs: placeholders "0" in Developer Mode (attestation unused; DAT logs that it
