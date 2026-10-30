@@ -16,7 +16,7 @@ const EASE = [0.22, 0.8, 0.24, 1] as const;
 /* ------------------------------------------------------------------ Backdrop */
 
 /** Layered mist, dunes, fine contour lines and a dotted particle field, with scroll parallax. */
-export function MistBackdrop({ className, dunes = true, tone = 'teal' }: { className?: string; dunes?: boolean; tone?: 'teal' | 'dusk' }) {
+export function MistBackdrop({ className, dunes = true, tone = 'ice' }: { className?: string; dunes?: boolean; tone?: 'ice' | 'dusk' }) {
   const ref = useRef<HTMLDivElement>(null);
   const reduced = useReducedMotion();
   const { scrollYProgress } = useScroll({ target: ref, offset: ['start start', 'end start'] });
@@ -34,17 +34,17 @@ export function MistBackdrop({ className, dunes = true, tone = 'teal' }: { class
         <svg className="absolute inset-0 h-full w-full" viewBox="0 0 1440 900" preserveAspectRatio="xMidYMid slice">
           <defs>
             <linearGradient id={`${id}-far`} x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0" stopColor="#5f8794" stopOpacity="0.55" />
-              <stop offset="1" stopColor="#a9c4ca" stopOpacity="0" />
+              <stop offset="0" stopColor="#6f93ff" stopOpacity="0.42" />
+              <stop offset="1" stopColor="#c9d8ff" stopOpacity="0" />
             </linearGradient>
             <linearGradient id={`${id}-mid`} x1="0" y1="0" x2="1" y2="1">
-              <stop offset="0" stopColor="#f4f8f6" stopOpacity="0.95" />
-              <stop offset="0.45" stopColor="#7fa2ac" stopOpacity="0.85" />
-              <stop offset="1" stopColor="#22424d" stopOpacity="0.9" />
+              <stop offset="0" stopColor="#ffffff" stopOpacity="0.95" />
+              <stop offset="0.45" stopColor="#8fabff" stopOpacity="0.85" />
+              <stop offset="1" stopColor="#1746e4" stopOpacity="0.9" />
             </linearGradient>
             <linearGradient id={`${id}-near`} x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0" stopColor="#2b4f5a" stopOpacity="0.9" />
-              <stop offset="1" stopColor="#132a32" stopOpacity="1" />
+              <stop offset="0" stopColor="#1954f1" stopOpacity="0.85" />
+              <stop offset="1" stopColor="#0c1e85" stopOpacity="1" />
             </linearGradient>
             <filter id={`${id}-soft`} x="-10%" y="-10%" width="120%" height="120%"><feGaussianBlur stdDeviation="18" /></filter>
             <filter id={`${id}-softer`} x="-10%" y="-10%" width="120%" height="120%"><feGaussianBlur stdDeviation="6" /></filter>

@@ -7,7 +7,7 @@
 export function Logo({ compact = false, tone = 'white', product = true, size = 30 }: { compact?: boolean; tone?: 'white' | 'blue' | 'black'; product?: boolean; size?: number }) {
   const color = tone === 'white' ? '#ffffff' : tone === 'blue' ? '#1746E4' : '#081116';
   return (
-    <span className="inline-flex items-center gap-2.5" style={{ color }}>
+    <span className="inline-flex items-center gap-2.5 whitespace-nowrap" style={{ color }}>
       <img src={`/brand/mark-${tone}.png`} alt={compact ? 'Hydris AI' : ''} width={size} height={size} style={{ width: size, height: size, objectFit: 'contain' }} />
       {!compact && (
         <span className="inline-flex items-baseline gap-2">

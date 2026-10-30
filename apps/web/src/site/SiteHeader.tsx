@@ -32,7 +32,7 @@ export function SiteHeader() {
           <span className="logo-on-light"><Logo size={32} tone="blue" /></span>
         </Link>
 
-        <nav aria-label="Primary" className="hidden lg:block">
+        <nav aria-label="Primary" className="hidden xl:block">
           <div className="capsule site-nav bg-surface/80 backdrop-blur">
             {SITE_NAV.map((n) => (
               <Link key={n.href} href={n.href} aria-current={isActive(pathname, n.href) ? 'page' : undefined}>
@@ -51,8 +51,9 @@ export function SiteHeader() {
         </div>
 
         <Dialog.Root open={open} onOpenChange={setOpen}>
-          <div className="flex items-center gap-2 lg:hidden">
-            <ThemeToggle compact />
+          <div className="flex items-center gap-2 xl:hidden">
+            {/* Appearance lives in the drawer on phones, so the logo never wraps. */}
+            <span className="hidden sm:inline-flex lg:hidden"><ThemeToggle compact /></span>
             <Dialog.Trigger asChild>
               <button type="button" className="icon-btn" aria-label="Open menu">
                 <Menu size={20} aria-hidden />
@@ -60,9 +61,9 @@ export function SiteHeader() {
             </Dialog.Trigger>
           </div>
           <Dialog.Portal>
-            <Dialog.Overlay className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm fade-in lg:hidden" />
+            <Dialog.Overlay className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm fade-in xl:hidden" />
             <Dialog.Content
-              className="hx fixed inset-y-0 right-0 z-50 flex w-full max-w-[420px] flex-col bg-bg-2 p-4 shadow-[var(--shadow-3)] fade-in sm:p-6 lg:hidden"
+              className="hx fixed inset-y-0 right-0 z-50 flex w-full max-w-[420px] flex-col bg-bg-2 p-4 shadow-[var(--shadow-3)] fade-in sm:p-6 xl:hidden"
               aria-describedby={undefined}
             >
               <div className="flex h-[60px] items-center justify-between">

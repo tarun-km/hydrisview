@@ -69,7 +69,7 @@ export function WorkflowStepper() {
 }
 
 /* ---------- Safety & reliability ---------- */
-const SAFETY = [
+export const SAFETY = [
   { icon: ShieldOff, t: 'Advisory only', d: 'No write path to SCADA, PLCs or field devices. Hydris shows context and records observations; operators act through your existing controls and permits.' },
   { icon: Layers, t: 'Tenant isolation', d: 'Every query runs in the caller’s organisation context, enforced in the database. Realtime events are authorised per connection.' },
   { icon: FileClock, t: 'Audit trail', d: 'Pairing approvals, device assignments, alarm actions, inspection reviews and permission changes are recorded with who and when.' },
