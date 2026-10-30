@@ -222,7 +222,7 @@ export function TourPlayer<Nav>({ tour, navigate, onExit, zIndex = 2147483000 }:
   const blockAll = !step.interactive || !r;
   const waiting = !!step.interactive && narrated;
 
-  const btn = 'grid h-9 min-w-9 place-items-center rounded-full px-2.5 text-[13px] font-medium text-white/85 hover:bg-white/15 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#c8f24a] disabled:opacity-35';
+  const btn = 'grid h-9 min-w-9 place-items-center rounded-full px-2.5 text-[13px] font-medium text-white/85 hover:bg-white/15 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#1954f1] disabled:opacity-35';
   return createPortal(
     <div className="hydris-tour" style={{ position: 'fixed', inset: 0, zIndex, pointerEvents: 'none', fontFamily: 'var(--font-outfit), system-ui, sans-serif' }} data-tour-step={step.id} data-tour-active="" role="dialog" aria-modal="true" aria-label={`${tour.name}: step ${i + 1} of ${tour.steps.length}`}>
       <style>{`@keyframes hydrisTourPulse{0%{opacity:.85;transform:scale(1)}70%{opacity:0;transform:scale(1.18)}100%{opacity:0;transform:scale(1.18)}}
@@ -247,27 +247,27 @@ export function TourPlayer<Nav>({ tour, navigate, onExit, zIndex = 2147483000 }:
           <div style={{ position: 'absolute', left: r.x + r.w, top: r.y, width: Math.max(0, W - r.x - r.w), height: r.h, pointerEvents: 'auto' }} />
         </>}
       {r && <>
-        <div aria-hidden data-tour-spotlight style={{ position: 'absolute', left: r.x, top: r.y, width: r.w, height: r.h, borderRadius: 18, border: '2px solid #c8f24a', boxShadow: '0 0 0 4px rgba(200,242,74,0.18)', transition: ease }} />
-        {!reduced && <div aria-hidden style={{ position: 'absolute', left: r.x, top: r.y, width: r.w, height: r.h, borderRadius: 18, border: '3px solid rgba(200,242,74,0.75)', animation: 'hydrisTourPulse 1.8s ease-out infinite', transition: ease }} />}
+        <div aria-hidden data-tour-spotlight style={{ position: 'absolute', left: r.x, top: r.y, width: r.w, height: r.h, borderRadius: 18, border: '2px solid #1954f1', boxShadow: '0 0 0 4px rgba(25,84,241,0.18)', transition: ease }} />
+        {!reduced && <div aria-hidden style={{ position: 'absolute', left: r.x, top: r.y, width: r.w, height: r.h, borderRadius: 18, border: '3px solid rgba(25,84,241,0.75)', animation: 'hydrisTourPulse 1.8s ease-out infinite', transition: ease }} />}
       </>}
       {/* Pointer */}
       <div aria-hidden data-tour-pointer style={{ position: 'absolute', left: 0, top: 0, transform: `translate(${px}px, ${py}px)`, transition: reduced ? 'none' : 'transform 900ms cubic-bezier(.22,.8,.24,1), opacity 300ms', opacity: r ? 1 : 0, filter: 'drop-shadow(0 4px 10px rgba(0,0,0,.55))' }}>
         <svg width="34" height="38" viewBox="0 0 34 38"><path d="M3 2 L3 30 L10.5 23.5 L15.5 35 L21 32.6 L16 21.5 L26 21.5 Z" fill="#fff" stroke="#0b0f17" strokeWidth="2.2" strokeLinejoin="round" /></svg>
-        {step.interactive && !reduced && <span style={{ position: 'absolute', left: -9, top: -9, width: 22, height: 22, borderRadius: 999, border: '2px solid #c8f24a', animation: 'hydrisTourPulse 1.2s ease-out infinite' }} />}
+        {step.interactive && !reduced && <span style={{ position: 'absolute', left: -9, top: -9, width: 22, height: 22, borderRadius: 999, border: '2px solid #1954f1', animation: 'hydrisTourPulse 1.2s ease-out infinite' }} />}
       </div>
       {/* Caption + controls */}
       <div key={step.id} style={{ position: 'absolute', width: cardW, pointerEvents: 'auto', ...cardStyle }}>
         <div style={{ animation: reduced ? undefined : 'hydrisTourIn 380ms ease-out' }} className="rounded-[22px] border border-white/15 bg-[#0b111c]/95 p-4 text-white shadow-[0_18px_60px_rgba(0,0,0,0.55)] backdrop-blur" data-tour-caption>
-          <div className="mb-1.5 flex items-center gap-2 text-[11.5px] uppercase tracking-[0.14em] text-[#c8f24a]">
+          <div className="mb-1.5 flex items-center gap-2 text-[11.5px] uppercase tracking-[0.14em] text-[#8aa8ff]">
             <span>{step.title}</span>
             <span className="ml-auto tracking-normal text-white/50" data-tour-progress>{i + 1} / {tour.steps.length}</span>
           </div>
           <p className="text-[16px] leading-snug text-white/95" aria-live="polite">{step.text}</p>
           {step.interactive && (
-            <p className={`mt-2 text-[13px] ${waiting ? 'text-[#c8f24a]' : 'text-white/55'}`}>{waiting ? 'Waiting for your tap on the highlighted item…' : 'Tap the highlighted item when ready.'}</p>
+            <p className={`mt-2 text-[13px] ${waiting ? 'text-[#8aa8ff]' : 'text-white/55'}`}>{waiting ? 'Waiting for your tap on the highlighted item…' : 'Tap the highlighted item when ready.'}</p>
           )}
           <div className="mt-3 h-[3px] w-full overflow-hidden rounded-full bg-white/10" aria-hidden>
-            <div className="h-full rounded-full bg-[#c8f24a]" style={{ width: `${((i + 1) / tour.steps.length) * 100}%`, transition: reduced ? 'none' : 'width 400ms ease' }} />
+            <div className="h-full rounded-full bg-[#1954f1]" style={{ width: `${((i + 1) / tour.steps.length) * 100}%`, transition: reduced ? 'none' : 'width 400ms ease' }} />
           </div>
           <div className="mt-2.5 flex items-center gap-1">
             <button type="button" className={btn} onClick={back} disabled={i === 0} aria-label="Previous step">‹ Back</button>
@@ -276,7 +276,7 @@ export function TourPlayer<Nav>({ tour, navigate, onExit, zIndex = 2147483000 }:
             <button type="button" className={btn} onClick={() => setMuted((m) => !m)} aria-label={muted ? 'Unmute' : 'Mute'} aria-pressed={muted}>{muted ? '🔇' : '🔊'}</button>
             <button type="button" className={btn} onClick={onExit} aria-label="Exit tour">Exit</button>
             <button type="button" onClick={next} data-tour-control="next"
-              className="ml-auto h-9 rounded-full bg-[#c8f24a] px-4 text-[13.5px] font-semibold text-[#141714] hover:brightness-105 focus-visible:outline focus-visible:outline-2 focus-visible:outline-white">
+              className="ml-auto h-9 rounded-full bg-[#1954f1] px-4 text-[13.5px] font-semibold text-white hover:brightness-105 focus-visible:outline focus-visible:outline-2 focus-visible:outline-white">
               {step.interactive ? 'Skip ›' : last ? 'Finish' : 'Next ›'}
             </button>
           </div>
@@ -319,12 +319,12 @@ export function TourConfirm({ minutes, onStart, onCancel, autoStartSeconds, zInd
         {autoStartSeconds ? (
           <div className="mt-4" aria-live="polite">
             <div className="text-[15px] text-white">Starting in <span className="font-semibold tabular-nums">{Math.max(left, 0)}</span> s</div>
-            <div className="mt-2 h-[6px] overflow-hidden rounded-full bg-white/10"><div className="h-full rounded-full bg-[#c8f24a] transition-[width] duration-1000 ease-linear" style={{ width: `${(1 - Math.max(left, 0) / autoStartSeconds) * 100}%` }} /></div>
+            <div className="mt-2 h-[6px] overflow-hidden rounded-full bg-white/10"><div className="h-full rounded-full bg-[#1954f1] transition-[width] duration-1000 ease-linear" style={{ width: `${(1 - Math.max(left, 0) / autoStartSeconds) * 100}%` }} /></div>
           </div>
         ) : null}
         <div className="mt-5 flex justify-end gap-2">
           <button type="button" onClick={onCancel} className="h-10 rounded-full px-4 text-[14px] text-white/80 hover:bg-white/10">Not now</button>
-          <button ref={startRef} type="button" onClick={go} className="h-10 rounded-full bg-[#c8f24a] px-5 text-[14px] font-semibold text-[#141714]">{autoStartSeconds ? 'Start now' : 'Start'}</button>
+          <button ref={startRef} type="button" onClick={go} className="h-10 rounded-full bg-[#1954f1] px-5 text-[14px] font-semibold text-white">{autoStartSeconds ? 'Start now' : 'Start'}</button>
         </div>
       </div>
     </div>,
