@@ -370,7 +370,7 @@ export function GlassesApp({ demoScenario, simulator, profilePreview }: { demoSc
           {interrupt && <AlertInterrupt a={interrupt} />}
           {!online && phase === 'app' && <div style={{ bottom: phone ? `calc(env(safe-area-inset-bottom) + ${bottomBar}px)` : bottomBar }} className="absolute inset-x-0 z-10 bg-[#2a1608] py-1.5 text-center text-[17px] text-[#ff9a5c]">{staleAt ? `Offline · showing data cached ${timeAgo(staleAt)}` : 'Offline · steps are saved on the glasses and sync automatically'}</div>}
           {previewCfg && phase === 'app' && <div className="absolute left-8 top-[46px] z-10 text-[13px] uppercase tracking-[0.14em] text-lime/80">draft preview</div>}
-          {tour === 'confirm' && phase === 'app' && ctx && <TourConfirm minutes={tourMinutes(glassesTour)} onStart={startTour} onCancel={() => { if (tourFromUrl.current) endTour(); else setTour('idle'); }} />}
+          {tour === 'confirm' && phase === 'app' && ctx && <TourConfirm minutes={tourMinutes(glassesTour)} autoStartSeconds={10} onStart={startTour} onCancel={() => { if (tourFromUrl.current) endTour(); else setTour('idle'); }} />}
           {tour === 'running' && phase === 'app' && ctx && <TourPlayer tour={glassesTour} navigate={tourNavigate} onExit={endTour} />}
         </HudContext.Provider>
         </ProfileCtx.Provider>

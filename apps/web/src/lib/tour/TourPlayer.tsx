@@ -288,14 +288,26 @@ export function TourPlayer<Nav>({ tour, navigate, onExit, zIndex = 2147483000 }:
 }
 
 /** "Start the guided tour?" confirm dialog. */
-export function TourConfirm({ minutes, onStart, onCancel, zIndex = 2147483000 }: { minutes: number; onStart: () => void; onCancel: () => void; zIndex?: number }) {
+export function TourConfirm({ minutes, onStart, onCancel, autoStartSeconds, zIndex = 2147483000 }: { minutes: number; onStart: () => void; onCancel: () => void; /** Start on its own after this many seconds (glasses: input may not reach the button). */ autoStartSeconds?: number; zIndex?: number }) {
   const startRef = useRef<HTMLButtonElement>(null);
+  const [left, setLeft] = useState(autoStartSeconds ?? 0);
+  const started = useRef(false);
+  const go = useCallback(() => { if (!started.current) { started.current = true; onStart(); } }, [onStart]);
+  useEffect(() => {
+    if (!autoStartSeconds) return;
+    const t = window.setInterval(() => setLeft((n) => n - 1), 1000);
+    return () => window.clearInterval(t);
+  }, [autoStartSeconds]);
+  useEffect(() => { if (autoStartSeconds && left <= 0) go(); }, [autoStartSeconds, left, go]);
   useEffect(() => {
     startRef.current?.focus();
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.stopImmediatePropagation(); onCancel(); } };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') { e.stopImmediatePropagation(); onCancel(); }
+      else if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopImmediatePropagation(); go(); }
+    };
     window.addEventListener('keydown', onKey, true);
     return () => window.removeEventListener('keydown', onKey, true);
-  }, [onCancel]);
+  }, [onCancel, go]);
   const [mounted, setMounted] = useState(false);
   useLayoutEffect(() => setMounted(true), []);
   if (!mounted) return null;
@@ -304,9 +316,15 @@ export function TourConfirm({ minutes, onStart, onCancel, zIndex = 2147483000 }:
       <div className="w-full max-w-[400px] rounded-[24px] border border-white/15 bg-[#0b111c] p-5 text-white shadow-[0_18px_60px_rgba(0,0,0,0.55)]">
         <div id="tour-confirm-title" className="text-[20px] font-medium">Start the guided tour?</div>
         <p className="mt-2 text-[15px] leading-snug text-white/75">About {minutes} minutes, with voice. Sound on recommended.</p>
+        {autoStartSeconds ? (
+          <div className="mt-4" aria-live="polite">
+            <div className="text-[15px] text-white">Starting in <span className="font-semibold tabular-nums">{Math.max(left, 0)}</span> s</div>
+            <div className="mt-2 h-[6px] overflow-hidden rounded-full bg-white/10"><div className="h-full rounded-full bg-[#c8f24a] transition-[width] duration-1000 ease-linear" style={{ width: `${(1 - Math.max(left, 0) / autoStartSeconds) * 100}%` }} /></div>
+          </div>
+        ) : null}
         <div className="mt-5 flex justify-end gap-2">
           <button type="button" onClick={onCancel} className="h-10 rounded-full px-4 text-[14px] text-white/80 hover:bg-white/10">Not now</button>
-          <button ref={startRef} type="button" onClick={onStart} className="h-10 rounded-full bg-[#c8f24a] px-5 text-[14px] font-semibold text-[#141714]">Start</button>
+          <button ref={startRef} type="button" onClick={go} className="h-10 rounded-full bg-[#c8f24a] px-5 text-[14px] font-semibold text-[#141714]">{autoStartSeconds ? 'Start now' : 'Start'}</button>
         </div>
       </div>
     </div>,
