@@ -1362,14 +1362,14 @@ function Measurements({ ctx, nav, history, demo }: { ctx: GContext; nav: Nav; hi
       <HudTitle eyebrow={`${rows.length} sensors · ${rows.filter((m) => m.threshold !== 'normal').length} attention`}>Live measurements</HudTitle>
       {rows.length ? (
         <div className="grid grid-cols-[minmax(0,1fr)] gap-2.5 overflow-y-auto pb-2 scrollbar-none">
-          {rows.map((m, i) => <MeasurementRow key={m.id} first={i === 0} m={m} active={cursor === i} trend={trendOf(history.get(m.id))} onOpen={() => { if (m.assetId) nav.push({ name: 'asset', id: m.assetId }); }} />)}
+          {rows.map((m, i) => <MeasurementRow key={m.id} first={i === 0} m={m} active={cursor === i} trend={trendOf(history.get(m.id))} series={(history.get(m.id) ?? []).map((p) => p.v)} onOpen={() => { if (m.assetId) nav.push({ name: 'asset', id: m.assetId }); }} />)}
         </div>
       ) : <p className="text-[22px] text-white/60">No measurements are configured for this site, or none are shown on your profile.</p>}
     </div>
   );
 }
 
-function MeasurementRow({ m, active, trend, onOpen, first }: { m: GMeasurement; active: boolean; trend: -1 | 0 | 1 | null; onOpen: () => void; first?: boolean }) {
+function MeasurementRow({ m, active, trend, onOpen, first, series }: { m: GMeasurement; active: boolean; trend: -1 | 0 | 1 | null; onOpen: () => void; first?: boolean; series: number[] }) {
   const stale = m.freshness === 'stale' || m.freshness === 'no_data' || m.lastValue === null;
   const TrendIcon = trend === 1 ? TrendingUp : trend === -1 ? TrendingDown : Minus;
   return (
@@ -1381,9 +1381,10 @@ function MeasurementRow({ m, active, trend, onOpen, first }: { m: GMeasurement; 
           {m.lastTs ? ` · ${timeAgo(m.lastTs)}` : ''}{m.threshold === 'alarm' ? ' · in alarm' : m.threshold === 'out_of_range' ? ' · outside typical range' : ''}{m.lastSource === 'simulator' ? ' · synthetic' : ''}
         </span>
       </span>
+      {!stale && series.length > 1 && <span className="w-[86px] flex-none"><Sparkline values={series} width={86} height={28} color={m.threshold === 'alarm' ? FX_CRIT : m.threshold === 'out_of_range' ? FX_WARN : ICE} /></span>}
       {trend !== null && !stale && <TrendIcon size={22} className="flex-none text-white/60" aria-label={trend === 1 ? 'rising' : trend === -1 ? 'falling' : 'steady'} />}
       <span className="num flex-none text-right text-[30px] font-light" style={{ color: stale ? 'rgb(255 255 255 / 0.4)' : THRESH_COLOR[m.threshold] }}>
-        {stale ? '—' : m.lastValue!.toFixed(Math.min(2, m.decimals))}<span className="ml-1 text-[17px] text-white/55">{m.unit}</span>
+        {stale ? '—' : <Ticker value={m.lastValue!} decimals={Math.min(2, m.decimals)} />}<span className="ml-1 text-[17px] text-white/55">{m.unit}</span>
       </span>
     </HudItem>
   );

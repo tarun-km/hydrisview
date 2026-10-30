@@ -2,11 +2,12 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import clsx from 'clsx';
 import { ArrowUpRight, Zap } from 'lucide-react';
-import { GlassesArt, RealityIcon } from '@/site/art';
+import { RealityIcon } from '@/site/art';
 import { PlatformDiagram } from '@/site/diagrams';
-import { DemoStudio, HeroGlassesPreview } from '@/site/LiveGlasses';
-import { ArrowCircle, CtaBand, HlIcon, HlPill, SectionLabel, StatPill } from '@/site/primitives';
-import { Faq, IntegrationTable, RoadmapBlock, SafetyBlock, WorkflowStepper } from '@/site/sections';
+import { DemoStudio } from '@/site/LiveGlasses';
+import { HowBand, LiveBand, MistCta, MistHero, WhyBand } from '@/site/home-mist';
+import { ArrowCircle, HlPill, SectionLabel } from '@/site/primitives';
+import { Faq, IntegrationTable, RoadmapBlock, SafetyBlock } from '@/site/sections';
 import { ConsoleMock, DeviceFrame, GlassesScreen, HudList, HudReading, HudStep, LaptopFrame } from '@/site/vignettes';
 
 export const metadata: Metadata = {
@@ -19,14 +20,19 @@ export const metadata: Metadata = {
 export default function HomePage() {
   return (
     <>
-      <Hero />
-      <ValueProposition />
+      <section className="site-container pt-4 lg:pt-6" aria-label="Hydris Field Glasses">
+        <div className="mist-shell">
+          <MistHero />
+          <LiveBand />
+          <WhyBand />
+          <HowBand />
+        </div>
+      </section>
       <FrontlineContext />
       <DemoSection />
       <Capabilities />
       <UseCases />
       <ConnectedPlatform />
-      <Workflow />
       <Intelligence />
       <section className="site-container site-section" aria-labelledby="safety-title"><SafetyBlock /></section>
       <Architecture />
@@ -45,79 +51,8 @@ export default function HomePage() {
           ]}
         />
       </section>
-      <CtaBand />
+      <MistCta />
     </>
-  );
-}
-
-/* ---------------------------------------------------------------- Hero */
-function Hero() {
-  return (
-    <section className="site-container pt-4 lg:pt-6" aria-labelledby="hero-title">
-      <div className="stage-blue px-5 pb-8 pt-10 sm:px-8 lg:px-14 lg:pb-14 lg:pt-16">
-        <div aria-hidden className="brand-stroke absolute -right-48 -top-40 h-[980px] w-[700px] text-white/30 lg:-right-10" />
-        <div className="relative">
-          <div className="reveal flex flex-wrap items-center gap-2">
-            <span className="chip chip-outline">Hydris AI · Field Glasses</span>
-            <span className="chip chip-outline">ETP · STP · WTP</span>
-            <span className="chip chip-outline"><span className="dot bg-white" aria-hidden /> Advisory only — never actuates</span>
-          </div>
-          <h1 id="hero-title" className="t-display reveal mt-8 max-w-[18ch] lg:mt-10">
-            Your plant, <HlPill tone="lime" icon={<span className="h-[0.16em] w-[0.16em] rounded-full bg-[#1746e4]" aria-hidden />}>live</HlPill> in the operator’s field of view — rounds, alarms and approved procedures, hands-free.
-          </h1>
-
-          <div className="site-grid mt-10 gap-y-10 lg:mt-14">
-            <div className="reveal reveal-d1 col-span-12 md:col-span-6 lg:col-span-5">
-              <p className="t-lead text-white/90">
-                Hydris Field Glasses puts live telemetry, guided inspections and approved SOPs on a monocular display, so wastewater operators keep their eyes on the
-                equipment and their hands on the job. Supervisors run sites, assets, alarms and the glasses fleet from a secure Operator Console.
-              </p>
-              <div className="mt-8 flex flex-wrap gap-3">
-                <Link href="/contact?type=demo" className="btn btn-light btn-lg">Request a demo <ArrowUpRight size={16} aria-hidden /></Link>
-                <Link href="/demo" className="btn btn-outline-ink btn-lg">Try the live viewport</Link>
-              </div>
-            </div>
-            <div className="reveal reveal-d2 col-span-12 flex flex-col items-start gap-3 md:col-span-6 md:items-end lg:col-span-6 lg:col-start-7">
-              <div className="flex flex-wrap gap-3 md:justify-end">
-                <StatPill k="Control commands sent" v="0 — advisory" lime />
-                <StatPill k="Display canvas" v="600 × 600" />
-              </div>
-              <div className="flex flex-wrap gap-3 md:justify-end">
-                <StatPill k="Inputs" v="4 buttons" />
-                <StatPill k="Pairing code" v="5 min, single-use" />
-                <StatPill k="Scenarios" v="10" />
-              </div>
-            </div>
-          </div>
-
-          {/* Product moment: glasses line-art + the live viewport */}
-          <div className="reveal mt-14 grid gap-12 rounded-[28px] bg-[#0c1e85]/45 px-4 pb-16 pt-10 ring-1 ring-white/15 sm:px-8 lg:mt-20 lg:grid-cols-12 lg:items-center lg:rounded-[32px] lg:px-12 lg:py-14">
-            <div className="lg:col-span-7">
-              <div className="flex items-center gap-3 text-[13px] text-white/85">
-                <span className="dot pulse-dot bg-ok" aria-hidden /> Riverbend Industrial Park · ETP-01 · synthetic reference plant
-              </div>
-              <GlassesArt className="mt-8 h-auto w-full max-w-[640px] text-white/85" />
-              <div className="mt-8 grid max-w-[620px] grid-cols-1 gap-3 sm:grid-cols-2">
-                <div className="float-y rounded-[24px] bg-white p-5 text-ink shadow-[0_24px_60px_rgb(8_17_22/0.35)]">
-                  <div className="flex items-center justify-between text-[13px] text-ink-2"><span>VT-101 · Transfer pump P-101</span><span className="dot bg-[#ff2800]" aria-hidden /></div>
-                  <div className="mt-3 flex items-baseline gap-2"><span className="t-kpi">5.6</span><span className="text-[14px] text-ink-2">mm/s</span></div>
-                  <div className="mt-2 text-[13px] text-ink-2">High limit 4.5 · rising for 4 min</div>
-                </div>
-                <div className="rounded-[24px] bg-[#081116] p-5 text-white">
-                  <div className="text-[13px] text-white/80">Morning round</div>
-                  <div className="mt-3 t-kpi">3<span className="text-[22px] text-white/70"> / 7</span></div>
-                  <div className="mt-2 text-[13px] text-white/80">Next: aeration blower BL-102</div>
-                </div>
-              </div>
-            </div>
-            <div className="mx-auto w-full max-w-[420px] pb-6 lg:col-span-5">
-              <HeroGlassesPreview scenario="pump_vibration" />
-              <p className="mt-12 text-center text-[12.5px] text-white/85">Live viewport · synthetic data · use the buttons</p>
-            </div>
-          </div>
-        </div>
-      </div>
-    </section>
   );
 }
 
@@ -154,44 +89,6 @@ function BrandMoment() {
             </li>
           ))}
         </ul>
-      </div>
-    </section>
-  );
-}
-
-/* --------------------------------------------------- Value proposition */
-const PROBLEMS = [
-  { p: 'Operators walk the plant without live data; the numbers are on a screen in the control room.', s: 'The asset in front of them shows its live readings, limits and how fresh each value is.' },
-  { p: 'Checklists are completed from memory at the end of the shift.', s: 'Each step is captured where it happens, with timestamps and range checks.' },
-  { p: 'The current SOP revision sits in a binder — or nobody is sure which one is current.', s: 'Only approved procedure revisions reach the glasses, one step at a time.' },
-];
-
-function ValueProposition() {
-  return (
-    <section className="site-container site-section-tight" aria-labelledby="value-title">
-      <div className="stage-paper px-5 py-14 sm:px-10 lg:px-14 lg:py-24">
-        <SectionLabel className="reveal">What is Hydris Field Glasses?</SectionLabel>
-        <h2 id="value-title" className="t-statement reveal mt-10 max-w-[24ch] lg:mt-16">
-          <span className="pl-[1.6em]" /> An <span className="hl-underline">operational layer</span> for wastewater plants that turns <HlIcon className="bg-ink text-paper"><Zap fill="currentColor" strokeWidth={0} /></HlIcon> live telemetry, rounds and approved procedures into <HlPill tone="lime">glanceable</HlPill> guidance on the move.
-        </h2>
-        <div className="site-grid mt-12 gap-y-10 lg:mt-16">
-          <div className="reveal col-span-12 flex flex-wrap content-start gap-2.5 lg:col-span-5 lg:col-start-8">
-            {['ETP', 'STP', 'WTP', 'Pumps & blowers', 'Chemical dosing', 'Analyzers', 'Rounds'].map((t) => <span key={t} className="tag-pill">{t}</span>)}
-            <p className="mt-6 text-[16px] leading-relaxed text-ink-2">
-              Built for effluent, sewage and water treatment teams who need the right number at the right asset — without a tablet in a gloved hand or a
-              trip back to the control room.
-            </p>
-          </div>
-        </div>
-        <ol className="mt-16 lg:mt-24">
-          {PROBLEMS.map((r, i) => (
-            <li key={i} className="reveal grid gap-4 border-t border-ink/15 py-7 md:grid-cols-12 md:gap-5">
-              <span className="num text-[14px] text-ink-2 md:col-span-1">/0{i + 1}</span>
-              <p className="text-[17px] leading-snug text-ink-2 md:col-span-5">{r.p}</p>
-              <p className="text-[19px] leading-snug tracking-[-0.01em] md:col-span-6"><span className="mr-2 inline-block h-2 w-2 -translate-y-0.5 rounded-full bg-ink" aria-hidden />{r.s}</p>
-            </li>
-          ))}
-        </ol>
       </div>
     </section>
   );
@@ -407,26 +304,6 @@ function ConnectedPlatform() {
   );
 }
 
-/* --------------------------------------------------- Workflow */
-function Workflow() {
-  return (
-    <section className="site-container site-section-tight" aria-labelledby="workflow-title">
-      <div className="stage-paper px-5 py-14 sm:px-10 lg:px-14 lg:py-24">
-        <div className="site-grid gap-y-6">
-          <div className="col-span-12 lg:col-span-6">
-            <SectionLabel className="reveal" index="06">Operator workflow</SectionLabel>
-            <h2 id="workflow-title" className="t-hero reveal mt-6">From pairing to sign-off in six steps.</h2>
-          </div>
-          <p className="reveal col-span-12 self-end text-[16px] leading-relaxed text-ink-2 lg:col-span-4 lg:col-start-9">
-            The same sequence every shift: pair the glasses, load the shift, walk the round, record the inspection, submit, and let a supervisor review it in the console.
-          </p>
-        </div>
-        <div className="reveal mt-14 lg:mt-20"><WorkflowStepper /></div>
-      </div>
-    </section>
-  );
-}
-
 /* --------------------------------------------- Industrial intelligence */
 const INTEL = [
   { t: 'Freshness on every value', d: 'Each reading carries its age and is marked live, delayed, stale or no data — so a frozen number never looks like a healthy one.' },
@@ -441,7 +318,7 @@ function Intelligence() {
     <section className="site-container site-section" aria-labelledby="intel-title">
       <div className="site-grid gap-y-12">
         <div className="col-span-12 lg:col-span-4">
-          <SectionLabel className="reveal" index="07">Industrial intelligence</SectionLabel>
+          <SectionLabel className="reveal" index="06">Industrial intelligence</SectionLabel>
           <h2 id="intel-title" className="t-hero reveal mt-6">Signal, not noise.</h2>
           <p className="reveal mt-6 max-w-sm text-[16px] leading-relaxed text-text-2">The platform does the unglamorous work that makes a number trustworthy before it reaches an operator.</p>
         </div>
@@ -464,7 +341,7 @@ function Architecture() {
     <section className="site-container site-section-tight" aria-labelledby="arch-title">
       <div className="site-grid gap-y-8">
         <div className="col-span-12 lg:col-span-6">
-          <SectionLabel className="reveal" index="08">Architecture & integration</SectionLabel>
+          <SectionLabel className="reveal" index="07">Architecture & integration</SectionLabel>
           <h2 id="arch-title" className="t-hero reveal mt-6">Integrates at the edge. <span className="text-muted">Honest about what is next.</span></h2>
         </div>
         <div className="reveal col-span-12 self-end lg:col-span-5 lg:col-start-8">
@@ -483,7 +360,7 @@ function Roadmap() {
     <section className="site-container site-section" aria-labelledby="roadmap-title">
       <div className="site-grid gap-y-8">
         <div className="col-span-12 lg:col-span-7">
-          <SectionLabel className="reveal" index="09">Roadmap</SectionLabel>
+          <SectionLabel className="reveal" index="08">Roadmap</SectionLabel>
           <h2 id="roadmap-title" className="t-hero reveal mt-6">Available now <HlPill tone="lime">vs</HlPill> planned.</h2>
         </div>
         <p className="reveal col-span-12 self-end text-[16px] leading-relaxed text-text-2 lg:col-span-4 lg:col-start-9">
