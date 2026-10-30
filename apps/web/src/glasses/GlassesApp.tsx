@@ -20,6 +20,10 @@ import { AuditScanScreen } from './AuditScan';
 import { VoiceAssistant } from './VoiceAssistant';
 import { useLiveShare, type LiveState } from './live';
 import { HudContext, HudItem, HudMetric, HudPill, HudTitle, SEV_HUD, useHud, useViewportLayout, type HudControl } from './hud';
+import { motion } from 'motion/react';
+import { Aurora, CRIT as FX_CRIT, DotGrid, DotMatrix, Glass, HudFrame, ICE, Ring, ScreenFx, Sparkline, SunArc, Ticker, WARN as FX_WARN, rise, stagger } from './fx';
+import { useSiteWeather } from './weather';
+import './glasses.css';
 
 type Screen =
   | { name: 'home' } | { name: 'alerts' } | { name: 'alert'; id: string } | { name: 'inspections' } | { name: 'inspection'; id: string }
@@ -339,7 +343,7 @@ export function GlassesApp({ demoScenario, simulator, profilePreview }: { demoSc
   else if (phase === 'ready') body = <ReadyScreen ctx={ctx} online={online} onEnter={() => { setPhase('app'); home(); }} />;
   else if (!ctx) body = <Centered icon={online ? <RefreshCw size={40} className="animate-spin" /> : <WifiOff size={40} />} title={online ? 'Loading context' : 'Offline'} body={online ? 'Fetching your assignments…' : 'Assignments will load when the connection returns.'} />;
   else body = screenPermitted(cfg, screen)
-    ? <ScreenView key={JSON.stringify(screen)} screen={screen} ctx={ctx} data={data} nav={nav} online={online} status={status} history={history.current} />
+    ? <ScreenFx key={JSON.stringify(screen)} id={JSON.stringify(screen)}><ScreenView screen={screen} ctx={ctx} data={data} nav={nav} online={online} status={status} history={history.current} /></ScreenFx>
     : <NotPermitted key={JSON.stringify(screen)} nav={nav} />;
 
   // Live view to the control room: paired glasses only, never during pairing, demo or profile preview.
@@ -349,9 +353,10 @@ export function GlassesApp({ demoScenario, simulator, profilePreview }: { demoSc
 
   return (
     <div className={`fixed inset-0 overflow-hidden bg-black text-white ${phone ? '' : 'grid place-items-center'}`} style={{ fontFamily: 'var(--font-outfit), system-ui, sans-serif' }}>
-      <div ref={liveRoot} className={`relative ${phone ? 'origin-top-left' : 'origin-center'}`} style={{ width: vp.w, height: vp.h, transform: `scale(${vp.scale})` }} role="application" aria-label="Hydris glasses viewport" aria-roledescription={phone ? 'Hydris mobile companion' : 'smart glasses display'}>
+      <div ref={liveRoot} data-phone={phone || undefined} className={`relative ${phone ? 'origin-top-left' : 'origin-center'}`} style={{ width: vp.w, height: vp.h, transform: `scale(${vp.scale})` }} role="application" aria-label="Hydris glasses viewport" aria-roledescription={phone ? 'Hydris mobile companion' : 'smart glasses display'}>
         <ProfileCtx.Provider value={cfg}>
         <HudContext.Provider value={{ cursor, register, density: cfg.layout.density }}>
+          {phone ? <Aurora /> : <HudFrame />}
           {phase === 'app' && ctx && <StatusBar ctx={ctx} online={online} queued={queued} stream={demo ? 'live' : stream} demo={demo} phone={phone} sharing={sharing} />}
           <div className={phase === 'app' ? `absolute inset-x-0 overflow-hidden ${phone ? 'px-6' : 'px-8'}` : `absolute inset-0 ${phone ? 'px-6 pb-8 pt-[calc(env(safe-area-inset-top)+32px)]' : 'px-8 py-8'}`}
             style={phase === 'app' ? { top: phone ? 'calc(env(safe-area-inset-top) + 68px)' : 64, bottom: phone ? `calc(env(safe-area-inset-bottom) + ${bottomBar}px)` : bottomBar } : undefined}>
@@ -712,7 +717,7 @@ function Blocked({ what }: { what: string }) {
 
 function ScreenView({ screen, ctx, data, nav, online, status, history }: { screen: Screen; ctx: GContext; data: GlassesData; nav: Nav; online: boolean; status: StatusInfo; history: History }) {
   switch (screen.name) {
-    case 'home': return <Home ctx={ctx} nav={nav} />;
+    case 'home': return <Home ctx={ctx} nav={nav} history={history} />;
     case 'measurements': return <Measurements ctx={ctx} nav={nav} history={history} demo={status.demo} />;
     case 'assets': return <AssetsList ctx={ctx} nav={nav} />;
     case 'sops': return <SopLibrary data={data} nav={nav} />;
@@ -733,75 +738,117 @@ function ScreenView({ screen, ctx, data, nav, online, status, history }: { scree
   }
 }
 
-function Home({ ctx, nav }: { ctx: GContext; nav: Nav }) {
+function Home({ ctx, nav, history }: { ctx: GContext; nav: Nav; history: History }) {
   const crit = ctx.alarms.filter((a) => a.severity === 'critical').length;
   const active = ctx.alarms.filter((a) => a.state === 'active').length;
   const cfg = useCfg();
   const ms = ctx.measurements ?? [];
   const checks = ctx.tasks.flatMap((t) => t.checklist);
-  type Item = { key: string; icon: ReactNode; label: string; meta: string; tone?: 'critical' | 'high'; go: () => void };
-  const catalog: Partial<Record<UiScreen, Item>> = {
-    alerts: { key: 'alerts', icon: <AlertTriangle size={26} />, label: 'Alerts', meta: ctx.alarms.length ? `${ctx.alarms.length} open${crit ? ` · ${crit} critical` : ''}` : 'none', tone: crit ? 'critical' : active ? 'high' : undefined, go: () => nav.push({ name: 'alerts' }) },
-    inspections: { key: 'insp', icon: <ClipboardCheck size={26} />, label: 'Inspections', meta: `${ctx.inspections.length} assigned`, go: () => nav.push({ name: 'inspections' }) },
-    tasks: { key: 'tasks', icon: <Wrench size={26} />, label: 'Maintenance', meta: `${ctx.tasks.length} task${ctx.tasks.length === 1 ? '' : 's'}`, go: () => nav.push({ name: 'tasks' }) },
-    map: { key: 'map', icon: <MapIcon size={26} />, label: 'Plant map', meta: 'route to next asset', go: () => nav.push({ name: 'map' }) },
-    measurements: { key: 'meas', icon: <Gauge size={26} />, label: 'Live measurements', meta: `${ms.length} sensors`, tone: ms.some((m) => m.threshold === 'alarm') ? 'high' : undefined, go: () => nav.push({ name: 'measurements' }) },
-    assets: { key: 'assets', icon: <Boxes size={26} />, label: 'Assets', meta: `${ctx.assets?.length ?? 0} on site`, go: () => nav.push({ name: 'assets' }) },
-    sops: { key: 'sops', icon: <Library size={26} />, label: 'SOP library', meta: 'approved procedures', go: () => nav.push({ name: 'sops' }) },
-    ai: { key: 'ai', icon: <Sparkles size={26} />, label: 'Ask Hydris AI', meta: 'procedures & answers', go: () => nav.push({ name: 'ai' }) },
-    scan: { key: 'scan', icon: <ScanLine size={26} />, label: 'Audit scan', meta: 'paper → verified record', go: () => nav.push({ name: 'scan' }) },
-    notifications: { key: 'notif', icon: <Bell size={26} />, label: 'Notifications', meta: 'updates for you', go: () => nav.push({ name: 'notifications' }) },
-    status: { key: 'status', icon: <Cog size={26} />, label: 'Device & log out', meta: ctx.device.name, go: () => nav.push({ name: 'status' }) },
+  type Item = { key: string; icon: ReactNode; label: string; badge?: number; tone?: 'critical' | 'high'; go: () => void };
+  const catalog: Partial<Record<UiScreen, Item>> = { // short labels: six tiles per row on a 600 px lens
+    alerts: { key: 'alerts', icon: <AlertTriangle size={24} />, label: 'Alerts', badge: ctx.alarms.length, tone: crit ? 'critical' : active ? 'high' : undefined, go: () => nav.push({ name: 'alerts' }) },
+    inspections: { key: 'insp', icon: <ClipboardCheck size={24} />, label: 'Rounds', badge: ctx.inspections.length, go: () => nav.push({ name: 'inspections' }) },
+    tasks: { key: 'tasks', icon: <Wrench size={24} />, label: 'Tasks', badge: ctx.tasks.length, go: () => nav.push({ name: 'tasks' }) },
+    map: { key: 'map', icon: <MapIcon size={24} />, label: 'Map', go: () => nav.push({ name: 'map' }) },
+    measurements: { key: 'meas', icon: <Gauge size={24} />, label: 'Readings', tone: ms.some((m) => m.threshold === 'alarm') ? 'high' : undefined, go: () => nav.push({ name: 'measurements' }) },
+    assets: { key: 'assets', icon: <Boxes size={24} />, label: 'Assets', go: () => nav.push({ name: 'assets' }) },
+    sops: { key: 'sops', icon: <Library size={24} />, label: 'SOPs', go: () => nav.push({ name: 'sops' }) },
+    ai: { key: 'ai', icon: <Sparkles size={24} />, label: 'Ask AI', go: () => nav.push({ name: 'ai' }) },
+    scan: { key: 'scan', icon: <ScanLine size={24} />, label: 'Scan', go: () => nav.push({ name: 'scan' }) },
+    notifications: { key: 'notif', icon: <Bell size={24} />, label: 'Inbox', go: () => nav.push({ name: 'notifications' }) },
+    status: { key: 'status', icon: <Cog size={24} />, label: 'Device', go: () => nav.push({ name: 'status' }) },
   };
   // Always last in the menu, outside the UI profile: the voiced guided tour.
-  const tutorial: Item = { key: 'tutorial', icon: <PlayCircle size={26} />, label: 'Tutorial', meta: 'guided tour · voice', go: () => window.dispatchEvent(new CustomEvent('hydris:tour')) };
+  const tutorial: Item = { key: 'tutorial', icon: <PlayCircle size={24} />, label: 'Tutorial', go: () => window.dispatchEvent(new CustomEvent('hydris:tour')) };
   // Menu order and visibility come from the UI profile.
   const items = [...cfg.screens.filter((s) => s.id !== 'home' && screenPermitted(cfg, screenFor(s.id))).map((s) => catalog[s.id]).filter((x): x is Item => !!x), tutorial];
   const widgets = cfg.widgets.filter((w) => w.visible).map((w) => w.id);
   const next = widgets.includes('next_inspection') && screenEnabled(cfg, 'inspections') ? ctx.inspections[0] : undefined;
   const cursor = useHud({ actions: [...(next ? [{ key: 'next', onSelect: () => nav.push({ name: 'inspection', id: next.id }) }] : []), ...items.map((i) => ({ key: i.key, onSelect: i.go }))] });
   const offset = next ? 1 : 0;
-  const widgetNodes: Record<string, ReactNode> = {
-    next_inspection: next && (
-      <HudItem key="next" active={cursor === 0} tone="lime" onClick={() => nav.push({ name: 'inspection', id: next.id })}>
-        <span className="grid h-[44px] w-[44px] flex-none place-items-center rounded-full bg-lime text-[#141714]"><ClipboardCheck size={24} /></span>
-        <span className="min-w-0 flex-1"><span className="block truncate text-white">Next: {next.title}</span><span className="block text-[17px] text-white/55">{next.stepCount} steps · {next.status.replace('_', ' ')}</span></span>
-        <ChevronRight />
-      </HudItem>
-    ),
-    measurements_glance: screenEnabled(cfg, 'measurements') && ms.length > 0 && (
-      <div key="glance" className="flex gap-5 px-2 text-[18px] text-white/60">
-        {ms.slice(0, 3).map((m) => (
-          <span key={m.id} className="min-w-0 truncate"><span className={m.threshold === 'normal' ? 'num text-white' : 'num text-[#ff9a5c]'}>{m.lastValue === null ? '—' : m.lastValue.toFixed(Math.min(2, m.decimals))}</span> {m.unit} <span className="text-white/45">{m.assetTag ?? m.tag}</span></span>
-        ))}
-      </div>
-    ),
-    task_progress: screenEnabled(cfg, 'tasks') && checks.length > 0 && (
-      <div key="tp" className="flex items-center gap-3 px-2 text-[18px] text-white/60">
-        <span className="flex-none">Checklists</span>
-        <span className="h-[6px] flex-1 overflow-hidden rounded-full bg-white/10"><span className="block h-full rounded-full bg-lime" style={{ width: `${Math.round((checks.filter((c) => c.done).length / checks.length) * 100)}%` }} /></span>
-        <span className="num flex-none">{checks.filter((c) => c.done).length}/{checks.length}</span>
-      </div>
-    ),
-  };
+  const glance = widgets.includes('measurements_glance') && screenEnabled(cfg, 'measurements') ? ms.slice(0, 3) : [];
+  const done = checks.filter((c) => c.done).length;
+  const health = ms.map((m) => (m.freshness !== 'live' || m.lastValue === null ? 'off' : m.threshold === 'alarm' ? 'crit' : m.threshold === 'out_of_range' ? 'warn' : 'ok') as 'ok' | 'warn' | 'crit' | 'off');
   return (
-    <div className="flex h-full flex-col gap-3">
-      <div className="flex items-end justify-between">
-        <div>
-          <div className="text-[17px] uppercase tracking-[0.14em] text-white/55">{ctx.site?.name ?? ctx.organization.name}</div>
-          <div className="text-[34px] tracking-[-0.03em]">{ctx.operator.name.split(' ')[0]}’s shift</div>
+    <motion.div className="flex h-full flex-col gap-2.5" variants={stagger} initial="hidden" animate="show">
+      <motion.div variants={rise} className="flex items-end justify-between gap-3">
+        <div className="min-w-0">
+          <div className="truncate text-[15px] uppercase tracking-[0.18em] text-white/55">{ctx.site?.name ?? ctx.organization.name}</div>
+          <div className="truncate text-[30px] leading-tight tracking-[-0.03em]">{ctx.operator.name.split(' ')[0]}’s shift</div>
         </div>
-        {widgets.includes('alarm_summary') && crit > 0 && <HudPill tone="critical">{crit} critical</HudPill>}
-      </div>
-      {widgets.filter((w) => w !== 'alarm_summary').map((w) => widgetNodes[w])}
-      <div data-tour="home-menu" className="grid grid-cols-[minmax(0,1fr)] min-h-0 gap-2.5 overflow-y-auto pb-1 scrollbar-none">
+        <div className="flex flex-none items-center gap-3">
+          {widgets.includes('alarm_summary') && crit > 0 && <HudPill tone="critical">{crit} critical</HudPill>}
+          {health.length > 0 && <span className="flex flex-col items-end gap-1"><DotGrid items={health.slice(0, 16)} cols={8} size={6} gap={4} /><span className="text-[13px] text-white/50">{health.filter((h) => h === 'ok').length}/{health.length} sensors live</span></span>}
+          {widgets.includes('task_progress') && screenEnabled(cfg, 'tasks') && checks.length > 0 && (
+            <Ring value={done / checks.length} size={46}><span className="num text-[13px]">{done}/{checks.length}</span></Ring>
+          )}
+        </div>
+      </motion.div>
+
+      <motion.div variants={rise} className={`grid gap-2.5 ${next ? 'grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)]' : 'grid-cols-1'}`}>
+        {next && (
+          <HudItem active={cursor === 0} onClick={() => nav.push({ name: 'inspection', id: next.id })} className="!items-start !gap-0 !px-5 !py-3.5">
+            <span className="flex h-full min-w-0 flex-1 flex-col">
+              <span className="flex items-center gap-2 text-[13px] uppercase tracking-[0.18em] text-[#a8ecff]"><ClipboardCheck size={16} /> Next round</span>
+              <span className="mt-1.5 line-clamp-2 text-[21px] leading-snug text-white">{next.title}</span>
+              <span className="mt-auto flex items-center gap-2 pt-2 text-[15px] text-white/55">{next.stepCount} steps · {next.status.replace('_', ' ')}<ChevronRight size={18} className="ml-auto text-white/70" /></span>
+            </span>
+          </HudItem>
+        )}
+        <WeatherTile wide={!next} />
+      </motion.div>
+
+      {glance.length > 0 && (
+        <motion.div variants={rise} className="grid grid-cols-3 gap-2.5">
+          {glance.map((m) => {
+            const stale = m.lastValue === null || m.freshness !== 'live';
+            const tone = m.threshold === 'alarm' ? 'crit' : m.threshold === 'out_of_range' ? 'warn' : undefined;
+            const color = tone === 'crit' ? FX_CRIT : tone === 'warn' ? FX_WARN : ICE;
+            return (
+              <Glass key={m.id} tone={tone} className="hud-scan px-3.5 pb-2 pt-2.5">
+                <div className="flex items-center justify-between text-[13px] text-white/55"><span className="truncate">{m.assetTag ?? m.tag}</span><span className={stale ? 'text-[#ff9a5c]' : 'text-[#a8ecff]'}>{stale ? 'stale' : 'live'}</span></div>
+                <div className="mt-0.5 flex items-baseline gap-1">
+                  {stale ? <span className="num text-[26px] font-light text-white/40">—</span> : <Ticker value={m.lastValue!} decimals={Math.min(2, m.decimals)} className="text-[26px] font-light tracking-[-0.03em]" />}
+                  <span className="truncate text-[14px] text-white/55">{m.unit}</span>
+                </div>
+                <Sparkline values={(history.get(m.id) ?? []).map((p) => p.v)} width={140} height={26} color={color} />
+              </Glass>
+            );
+          })}
+        </motion.div>
+      )}
+
+      <motion.div variants={rise} data-tour="home-menu" className="hud-home-grid grid min-h-0 flex-1 auto-rows-[minmax(62px,1fr)] grid-cols-6 gap-2 overflow-y-auto scrollbar-none">
         {items.map((i, idx) => (
-          <HudItem key={i.key} active={cursor === idx + offset} tone={i.tone} onClick={i.go} tour={i.key === 'tutorial' ? 'tutorial' : undefined}>
-            {i.icon}<span className="flex-1 text-white">{i.label}</span><span className="text-[18px] text-white/55">{i.meta}</span>
+          <HudItem key={i.key} active={cursor === idx + offset} tone={i.tone} onClick={i.go} tour={i.key === 'tutorial' ? 'tutorial' : undefined}
+            className="!flex-col !justify-center !gap-1 !rounded-[20px] !px-0.5 !py-1 text-center !text-[14px]">
+            <span className="relative">{i.icon}{i.badge ? <span className="num absolute -right-3.5 -top-2 grid h-[18px] min-w-[18px] place-items-center rounded-full bg-[#1954f1] px-1 text-[11px] font-semibold text-white shadow-[0_0_10px_rgba(80,130,255,0.8)]">{i.badge}</span> : null}</span>
+            <span className="max-w-full truncate">{i.label}</span>
           </HudItem>
         ))}
+      </motion.div>
+    </motion.div>
+  );
+}
+
+/** Site weather: dot-matrix temperature over a live daylight arc (sunrise → sunset) and air quality. */
+function WeatherTile({ wide }: { wide?: boolean }) {
+  const w = useSiteWeather();
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => { const t = setInterval(() => setNow(new Date()), 60_000); return () => clearInterval(t); }, []);
+  const hm = (d: Date) => d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+  return (
+    <Glass className="flex flex-col px-4 pb-2.5 pt-3">
+      <div className="flex items-start justify-between gap-2">
+        <div className="flex items-start gap-1">
+          <DotMatrix text={w.temp === null ? '--' : String(Math.round(w.temp))} dot={4.2} gap={1.8} label={w.temp === null ? 'temperature unavailable' : `${Math.round(w.temp)} degrees`} />
+          <span className="text-[16px] leading-none text-white/70">°C</span>
+        </div>
+        <div className="min-w-0 text-right text-[13px] leading-tight text-white/55"><div className="truncate text-white/80">{w.condition}</div><div className="truncate">Air {w.aqiLabel}</div></div>
       </div>
-    </div>
+      <div className="mt-auto pt-1"><SunArc sunrise={w.sunrise} sunset={w.sunset} now={now} width={wide ? 480 : 200} height={40} /></div>
+      <div className="flex justify-between text-[12px] text-white/55"><span className="num">↑ {hm(w.sunrise)}</span><span className="num">↓ {hm(w.sunset)}</span></div>
+    </Glass>
   );
 }
 

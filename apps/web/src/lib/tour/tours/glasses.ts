@@ -7,10 +7,6 @@ export interface GlassesTourNav { name: 'home' | 'alerts' | 'alert' | 'measureme
 type Extra = Omit<TourStep<GlassesTourNav>, 'id' | 'title' | 'text' | 'audio'>;
 const extra: Record<string, Extra> = {
   welcome: { nav: { name: 'home' } },
-  'problem-paper': {},
-  'problem-field': {},
-  'problem-evidence': {},
-  solution: {},
   'status-bar': { nav: { name: 'home' }, target: '[data-tour="status-bar"]' },
   home: { nav: { name: 'home' }, target: '[data-tour="home-menu"]' },
   readings: { nav: { name: 'measurements' }, target: '[data-tour="row-first"]' },
@@ -21,8 +17,6 @@ const extra: Record<string, Extra> = {
   sops: { nav: { name: 'sops' }, target: '[data-tour="content"]' },
   scan: { nav: { name: 'scan' }, target: '[data-tour="content"]' },
   voice: { nav: { name: 'home' }, target: '[data-tour="voice"]' },
-  menu: { nav: { name: 'home' }, target: '[data-tour="nav"]' },
-  device: { nav: { name: 'status' }, target: '[data-tour="content"]' },
   'console-sees': { nav: { name: 'home' } },
   closing: { nav: { name: 'home' } },
 };

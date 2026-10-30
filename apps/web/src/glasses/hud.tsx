@@ -66,7 +66,7 @@ export function useFitScale(size = 600) {
   return scale;
 }
 
-export function HudItem({ active, children, tone, disabled, onClick, tour }: { active: boolean; children: ReactNode; tone?: 'critical' | 'high' | 'lime' | 'muted'; disabled?: boolean; onClick?: () => void; /** data-tour anchor for the guided tour */ tour?: string }) {
+export function HudItem({ active, children, tone, disabled, onClick, tour, className }: { active: boolean; children: ReactNode; tone?: 'critical' | 'high' | 'lime' | 'muted'; disabled?: boolean; onClick?: () => void; /** data-tour anchor for the guided tour */ tour?: string; className?: string }) {
   const ref = useRef<HTMLButtonElement>(null);
   const compact = useContext(Ctx).density === 'compact';
   useEffect(() => {
@@ -84,11 +84,11 @@ export function HudItem({ active, children, tone, disabled, onClick, tour }: { a
   return (
     <button ref={ref} type="button" onClick={onClick} disabled={disabled} aria-current={active || undefined} data-tour={tour}
       className={clsx(
-        'flex w-full items-center gap-4 rounded-[26px] border-2 px-6 text-left text-[23px] leading-tight transition-colors',
+        'hud-item flex w-full items-center gap-4 rounded-[26px] px-6 text-left text-[23px] leading-tight',
         compact ? 'py-[9px]' : 'py-[14px]',
-        active ? 'border-lime bg-lime/10' : 'border-white/10',
         disabled && 'opacity-40',
         tone === 'critical' && 'text-[#ff8a80]', tone === 'high' && 'text-[#ff9a5c]', tone === 'muted' && 'text-white/60',
+        className,
       )}>
       {children}
     </button>
