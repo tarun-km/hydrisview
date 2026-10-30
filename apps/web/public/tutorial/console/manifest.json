@@ -1,0 +1,100 @@
+{
+  "tour": "console",
+  "voiceId": "EXAVITQu4vr4xnSDxMaL",
+  "voiceName": "Sarah - Mature, Reassuring, Confident",
+  "model": "eleven_multilingual_v2",
+  "format": "mp3_44100_128",
+  "settings": {
+    "stability": 0.5,
+    "similarity_boost": 0.75,
+    "style": 0.15,
+    "use_speaker_boost": true,
+    "speed": 1
+  },
+  "steps": {
+    "welcome": {
+      "file": "welcome.mp3",
+      "text": "Welcome to the Hydris console. This is where administrators run the whole field team, from one screen.",
+      "hash": "4be74078bef30b3f",
+      "bytes": 95337,
+      "durationMs": 5959
+    },
+    "command": {
+      "file": "command.mp3",
+      "text": "The command dashboard shows who is on shift, open alarms, today's rounds and what is waiting for approval, all updated live.",
+      "hash": "97c7cd220eab3f65",
+      "bytes": 130446,
+      "durationMs": 8153
+    },
+    "operator-cards": {
+      "file": "operator-cards.mp3",
+      "text": "Each operator on shift has a card with their site, their device and its battery.",
+      "hash": "d9b3d6a4562fbe5a",
+      "bytes": 81963,
+      "durationMs": 5123
+    },
+    "live-view": {
+      "file": "live-view.mp3",
+      "text": "When glasses are streaming, you see what the operator sees, right here on the card. Open it for the full device view.",
+      "hash": "9b149f2f432a3dd7",
+      "bytes": 107876,
+      "durationMs": 6742
+    },
+    "go-operators": {
+      "file": "go-operators.mp3",
+      "text": "Now click Operators in the sidebar to continue.",
+      "hash": "2cbaa6de92edc62b",
+      "bytes": 47272,
+      "durationMs": 2955
+    },
+    "operators": {
+      "file": "operators.mp3",
+      "text": "Invite operators by email, edit their shifts and sites, and suspend or remove access in one click. Every change lands in the audit log.",
+      "hash": "f4e9611f6d89fbb8",
+      "bytes": 151344,
+      "durationMs": 9459
+    },
+    "devices": {
+      "file": "devices.mp3",
+      "text": "Devices lists every pair of glasses and every phone. Pairing uses a short single use code, and your device policy decides who must approve new devices.",
+      "hash": "cdb3173286fbdd13",
+      "bytes": 168898,
+      "durationMs": 10556
+    },
+    "work": {
+      "file": "work.mp3",
+      "text": "Plan the work here. Build inspection rounds and maintenance tasks, then assign them to an operator or a crew.",
+      "hash": "b306005c35b5f7ad",
+      "bytes": 107458,
+      "durationMs": 6716
+    },
+    "approvals": {
+      "file": "approvals.mp3",
+      "text": "Approvals collects everything that needs a second pair of eyes. Scanned audit sheets are verified by two people, then saved as Word and PDF soft copies.",
+      "hash": "8e202c4fda66df9a",
+      "bytes": 151762,
+      "durationMs": 9485
+    },
+    "telemetry": {
+      "file": "telemetry.mp3",
+      "text": "Plant and telemetry show every asset and sensor, with live trends and alarm limits.",
+      "hash": "84b4d31ea232baf0",
+      "bytes": 86560,
+      "durationMs": 5410
+    },
+    "reports": {
+      "file": "reports.mp3",
+      "text": "Reports turn the field record into compliance evidence and performance trends that you can search and export.",
+      "hash": "a97cfadc3a14657a",
+      "bytes": 100771,
+      "durationMs": 6298
+    },
+    "closing": {
+      "file": "closing.mp3",
+      "text": "That is the Hydris console. Hydris advises and records, and your operators stay in control of the equipment. Thank you for watching.",
+      "hash": "95674db99e4fad8c",
+      "bytes": 139223,
+      "durationMs": 8701
+    }
+  }
+}
