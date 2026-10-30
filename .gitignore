@@ -15,3 +15,6 @@ data
 
 # Android source package named "data" (the rule above targets local data dirs)
 !apps/android/app/src/main/java/ai/hydris/field/data/
+
+# Built Android packages are published as GitHub releases, not committed
+*.apk
