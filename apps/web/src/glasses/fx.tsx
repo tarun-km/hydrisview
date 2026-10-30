@@ -209,22 +209,6 @@ export function ScreenFx({ children, id }: { children: ReactNode; id: string }) 
 export const stagger = { hidden: {}, show: { transition: { staggerChildren: 0.05, delayChildren: 0.05 } } };
 export const rise = { hidden: { opacity: 0, y: 12, scale: 0.98 }, show: { opacity: 1, y: 0, scale: 1, transition: { duration: 0.45, ease: EASE } } };
 
-/** HUD frame: corner brackets that draw in once, marking the display's safe area. */
-export function HudFrame() {
-  const reduced = useReducedMotion();
-  const c = 'M2,20 L2,2 L20,2';
-  const corners = [{ l: 10, t: 10, r: 0 }, { l: 'auto', t: 10, r: 90 }, { l: 'auto', t: 'auto', r: 180 }, { l: 10, t: 'auto', r: 270 }] as const;
-  return (
-    <div className="pointer-events-none absolute inset-0 z-0" aria-hidden>
-      {corners.map((k, i) => (
-        <svg key={i} width="22" height="22" className="absolute" style={{ left: k.l === 'auto' ? undefined : k.l, right: k.l === 'auto' ? 10 : undefined, top: k.t === 'auto' ? undefined : k.t, bottom: k.t === 'auto' ? 10 : undefined, transform: `rotate(${k.r}deg)` }}>
-          <motion.path d={c} fill="none" stroke="#fff" strokeOpacity="0.35" strokeWidth="1.5" initial={reduced ? false : { pathLength: 0 }} animate={{ pathLength: 1 }} transition={{ duration: 0.9, delay: 0.1 * i, ease: EASE }} />
-        </svg>
-      ))}
-    </div>
-  );
-}
-
 /** Phone only (an opaque screen, not an additive lens): slow aurora light behind the glass. */
 export function Aurora() {
   const reduced = useReducedMotion();

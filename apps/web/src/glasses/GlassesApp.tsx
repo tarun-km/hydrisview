@@ -21,7 +21,7 @@ import { VoiceAssistant } from './VoiceAssistant';
 import { useLiveShare, type LiveState } from './live';
 import { HudContext, HudItem, HudMetric, HudPill, HudTitle, SEV_HUD, useHud, useViewportLayout, type HudControl } from './hud';
 import { motion } from 'motion/react';
-import { Aurora, CRIT as FX_CRIT, DotGrid, DotMatrix, Glass, HudFrame, ICE, Ring, ScreenFx, Sparkline, SunArc, Ticker, WARN as FX_WARN, rise, stagger } from './fx';
+import { Aurora, CRIT as FX_CRIT, DotGrid, DotMatrix, Glass, ICE, Ring, ScreenFx, Sparkline, SunArc, Ticker, WARN as FX_WARN, rise, stagger } from './fx';
 import { useSiteWeather } from './weather';
 import './glasses.css';
 
@@ -356,7 +356,7 @@ export function GlassesApp({ demoScenario, simulator, profilePreview }: { demoSc
       <div ref={liveRoot} data-phone={phone || undefined} className={`relative ${phone ? 'origin-top-left' : 'origin-center'}`} style={{ width: vp.w, height: vp.h, transform: `scale(${vp.scale})` }} role="application" aria-label="Hydris glasses viewport" aria-roledescription={phone ? 'Hydris mobile companion' : 'smart glasses display'}>
         <ProfileCtx.Provider value={cfg}>
         <HudContext.Provider value={{ cursor, register, density: cfg.layout.density }}>
-          {phone ? <Aurora /> : <HudFrame />}
+          {phone && <Aurora />}
           {phase === 'app' && ctx && <StatusBar ctx={ctx} online={online} queued={queued} stream={demo ? 'live' : stream} demo={demo} phone={phone} sharing={sharing} />}
           <div className={phase === 'app' ? `absolute inset-x-0 overflow-hidden ${phone ? 'px-6' : 'px-8'}` : `absolute inset-0 ${phone ? 'px-6 pb-8 pt-[calc(env(safe-area-inset-top)+32px)]' : 'px-8 py-8'}`}
             style={phase === 'app' ? { top: phone ? 'calc(env(safe-area-inset-top) + 68px)' : 64, bottom: phone ? `calc(env(safe-area-inset-bottom) + ${bottomBar}px)` : bottomBar } : undefined}>
