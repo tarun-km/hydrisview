@@ -52,7 +52,7 @@ const schema = z.object({
   /** Where operators get the Android app (Play Store listing; placeholder until published). */
   ANDROID_APP_URL: z.string().default('https://play.google.com/store/apps/details?id=ai.hydris.field'),
   /** Direct APK download (sideload) while the Play listing is pending. */
-  ANDROID_APK_URL: z.string().default('https://github.com/tarun-km/hydrisview/releases/latest/download/HydrisField.apk'),
+  ANDROID_APK_URL: z.string().optional(),
   // ---------------- email (Brevo) ----------------
   /** Brevo transactional API key. Unset = keep mail in mail_outbox only (dev, tests, demo). */
   BREVO_API_KEY: z.string().optional(),

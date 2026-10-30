@@ -45,6 +45,8 @@ const nextConfig: NextConfig = {
       },
       // Android App Links verification (Hydris Field opens https://<app>/pair links).
       { source: '/.well-known/assetlinks.json', headers: [{ key: 'Content-Type', value: 'application/json' }] },
+      // Hydris Field APK for sideloading (not yet on Play): correct type so phones offer to install it.
+      { source: '/downloads/:file*.apk', headers: [{ key: 'Content-Type', value: 'application/vnd.android.package-archive' }, { key: 'Content-Disposition', value: 'attachment; filename="HydrisField.apk"' }, { key: 'Cache-Control', value: 'public, max-age=300' }] },
       { source: '/((?!glasses|simulator).*)', headers: [{ key: 'X-Frame-Options', value: 'DENY' }] },
       { source: '/(glasses|simulator)(.*)', headers: [{ key: 'X-Frame-Options', value: 'SAMEORIGIN' }] },
     ];

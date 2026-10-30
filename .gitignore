@@ -18,3 +18,4 @@ data
 
 # Built Android packages are published as GitHub releases, not committed
 *.apk
+!apps/web/public/downloads/HydrisField.apk

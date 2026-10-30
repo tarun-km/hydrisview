@@ -210,7 +210,8 @@ export async function authRoutes(app: FastifyInstance, ctx: Ctx, opts: { relaxed
     adminSignupDomains: signupDomains(),
     magicLink: true,
     androidAppUrl: ctx.config.ANDROID_APP_URL,
-    androidApkUrl: ctx.config.ANDROID_APK_URL ?? null,
+    // Served by the website itself (apps/web/public/downloads) so it works while the repo is private.
+    androidApkUrl: ctx.config.ANDROID_APK_URL ?? `${ctx.config.PUBLIC_APP_URL}/downloads/HydrisField.apk`,
     appScheme: 'hydrisfield',
   }));
 
