@@ -24,6 +24,8 @@ import { useToast } from '@/ui/overlay';
 import { ThemeToggle, useTheme, type ThemeMode } from '@/ui/theme';
 import { Logo } from '@/site/Logo';
 import { CommandPalette } from './CommandPalette';
+import { MotionConfig, motion } from 'motion/react';
+import { ColourField } from './fx';
 
 interface NavItem { href: string; label: string; icon: ReactNode; perm?: Permission; group: string }
 const NAV: NavItem[] = [
@@ -134,19 +136,22 @@ export function ConsoleShell({ children }: { children: ReactNode }) {
   const current = items.find((i) => isActive(i.href));
 
   return (
-    <div className="min-h-dvh bg-bg">
+    <MotionConfig reducedMotion="user">
+    <div className="cg min-h-dvh">
+      <ColourField />
       {/* Left rail — vertical capsule of circular actions (Usechannel rail / EHR side scroller) */}
       <aside className="fixed inset-y-0 left-0 z-30 hidden w-[84px] flex-col items-center gap-4 py-5 md:flex" aria-label="Console navigation">
         <Link href="/console" aria-label="Hydris console home" className="mb-1 grid h-12 w-12 place-items-center rounded-full bg-brand shadow-[0_8px_24px_rgb(23_70_228/0.35)] transition-transform hover:scale-105"><Logo compact size={24} /></Link>
-        <nav className="flex min-h-0 flex-1 flex-col items-center gap-3 overflow-y-auto scrollbar-none rounded-full border border-line bg-surface px-2 py-3 shadow-[var(--sheen)]">
+        <nav className="flex min-h-0 flex-1 flex-col items-center gap-3 overflow-y-auto scrollbar-none glass-chrome glass-edge rounded-full border px-2 py-3 shadow-[var(--g-shadow)]">
           {groups.map((g, gi) => (
             <div key={g} className="flex flex-col items-center gap-1.5">
               {gi > 0 && <span className="my-1 h-px w-6 bg-line-2" aria-hidden />}
               {items.filter((i) => i.group === g).map((i) => (
                 <Tooltip key={i.href} label={i.label}>
                   <Link href={i.href} aria-label={i.label} data-tour={`nav-${i.href}`} aria-current={isActive(i.href) ? 'page' : undefined}
-                    className={clsx('relative grid h-11 w-11 place-items-center rounded-full transition-[background,color,transform] duration-150 active:scale-90', isActive(i.href) ? 'bg-lime text-lime-ink shadow-[inset_0_1px_0_rgb(255_255_255/0.45)]' : 'text-text-2 hover:bg-surface-3 hover:text-text')}>
-                    {i.icon}
+                    className={clsx('relative grid h-11 w-11 place-items-center rounded-full transition-[background,color,transform] duration-150 active:scale-90', isActive(i.href) ? 'text-lime-ink' : 'text-text-2 hover:bg-[var(--g-ink-faint)] hover:text-text')}>
+                    {isActive(i.href) && <motion.span layoutId="rail-active" aria-hidden className="absolute inset-0 rounded-full bg-lime shadow-[inset_0_1px_0_rgb(255_255_255/0.45),0_8px_22px_rgb(25_84_241/0.45)]" transition={{ type: 'spring', stiffness: 420, damping: 34 }} />}
+                    <span className="relative">{i.icon}</span>
                   </Link>
                 </Tooltip>
               ))}
@@ -163,10 +168,10 @@ export function ConsoleShell({ children }: { children: ReactNode }) {
 
       <div className="md:pl-[84px]">
         {/* Top context bar */}
-        <header className="sticky top-0 z-20 flex items-center gap-3 border-b border-line bg-bg/85 px-4 py-3 backdrop-blur md:px-8">
+        <header className="glass-chrome sticky top-0 z-20 flex items-center gap-3 border-b px-4 py-3 md:px-8">
           <Link href="/console" className="grid h-11 w-11 flex-none place-items-center rounded-full bg-brand md:hidden" aria-label="Hydris home"><Logo compact size={22} /></Link>
           <OrgSwitcher />
-          <button onClick={() => setPaletteOpen(true)} className="ml-auto flex h-11 min-w-0 flex-1 items-center gap-3 rounded-full border border-line bg-surface px-4 text-left text-sm text-muted shadow-[var(--sheen)] transition-colors hover:border-line-2 hover:text-text-2 sm:max-w-[380px]" aria-label="Search assets, sensors, documents and people">
+          <button onClick={() => setPaletteOpen(true)} className="ml-auto flex h-11 min-w-0 flex-1 items-center gap-3 glass rounded-full border px-4 text-left text-sm text-muted transition-colors hover:border-line-2 hover:text-text-2 sm:max-w-[380px]" aria-label="Search assets, sensors, documents and people">
             <Search size={16} aria-hidden /> <span className="truncate">Search assets, sensors, SOPs…</span>
             <kbd className="ml-auto hidden rounded-md border border-line-2 bg-surface-2 px-1.5 py-0.5 text-[11px] text-text-2 sm:inline">{mac ? '⌘' : 'Ctrl'} K</kbd>
           </button>
@@ -214,7 +219,8 @@ export function ConsoleShell({ children }: { children: ReactNode }) {
 
         <main id="main" data-tour="page" className="mx-auto max-w-[1440px] px-4 pb-28 pt-8 md:px-8 md:pb-12">
           <span className="sr-only" aria-live="polite">{current?.label}</span>
-          <div key={pathname} className="page-enter">{children}</div>
+          {/* Opacity + translate only: a lingering filter/transform would trap position:fixed dialogs inside the page. */}
+          <motion.div key={pathname} initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.45, ease: [0.22, 1, 0.36, 1] }}>{children}</motion.div>
         </main>
 
         {/* Mobile tab bar: four primary destinations + a "More" sheet (no hidden horizontal scroller) */}
@@ -224,6 +230,7 @@ export function ConsoleShell({ children }: { children: ReactNode }) {
       {tour === 'confirm' && <TourConfirm minutes={tourMinutes(consoleTour)} onStart={() => { tourFrom.current = pathRef.current; setTour('running'); }} onCancel={() => setTour('idle')} />}
       {tour === 'running' && <TourPlayer tour={consoleTour} navigate={tourNavigate} onExit={endTour} />}
     </div>
+    </MotionConfig>
   );
 }
 
@@ -239,7 +246,7 @@ function MobileNav({ items, isActive }: { items: NavItem[]; isActive: (href: str
   const tab = 'flex h-12 flex-col items-center justify-center gap-1 rounded-full text-[10.5px] font-medium transition-[background,color,transform] active:scale-95';
   return (
     <>
-      <nav className="fixed inset-x-3 bottom-3 z-30 grid auto-cols-fr grid-flow-col gap-1 rounded-full border border-line-2 bg-surface/90 p-1.5 shadow-[var(--shadow-3),var(--sheen)] backdrop-blur-xl md:hidden" aria-label="Console navigation">
+      <nav className="fixed inset-x-3 bottom-3 z-30 grid auto-cols-fr grid-flow-col gap-1 glass-chrome rounded-full border p-1.5 shadow-[var(--shadow-3),var(--sheen)] md:hidden" aria-label="Console navigation">
         {primary.map((i) => (
           <Link key={i.href} href={i.href} aria-current={isActive(i.href) ? 'page' : undefined} className={clsx(tab, isActive(i.href) ? 'bg-lime text-lime-ink' : 'text-text-2')}>
             {i.icon}<span className="leading-none">{SHORT[i.href] ?? i.label}</span>
@@ -335,7 +342,7 @@ function LiveStatus({ status }: { status: StreamStatus }) {
   };
   const [text, color] = map[status];
   return (
-    <span className="hidden h-11 items-center gap-2 rounded-full border border-line bg-surface px-4 text-[13px] text-text-2 sm:inline-flex" role="status" title="Realtime connection to the Hydris event stream">
+    <span className="glass hidden h-11 items-center gap-2 rounded-full border px-4 text-[13px] text-text-2 sm:inline-flex" role="status" title="Realtime connection to the Hydris event stream">
       <span className={clsx('dot', status === 'live' && 'pulse-dot')} style={{ background: color }} aria-hidden /> {text}
     </span>
   );

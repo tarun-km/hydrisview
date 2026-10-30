@@ -1,0 +1,117 @@
+/*
+ * Console glass — frosted tiles over a slow, soft colour field (scoped to the console shell root `.cg`).
+ * Every card keeps its semantics; only the material changes. Both themes; reduced motion freezes the field.
+ */
+.cg {
+  --g-bg: rgb(16 25 32 / 0.52);
+  --g-bg-inset: rgb(255 255 255 / 0.028);
+  --g-border: rgb(255 255 255 / 0.085);
+  --g-border-hi: rgb(255 255 255 / 0.16);
+  --g-sheen: rgb(255 255 255 / 0.075);
+  --g-blur: 22px;
+  --g-shadow: inset 0 1px 0 rgb(255 255 255 / 0.07), 0 24px 60px -28px rgb(0 0 0 / 0.75);
+  --g-chrome: rgb(10 18 24 / 0.55);
+  --g-ink-dim: rgb(255 255 255 / 0.12);
+  --g-ink-faint: rgb(255 255 255 / 0.06);
+  --g-curve: #8fb0ff;
+  --g-curve-2: #6f93ff;
+  --g-glow: rgb(111 147 255 / 0.55);
+  --g-paper: rgb(238 241 244 / 0.9);
+  --g-head: #ffffff;
+  position: relative;
+  isolation: isolate;
+}
+:root[data-theme='light'] .cg {
+  --g-bg: rgb(255 255 255 / 0.58);
+  --g-bg-inset: rgb(255 255 255 / 0.5);
+  --g-border: rgb(255 255 255 / 0.75);
+  --g-border-hi: rgb(255 255 255 / 0.95);
+  --g-sheen: rgb(255 255 255 / 0.7);
+  --g-shadow: inset 0 1px 0 rgb(255 255 255 / 0.95), 0 0 0 1px rgb(15 23 42 / 0.045), 0 22px 50px -26px rgb(23 50 120 / 0.32);
+  --g-chrome: rgb(246 248 252 / 0.62);
+  --g-ink-dim: rgb(15 23 42 / 0.14);
+  --g-ink-faint: rgb(15 23 42 / 0.06);
+  --g-curve: #1954f1;
+  --g-curve-2: #1746e4;
+  --g-glow: rgb(25 84 241 / 0.35);
+  --g-paper: rgb(255 255 255 / 0.72);
+  --g-head: #0c1e85;
+}
+
+/* ---- colour field (fixed behind everything) ---- */
+.cg-field { position: fixed; inset: 0; z-index: -1; overflow: hidden; pointer-events: none; background: var(--color-bg); }
+.cg-field i { position: absolute; border-radius: 9999px; filter: blur(90px); opacity: 0.55; will-change: transform; animation: cgDrift 38s ease-in-out infinite alternate; }
+.cg-field i:nth-child(1) { width: 52vw; height: 52vw; left: -14vw; top: -18vw; background: radial-gradient(circle, #1746e4 0%, transparent 68%); }
+.cg-field i:nth-child(2) { width: 42vw; height: 42vw; right: -12vw; top: 8vh; background: radial-gradient(circle, #8a60f0 0%, transparent 66%); opacity: 0.32; animation-duration: 46s; animation-delay: -12s; }
+.cg-field i:nth-child(3) { width: 46vw; height: 46vw; left: 28vw; bottom: -26vw; background: radial-gradient(circle, #0fb5c8 0%, transparent 66%); opacity: 0.22; animation-duration: 52s; animation-delay: -20s; }
+.cg-field i:nth-child(4) { width: 26vw; height: 26vw; left: 44vw; top: 22vh; background: radial-gradient(circle, #ff7a45 0%, transparent 70%); opacity: 0.09; animation-duration: 60s; animation-delay: -30s; }
+.cg-field::after { /* film grain, like the reference prints */
+  content: ''; position: absolute; inset: -50%; opacity: 0.05; mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+}
+.cg-field::before { /* faint dot lattice for depth */
+  content: ''; position: absolute; inset: 0; opacity: 0.5;
+  background-image: radial-gradient(var(--g-ink-faint) 1px, transparent 1.2px); background-size: 28px 28px;
+  mask-image: radial-gradient(ellipse 80% 60% at 50% 30%, #000 30%, transparent 80%);
+}
+:root[data-theme='light'] .cg-field i { opacity: 0.32; filter: blur(100px); }
+:root[data-theme='light'] .cg-field i:nth-child(1) { background: radial-gradient(circle, #7ea2ff 0%, transparent 68%); }
+:root[data-theme='light'] .cg-field i:nth-child(2) { background: radial-gradient(circle, #c5b2ff 0%, transparent 66%); opacity: 0.4; }
+:root[data-theme='light'] .cg-field i:nth-child(3) { background: radial-gradient(circle, #8fe3ee 0%, transparent 66%); opacity: 0.35; }
+:root[data-theme='light'] .cg-field i:nth-child(4) { background: radial-gradient(circle, #ffc29e 0%, transparent 70%); opacity: 0.18; }
+:root[data-theme='light'] .cg-field::after { opacity: 0.035; mix-blend-mode: multiply; }
+@keyframes cgDrift {
+  0% { transform: translate3d(0, 0, 0) scale(1); }
+  50% { transform: translate3d(6vw, 4vh, 0) scale(1.08); }
+  100% { transform: translate3d(-4vw, 8vh, 0) scale(0.96); }
+}
+
+/* ---- glass material ---- */
+.cg .glass,
+.cg .card {
+  background: linear-gradient(180deg, var(--g-sheen) 0%, transparent 34%), var(--g-bg);
+  border: 1px solid var(--g-border);
+  box-shadow: var(--g-shadow);
+  -webkit-backdrop-filter: blur(var(--g-blur)) saturate(1.5);
+  backdrop-filter: blur(var(--g-blur)) saturate(1.5);
+}
+.cg .card.card-lime {
+  background: radial-gradient(120% 140% at 100% 0%, rgb(42 99 255 / 0.95) 0%, rgb(23 70 228 / 0.9) 45%, rgb(18 57 196 / 0.92) 100%);
+  border-color: rgb(255 255 255 / 0.18);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.25), 0 24px 60px -24px rgb(23 70 228 / 0.6);
+}
+.cg .card.card-paper { background: linear-gradient(180deg, rgb(255 255 255 / 0.5) 0%, transparent 40%), var(--g-paper); border-color: rgb(255 255 255 / 0.6); }
+.cg .card-inset { background: var(--g-bg-inset); border-color: var(--g-border); }
+.cg .card-inset:hover { border-color: var(--g-border-hi); }
+.cg .glass-chrome {
+  background: var(--g-chrome);
+  -webkit-backdrop-filter: blur(24px) saturate(1.6);
+  backdrop-filter: blur(24px) saturate(1.6);
+  border-color: var(--g-border);
+}
+/* hairline that catches the light along the top edge of a glass tile */
+.cg .glass-edge { position: relative; }
+.cg .glass-edge::before {
+  content: ''; position: absolute; inset: 0; border-radius: inherit; padding: 1px; pointer-events: none;
+  background: linear-gradient(140deg, var(--g-border-hi), transparent 35%, transparent 70%, var(--g-ink-faint));
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor; mask-composite: exclude;
+}
+
+/* ---- live tile bits ---- */
+.cg .fx-icon-ring { display: grid; place-items: center; width: 48px; height: 48px; flex: none; border-radius: 9999px; border: 1px solid var(--g-ink-dim); color: var(--color-text-2); }
+.cg .fx-glare { position: absolute; inset: 0; border-radius: inherit; pointer-events: none; opacity: 0; transition: opacity 300ms; }
+.cg .fx-tile:hover .fx-glare { opacity: 1; }
+.cg .fx-scan { position: absolute; inset: 0; pointer-events: none; border-radius: inherit; overflow: hidden; }
+.cg .fx-scan::after {
+  content: ''; position: absolute; top: 0; bottom: 0; width: 30%; left: -30%;
+  background: linear-gradient(90deg, transparent, rgb(143 176 255 / 0.08), transparent);
+  animation: fxScan 6s linear infinite;
+}
+@keyframes fxScan { to { left: 100%; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .cg-field i, .cg .fx-scan::after { animation: none !important; }
+}
+@media (prefers-reduced-transparency: reduce) {
+  .cg .glass, .cg .card, .cg .glass-chrome { -webkit-backdrop-filter: none; backdrop-filter: none; background: var(--color-surface); }
+}

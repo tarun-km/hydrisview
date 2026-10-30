@@ -2,16 +2,21 @@
 
 import Link from 'next/link';
 import { useState } from 'react';
-import { ArrowUpRight, BatteryLow, BatteryMedium, CheckCircle2, ClipboardList, Glasses, ScanLine, Send, Siren, UserPlus, Wrench } from 'lucide-react';
+import { AnimatePresence, motion } from 'motion/react';
+import { ArrowUpRight, BatteryLow, BatteryMedium, CheckCircle2, ClipboardCheck, ClipboardList, Glasses, ScanLine, Send, Siren, Stamp, UserPlus, Users, Wrench } from 'lucide-react';
 import { useApi } from '@/lib/query';
 import { useCan, useSession } from '@/lib/session';
 import { ago, until } from '@/lib/format';
-import { Avatar, Button, ButtonLink, Card, Chip, EmptyState, KpiCard, OpenLink, PageHeader, QueryView, SeverityChip, Skeleton, StateChip, SyntheticBadge, Timeline, cx } from '@/ui';
+import { Avatar, Button, ButtonLink, Card, Chip, EmptyState, OpenLink, PageHeader, QueryView, SeverityChip, Skeleton, StateChip, SyntheticBadge, Timeline, cx } from '@/ui';
 import { RadialGauge } from '@/ui/charts';
 import { GlassesArt } from '@/console/admin/glasses';
 import { useFleetLive, type LiveView } from '@/console/admin/live';
 import { AssignWorkDialog } from '@/console/command/AssignWork';
 import { activityTone, describeAction, type Dashboard, type OnShiftCard } from '@/console/command/types';
+import { BarTicks, Bumps, DotGrid, GlassTile, KpiTile, PlantPulse, Ring, Ticker, WeatherTile, bento, rise } from '@/console/fx';
+
+const SEVERITIES = ['critical', 'high', 'medium', 'low'] as const;
+const SEV_COLOR: Record<(typeof SEVERITIES)[number], string> = { critical: 'var(--color-critical)', high: 'var(--color-high)', medium: 'var(--color-medium)', low: 'var(--color-low)' };
 
 /** Command center: the administrator's live picture of the field team. */
 export default function CommandPage() {
@@ -38,21 +43,33 @@ export default function CommandPage() {
           const off = d.onShift.filter((o) => !o.onShift);
           const roundsPct = d.kpis.roundsAssigned ? Math.round((d.kpis.roundsCompleted / d.kpis.roundsAssigned) * 100) : null;
           return (
-            <div className="grid grid-cols-[minmax(0,1fr)] gap-4 fade-in">
-              <div data-tour="kpis" className="stagger grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
-                <KpiCard label="On shift now" value={<>{d.kpis.onShift}<span className="text-[0.5em] opacity-50">/{d.kpis.operators}</span></>} href="/console/operators"
+            <motion.div variants={bento} initial="hidden" animate="show" className="grid grid-cols-[minmax(0,1fr)] gap-4">
+              <motion.div variants={bento} data-tour="kpis" className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
+                <KpiTile icon={<Users size={19} strokeWidth={1.5} />} label="On shift now" value={d.kpis.onShift} unit={`/${d.kpis.operators}`} href="/console/operators"
+                  ariaValue={`${d.kpis.onShift} of ${d.kpis.operators} operators on shift`}
+                  viz={d.kpis.operators ? <DotGrid total={d.kpis.operators} filled={d.kpis.onShift} cols={Math.min(8, Math.max(4, Math.ceil(d.kpis.operators / 2)))} color="var(--g-curve)" /> : undefined}
                   sub={<>{d.onShift.filter((o) => o.connected).length} wearing connected glasses</>} />
-                <KpiCard label="Open alarms" value={d.kpis.openAlarms} href="/console/alarms" accent={d.kpis.criticalAlarms ? 'critical' : undefined}
-                  sub={<>{d.kpis.criticalAlarms} critical · <span className={d.kpis.unownedAlarms ? 'font-medium' : undefined}>{d.kpis.unownedAlarms} without an owner</span></>} />
-                <KpiCard label="Today's rounds" value={<>{d.kpis.roundsCompleted}<span className="text-[0.5em] opacity-50">/{d.kpis.roundsAssigned}</span></>} href="/console/inspections"
-                  sub={roundsPct === null ? 'Nothing scheduled for today' : <>{roundsPct}% complete</>}
-                  footer={roundsPct !== null ? <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-[rgb(15_23_42/0.08)]" aria-hidden><div className="h-full rounded-full bg-[var(--color-signal)] transition-[width] duration-700" style={{ width: `${roundsPct}%` }} /></div> : undefined} />
-                <KpiCard label="Awaiting approval" value={d.kpis.approvals} href="/console/approvals" accent={d.kpis.approvals ? 'high' : undefined}
+                <KpiTile icon={<Siren size={19} strokeWidth={1.5} />} label="Open alarms" value={d.kpis.openAlarms} href="/console/alarms" accent={d.kpis.criticalAlarms ? 'critical' : undefined}
+                  ariaValue={`${d.kpis.openAlarms} open alarms, ${d.kpis.criticalAlarms} critical`}
+                  viz={<BarTicks values={SEVERITIES.map((sv) => d.alarms.filter((a) => a.severity === sv).length)} colors={SEVERITIES.map((sv) => SEV_COLOR[sv])} labels={[...SEVERITIES]} />}
+                  sub={<>{d.kpis.criticalAlarms} critical · <span className={d.kpis.unownedAlarms ? 'font-medium text-text-2' : undefined}>{d.kpis.unownedAlarms} without an owner</span></>} />
+                <KpiTile icon={<ClipboardCheck size={19} strokeWidth={1.5} />} label="Today's rounds" value={d.kpis.roundsCompleted} unit={`/${d.kpis.roundsAssigned}`} href="/console/inspections"
+                  ariaValue={`${d.kpis.roundsCompleted} of ${d.kpis.roundsAssigned} rounds done today`}
+                  viz={roundsPct !== null ? <Ring value={roundsPct / 100} size={48} thickness={5} color={roundsPct === 100 ? 'var(--color-ok)' : 'var(--g-curve)'} /> : undefined}
+                  sub={roundsPct === null ? 'Nothing scheduled for today' : <><Ticker value={roundsPct} />% complete</>} />
+                <KpiTile icon={<Stamp size={19} strokeWidth={1.5} />} label="Awaiting approval" value={d.kpis.approvals} href="/console/approvals" accent={d.kpis.approvals ? 'high' : undefined}
+                  ariaValue={`${d.kpis.approvals} items awaiting approval`}
+                  viz={<Bumps count={Math.min(6, d.kpis.approvals)} />}
                   sub={<>{d.approvals.scans} scans · {d.approvals.inspections} inspections</>} />
-              </div>
+              </motion.div>
 
-              <div className="grid grid-cols-[minmax(0,1fr)] gap-4 xl:grid-cols-[minmax(0,1.75fr)_minmax(0,1fr)]">
-                <section data-tour="on-shift" className="card" aria-labelledby="on-shift">
+              <motion.div variants={bento} className="grid grid-cols-[minmax(0,1fr)] gap-4 lg:grid-cols-[minmax(0,1.75fr)_minmax(0,1fr)]">
+                <PlantPulse />
+                <WeatherTile />
+              </motion.div>
+
+              <motion.div variants={bento} className="grid grid-cols-[minmax(0,1fr)] gap-4 xl:grid-cols-[minmax(0,1.75fr)_minmax(0,1fr)]">
+                <GlassTile as="section" data-tour="on-shift" aria-labelledby="on-shift" tilt={1.5}>
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <h2 id="on-shift" className="t-section flex items-center gap-2.5">On shift now<span className="dot pulse-dot bg-ok" aria-hidden /></h2>
                     <Link href="/console/operators" className="link-quiet text-sm">All operators</Link>
@@ -63,9 +80,9 @@ export default function CommandPage() {
                   ) : !on.length ? (
                     <div className="mt-5"><EmptyState compact title="Nobody on shift right now" body="Operators show up here when their glasses connect or they are active in the app (last 8 hours)." /></div>
                   ) : (
-                    <ul className="stagger mt-5 grid grid-cols-[minmax(0,1fr)] gap-3 sm:grid-cols-2 2xl:grid-cols-3">
-                      {on.map((o) => <li key={o.userId}><OperatorCard o={o} live={o.glasses ? live.get(o.glasses.id) : undefined} /></li>)}
-                    </ul>
+                    <motion.ul variants={bento} className="mt-5 grid grid-cols-[minmax(0,1fr)] gap-3 sm:grid-cols-2 2xl:grid-cols-3">
+                      {on.map((o) => <motion.li layout variants={rise} key={o.userId}><OperatorCard o={o} live={o.glasses ? live.get(o.glasses.id) : undefined} /></motion.li>)}
+                    </motion.ul>
                   )}
                   {off.length > 0 && (
                     <div className="mt-5 flex flex-wrap items-center gap-3 border-t border-line pt-4">
@@ -81,17 +98,18 @@ export default function CommandPage() {
                       </ul>
                     </div>
                   )}
-                </section>
+                </GlassTile>
 
                 <div className="grid grid-cols-[minmax(0,1fr)] content-start gap-4">
                   <FleetPanel d={d} />
-                  <Card title="Open alarms & owners" action={<OpenLink href="/console/alarms" label="Open alarms" tone="default" size="sm" />}>
+                  <motion.div variants={rise}><Card title="Open alarms & owners" action={<OpenLink href="/console/alarms" label="Open alarms" tone="default" size="sm" />}>
                     {d.alarms.length ? (
                       <ul className="grid grid-cols-[minmax(0,1fr)] gap-2">
+                        <AnimatePresence initial={false}>
                         {d.alarms.slice(0, 5).map((a) => (
-                          <li key={a.id}>
-                            <Link href={`/console/alarms/${a.id}`} className="flex items-center gap-3 rounded-2xl bg-bg-2 px-3.5 py-2.5 transition-[background-color,transform] hover:bg-surface-2 active:scale-[0.99]">
-                              <span className="dot" style={{ background: `var(--color-${a.severity})` }} aria-hidden />
+                          <motion.li key={a.id} layout initial={{ opacity: 0, x: 24, scale: 0.97 }} animate={{ opacity: 1, x: 0, scale: 1 }} exit={{ opacity: 0, x: -24 }} transition={{ type: 'spring', stiffness: 260, damping: 26 }}>
+                            <Link href={`/console/alarms/${a.id}`} className="flex items-center gap-3 rounded-2xl border border-[var(--g-border)] bg-[var(--g-bg-inset)] px-3.5 py-2.5 transition-[background-color,transform] hover:bg-[var(--g-ink-faint)] active:scale-[0.99]">
+                              <span className={cx('dot', a.severity === 'critical' && 'pulse-dot')} style={{ background: `var(--color-${a.severity})`, boxShadow: `0 0 10px var(--color-${a.severity})` }} aria-hidden />
                               <span className="min-w-0 flex-1">
                                 <span className="block truncate text-sm">{a.title}</span>
                                 <span className="block truncate text-xs text-muted">{ago(a.triggeredAt)} · {a.assetTag ?? a.siteName}</span>
@@ -101,17 +119,18 @@ export default function CommandPage() {
                                 <span className="flex flex-none items-center gap-1.5 text-xs text-text-2" title={`${a.owner.via === 'assigned' ? 'Assigned to' : 'Acknowledged by'} ${a.owner.name}`}><Avatar name={a.owner.name} size={22} /><span className="max-w-[90px] truncate max-sm:hidden">{a.owner.name.split(' ')[0]}</span></span>
                               ) : <Chip tone="high" className="flex-none">No owner</Chip>}
                             </Link>
-                          </li>
+                          </motion.li>
                         ))}
+                        </AnimatePresence>
                       </ul>
                     ) : <EmptyState compact icon={<CheckCircle2 size={20} className="text-ok-text" />} title="No open alarms" body="All monitored conditions are within limits." />}
                     {d.alarms.length > 5 && <p className="mt-3 text-xs text-muted">+ {d.kpis.openAlarms - 5} more open</p>}
-                  </Card>
+                  </Card></motion.div>
                 </div>
-              </div>
+              </motion.div>
 
-              <div className="grid grid-cols-[minmax(0,1fr)] gap-4 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)_minmax(0,1fr)]">
-                <Card title="Today's rounds by operator" action={<OpenLink href="/console/inspections" label="Open rounds" tone="default" size="sm" />}>
+              <motion.div variants={bento} className="grid grid-cols-[minmax(0,1fr)] gap-4 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)_minmax(0,1fr)]">
+                <motion.div variants={rise}><Card title="Today's rounds by operator" action={<OpenLink href="/console/inspections" label="Open rounds" tone="default" size="sm" />}>
                   {d.rounds.length ? (
                     <ul className="grid grid-cols-[minmax(0,1fr)] gap-3.5">
                       {d.rounds.slice(0, 8).map((r) => {
@@ -124,7 +143,8 @@ export default function CommandPage() {
                                 <span className="num flex-none">{r.completed}<span className="text-muted">/{r.assigned}</span>{r.overdue > 0 && <span className="ml-2 text-high-text">{r.overdue} overdue</span>}</span>
                               </div>
                               <div className="hatch h-2 overflow-hidden rounded-full bg-surface-2" role="progressbar" aria-label={`${r.name}: ${r.completed} of ${r.assigned} rounds done`} aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}>
-                                <div className="h-full rounded-full transition-[width] duration-700" style={{ width: `${Math.max(pct, 2)}%`, background: pct === 100 ? 'var(--color-ok)' : 'var(--color-signal)' }} />
+                                <motion.div className="h-full rounded-full" initial={{ width: 0 }} animate={{ width: `${Math.max(pct, 2)}%` }} transition={{ type: 'spring', stiffness: 90, damping: 18, delay: 0.4 }}
+                                  style={{ background: pct === 100 ? 'var(--color-ok)' : 'linear-gradient(90deg, var(--color-brand), var(--g-curve))', boxShadow: '0 0 12px var(--g-glow)' }} />
                               </div>
                             </Link>
                           </li>
@@ -133,8 +153,8 @@ export default function CommandPage() {
                     </ul>
                   ) : <EmptyState compact icon={<ClipboardList size={20} aria-hidden />} title="No rounds today" body="Assign a round to an operator or a whole shift."
                     action={can('inspection.manage') ? <Button size="sm" onClick={() => setAssign(true)}>Assign work</Button> : undefined} />}
-                </Card>
-                <Card title="Awaiting approval" action={<OpenLink href="/console/approvals" label="Open approvals" tone="default" size="sm" />}>
+                </Card></motion.div>
+                <motion.div variants={rise}><Card title="Awaiting approval" action={<OpenLink href="/console/approvals" label="Open approvals" tone="default" size="sm" />}>
                   {d.approvals.items.length ? (
                     <ul className="grid grid-cols-[minmax(0,1fr)] gap-1">
                       {d.approvals.items.map((i) => (
@@ -151,12 +171,12 @@ export default function CommandPage() {
                       ))}
                     </ul>
                   ) : <EmptyState compact icon={<CheckCircle2 size={20} className="text-ok-text" />} title="Queue is clear" body="Scans and inspections waiting for sign-off appear here." />}
-                </Card>
-                <Card title="Recent activity" action={<Link className="link-quiet text-sm" href="/console/audit">Audit log</Link>}>
+                </Card></motion.div>
+                <motion.div variants={rise}><Card title="Recent activity" action={<Link className="link-quiet text-sm" href="/console/audit">Audit log</Link>}>
                   <Timeline items={d.activity.slice(0, 7).map((a) => ({ id: a.id, title: describeAction(a), meta: `${a.actorName ?? a.actorLabel ?? 'Hydris'} · ${ago(a.at)}`, tone: activityTone(a.action) }))} />
-                </Card>
-              </div>
-            </div>
+                </Card></motion.div>
+              </motion.div>
+            </motion.div>
           );
         }}
       </QueryView>
@@ -172,7 +192,7 @@ function OperatorCard({ o, live }: { o: OnShiftCard; live?: LiveView }) {
   const battery = live?.battery ?? g?.battery ?? null;
   const site = o.allSites ? 'All sites' : o.sites.map((s) => s.name).join(', ') || 'No site';
   return (
-    <article className="card-inset lift group flex h-full flex-col overflow-hidden">
+    <motion.article whileHover={{ y: -4 }} transition={{ type: 'spring', stiffness: 300, damping: 22 }} className="card-inset group flex h-full flex-col overflow-hidden hover:shadow-[var(--g-shadow)]">
       <Link href={`/console/operators/${o.userId}`} className="flex items-center gap-3 p-3.5 pb-3">
         <span className="relative flex-none">
           <Avatar name={o.name} size={40} tone={o.connected ? 'cobalt' : 'surface'} />
@@ -184,7 +204,7 @@ function OperatorCard({ o, live }: { o: OnShiftCard; live?: LiveView }) {
         </span>
         <ArrowUpRight size={16} className="flex-none text-muted transition-transform group-hover:-translate-y-0.5 group-hover:translate-x-0.5" aria-hidden />
       </Link>
-      <Link href={g ? `/console/devices/${g.id}` : `/console/operators/${o.userId}`} className="relative mx-3.5 block aspect-[16/9] overflow-hidden rounded-[16px] border border-line bg-[#05070d]" data-tour="live-view" aria-label={g ? `Live view of ${g.name}` : 'No glasses assigned'}>
+      <Link href={g ? `/console/devices/${g.id}` : `/console/operators/${o.userId}`} className="relative mx-3.5 block aspect-[16/9] overflow-hidden rounded-[16px] border border-[var(--g-border)] bg-[radial-gradient(120%_100%_at_50%_0%,#0d1a2e,#04070c)]" data-tour="live-view" aria-label={g ? `Live view of ${g.name}` : 'No glasses assigned'}>
         {streaming ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img src={live!.view!} alt={`What ${o.name.split(' ')[0]} sees: ${live!.title ?? ''}`} className="h-full w-full object-contain" />
@@ -222,7 +242,7 @@ function OperatorCard({ o, live }: { o: OnShiftCard; live?: LiveView }) {
           <span className="num">{o.lastActiveAt ? `active ${ago(o.lastActiveAt)}` : 'not active yet'}</span>
         </div>
       </div>
-    </article>
+    </motion.article>
   );
 }
 
@@ -231,7 +251,7 @@ function FleetPanel({ d }: { d: Dashboard }) {
   const f = d.fleet;
   const pct = f.glasses.total ? Math.round((f.glasses.connected / f.glasses.total) * 100) : null;
   return (
-    <section className="card card-lime" aria-labelledby="fleet">
+    <GlassTile as="section" className="card-lime" aria-labelledby="fleet" tilt={3}>
       <div className="flex items-center justify-between gap-3">
         <h2 id="fleet" className="t-section">Fleet status</h2>
         <Link href="/console/devices" className="chip chip-dark-on-lime">Devices <ArrowUpRight size={13} /></Link>
@@ -240,8 +260,8 @@ function FleetPanel({ d }: { d: Dashboard }) {
         <div className="mt-4 grid grid-cols-[auto_1fr] items-center gap-5">
           <RadialGauge value={pct} unit="%" size={128} thickness={9} tone="#ffffff" label="connected" ariaLabel={`${f.glasses.connected} of ${f.glasses.total} glasses connected`} />
           <dl className="grid grid-cols-[minmax(0,1fr)] gap-3 text-sm">
-            <div className="flex items-baseline justify-between gap-2"><dt className="opacity-80">Glasses connected</dt><dd className="t-kpi-sm num">{f.glasses.connected}<span className="text-[0.6em] opacity-60">/{f.glasses.total}</span></dd></div>
-            <div className="flex items-baseline justify-between gap-2"><dt className="opacity-80">Streaming live</dt><dd className="num text-[17px]">{f.glasses.streaming}</dd></div>
+            <div className="flex items-baseline justify-between gap-2"><dt className="opacity-80">Glasses connected</dt><dd className="t-kpi-sm num"><Ticker value={f.glasses.connected} /><span className="text-[0.6em] opacity-60">/{f.glasses.total}</span></dd></div>
+            <div className="flex items-baseline justify-between gap-2"><dt className="opacity-80">Streaming live</dt><dd className="num text-[17px]"><Ticker value={f.glasses.streaming} /></dd></div>
             <div className="flex items-baseline justify-between gap-2"><dt className="opacity-80">Average battery</dt><dd className="num text-[17px]">{f.battery.average === null ? <span className="text-[13px] opacity-70">not reported</span> : `${f.battery.average}%`}</dd></div>
             {(f.battery.low > 0 || f.glasses.unassigned > 0 || f.suspended > 0) && (
               <div className="flex flex-wrap gap-1.5 pt-1">
@@ -258,7 +278,7 @@ function FleetPanel({ d }: { d: Dashboard }) {
           <p className="text-sm opacity-90">No glasses yet. Operators register their glasses from the Hydris Field app, or pair a pair from the Devices page.</p>
         </div>
       )}
-    </section>
+    </GlassTile>
   );
 }
 
