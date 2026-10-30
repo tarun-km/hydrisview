@@ -66,7 +66,7 @@ export function useFitScale(size = 600) {
   return scale;
 }
 
-export function HudItem({ active, children, tone, disabled, onClick }: { active: boolean; children: ReactNode; tone?: 'critical' | 'high' | 'lime' | 'muted'; disabled?: boolean; onClick?: () => void }) {
+export function HudItem({ active, children, tone, disabled, onClick, tour }: { active: boolean; children: ReactNode; tone?: 'critical' | 'high' | 'lime' | 'muted'; disabled?: boolean; onClick?: () => void; /** data-tour anchor for the guided tour */ tour?: string }) {
   const ref = useRef<HTMLButtonElement>(null);
   const compact = useContext(Ctx).density === 'compact';
   useEffect(() => {
@@ -74,14 +74,15 @@ export function HudItem({ active, children, tone, disabled, onClick }: { active:
     const el = ref.current;
     if (!active || !el) return;
     let p = el.parentElement;
-    while (p && p.scrollHeight <= p.clientHeight) p = p.parentElement;
+    // Only real scroll containers (overflow auto/scroll): never the overflow-hidden, scaled viewport root.
+    while (p && (p.scrollHeight <= p.clientHeight || !/(auto|scroll)/.test(getComputedStyle(p).overflowY))) p = p.parentElement;
     if (!p || p === document.body || p === document.documentElement) return;
     const top = el.offsetTop - p.offsetTop;
     if (top < p.scrollTop) p.scrollTop = top;
     else if (top + el.offsetHeight > p.scrollTop + p.clientHeight) p.scrollTop = top + el.offsetHeight - p.clientHeight;
   }, [active]);
   return (
-    <button ref={ref} type="button" onClick={onClick} disabled={disabled} aria-current={active || undefined}
+    <button ref={ref} type="button" onClick={onClick} disabled={disabled} aria-current={active || undefined} data-tour={tour}
       className={clsx(
         'flex w-full items-center gap-4 rounded-[26px] border-2 px-6 text-left text-[23px] leading-tight transition-colors',
         compact ? 'py-[9px]' : 'py-[14px]',

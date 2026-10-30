@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import * as RPopover from '@radix-ui/react-popover';
 import * as RMenu from '@radix-ui/react-dropdown-menu';
@@ -10,8 +10,9 @@ import * as RDialog from '@radix-ui/react-dialog';
 import clsx from 'clsx';
 import {
   SlidersHorizontal, Activity, BarChart3, Bell, Boxes, Building2, Check, ClipboardCheck, FileText, Glasses, LayoutGrid, LogOut, Menu, Monitor, MonitorSmartphone, Moon, Route, ScrollText, Search,
-  Settings, ShieldCheck, Siren, Sun, UserRound, Users, Wrench, X, ScanLine, Radar, Stamp,
+  Settings, ShieldCheck, Siren, Sun, UserRound, Users, Wrench, X, ScanLine, Radar, Stamp, PlayCircle,
 } from 'lucide-react';
+import { TourConfirm, TourPlayer, consoleTour, tourMinutes } from '@/lib/tour';
 import { ROLE_LABELS, type Permission } from '@hydris/domain';
 import { getAccessToken, refreshSession, setAccessToken } from '@/lib/api';
 import { useSession, useSessionCtx } from '@/lib/session';
@@ -74,6 +75,16 @@ export function ConsoleShell({ children }: { children: ReactNode }) {
   const [mac, setMac] = useState(false);
   useEffect(() => setMac(/Mac|iPhone|iPad/.test(navigator.platform)), []);
   const pending = useRef(new Set<string>());
+  // Guided tour (same engine as the glasses app). Restores the page you were on when it ends.
+  const [tour, setTour] = useState<'idle' | 'confirm' | 'running'>('idle');
+  const tourFrom = useRef<string | null>(null);
+  const pathRef = useRef(pathname);
+  pathRef.current = pathname;
+  const tourNavigate = useCallback((href: string) => { if (pathRef.current !== href) router.push(href); }, [router]);
+  const endTour = useCallback(() => { setTour('idle'); if (tourFrom.current && tourFrom.current !== pathRef.current) router.push(tourFrom.current); tourFrom.current = null; }, [router]);
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get('tour') === '1') setTour('confirm');
+  }, []);
 
   const items = useMemo(() => NAV.filter((n) => !n.perm || session.permissions.includes(n.perm)), [session.permissions]);
   const isActive = (href: string) => (href === '/console' ? pathname === '/console' : pathname.startsWith(href));
@@ -133,7 +144,7 @@ export function ConsoleShell({ children }: { children: ReactNode }) {
               {gi > 0 && <span className="my-1 h-px w-6 bg-line-2" aria-hidden />}
               {items.filter((i) => i.group === g).map((i) => (
                 <Tooltip key={i.href} label={i.label}>
-                  <Link href={i.href} aria-label={i.label} aria-current={isActive(i.href) ? 'page' : undefined}
+                  <Link href={i.href} aria-label={i.label} data-tour={`nav-${i.href}`} aria-current={isActive(i.href) ? 'page' : undefined}
                     className={clsx('relative grid h-11 w-11 place-items-center rounded-full transition-[background,color,transform] duration-150 active:scale-90', isActive(i.href) ? 'bg-lime text-lime-ink shadow-[inset_0_1px_0_rgb(255_255_255/0.45)]' : 'text-text-2 hover:bg-surface-3 hover:text-text')}>
                     {i.icon}
                   </Link>
@@ -142,6 +153,9 @@ export function ConsoleShell({ children }: { children: ReactNode }) {
             </div>
           ))}
         </nav>
+        <Tooltip label="Guided tour">
+          <button type="button" onClick={() => setTour('confirm')} aria-label="Start the guided tour" data-tour="tour-button" className="icon-btn"><PlayCircle size={18} /></button>
+        </Tooltip>
         <Tooltip label="Glasses simulator">
           <Link href="/simulator" aria-label="Open glasses simulator" className="icon-btn"><MonitorSmartphone size={18} /></Link>
         </Tooltip>
@@ -172,6 +186,9 @@ export function ConsoleShell({ children }: { children: ReactNode }) {
                 <RMenu.Separator className="my-1 h-px bg-line" />
                 <ThemeMenuGroup />
                 <RMenu.Separator className="my-1 h-px bg-line" />
+                <RMenu.Item onSelect={() => setTour('confirm')} className="flex cursor-pointer items-center gap-2 rounded-xl px-3 py-2 text-sm outline-none data-[highlighted]:bg-surface-2">
+                  <PlayCircle size={15} /> Guided tour
+                </RMenu.Item>
                 <MenuLink href="/console/account" icon={<UserRound size={15} />}>Account & security</MenuLink>
                 {session.user.isPlatformAdmin && <MenuLink href="/console/platform" icon={<ShieldCheck size={15} />}>Platform administration</MenuLink>}
                 {session.memberships.length > 1 && session.memberships.filter((m) => m.orgId !== session.org?.id).map((m) => (
@@ -195,7 +212,7 @@ export function ConsoleShell({ children }: { children: ReactNode }) {
           </div>
         )}
 
-        <main id="main" className="mx-auto max-w-[1440px] px-4 pb-28 pt-8 md:px-8 md:pb-12">
+        <main id="main" data-tour="page" className="mx-auto max-w-[1440px] px-4 pb-28 pt-8 md:px-8 md:pb-12">
           <span className="sr-only" aria-live="polite">{current?.label}</span>
           <div key={pathname} className="page-enter">{children}</div>
         </main>
@@ -204,6 +221,8 @@ export function ConsoleShell({ children }: { children: ReactNode }) {
         <MobileNav items={items} isActive={isActive} />
       </div>
       <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} nav={items} />
+      {tour === 'confirm' && <TourConfirm minutes={tourMinutes(consoleTour)} onStart={() => { tourFrom.current = pathRef.current; setTour('running'); }} onCancel={() => setTour('idle')} />}
+      {tour === 'running' && <TourPlayer tour={consoleTour} navigate={tourNavigate} onExit={endTour} />}
     </div>
   );
 }

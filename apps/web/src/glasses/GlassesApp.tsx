@@ -4,6 +4,7 @@ import QRCode from 'qrcode';
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   AlertTriangle, Ban, Bell, Boxes, FileText, Gauge, Library, Minus, TrendingDown, TrendingUp, Layers, LocateFixed, Map as MapIcon, BookOpen, Sparkles, Check, ChevronRight, CircleDot, ClipboardCheck, Cog, Glasses, Info, RefreshCw, ShieldAlert, Signal, SignalZero, Wifi, WifiOff, Wrench, X, ScanLine, Mic, ChevronLeft,
+  PlayCircle,
 } from 'lucide-react';
 import {
   DEFAULT_UI_PROFILE_CONFIG, FRESHNESS_LABELS, actionAllowed, applyMeasurementProfile, inspectionProgress, isScenarioKey, normalizeUiProfileConfig, screenEnabled,
@@ -11,6 +12,7 @@ import {
 } from '@hydris/domain';
 import { openStream } from '@/lib/realtime';
 import { DeviceError, DeviceLink, type PairingChallenge } from './link';
+import { TourConfirm, TourPlayer, glassesTour, tourMinutes, type GlassesTourNav } from '@/lib/tour';
 import { DemoData, LiveData, StaleError, cachedContext, type GAlarm, type GAsset, type GAssist, type GContext, type GDoc, type GDocSummary, type GInspection, type GlassesData, type GMeasurement, type GNotification } from './data';
 import { emitToHost, useHudInput, type InputKey } from './input';
 import { PlantMap, routeDistance } from './PlantMap';
@@ -78,6 +80,18 @@ export function GlassesApp({ demoScenario, simulator, profilePreview }: { demoSc
   const cfg = useMemo(() => normalizeUiProfileConfig(previewCfg ?? ctx?.profile?.config ?? DEFAULT_UI_PROFILE_CONFIG), [previewCfg, ctx?.profile?.config]);
   // In-memory trend history per sensor (value samples, newest last) for the live measurements screen.
   const history = useRef(new Map<string, { ts: string; v: number }[]>());
+  // Guided tour: 'confirm' shows the start dialog, 'running' plays it. The screen stack is restored on exit.
+  const [tour, setTour] = useState<'idle' | 'confirm' | 'running'>('idle');
+  const tourSaved = useRef<Screen[] | null>(null);
+  const tourFromUrl = useRef(false);
+  const tourRef = useRef(tour);
+  tourRef.current = tour;
+  useEffect(() => {
+    const open = () => setTour((t) => (t === 'idle' ? 'confirm' : t));
+    window.addEventListener('hydris:tour', open);
+    if (demo && new URLSearchParams(window.location.search).get('tour') === '1') { tourFromUrl.current = true; open(); }
+    return () => window.removeEventListener('hydris:tour', open);
+  }, [demo]);
   useEffect(() => {
     for (const m of ctx?.measurements ?? []) {
       if (m.lastValue === null || !m.lastTs) continue;
@@ -229,7 +243,7 @@ export function GlassesApp({ demoScenario, simulator, profilePreview }: { demoSc
         emitToHost(`sse:${e.type}`, e.data);
         if (e.type === 'alarm.created') {
           const a = e.data as unknown as GAlarm & { siteId?: string };
-          if (a.severity === 'critical' || a.severity === 'high') setInterrupt({ ...a, assetTag: null });
+          if ((a.severity === 'critical' || a.severity === 'high') && tourRef.current !== 'running') setInterrupt({ ...a, assetTag: null });
           reload();
         } else if (e.type === 'device.revoked' || e.type === 'session.revoked') { link.forget(); setPhase('revoked'); }
         else if (e.type === 'device.context_changed') {
@@ -251,7 +265,7 @@ export function GlassesApp({ demoScenario, simulator, profilePreview }: { demoSc
     if (!demo) return;
     const t = setInterval(() => void loadContext().then((c) => {
       const crit = c.alarms.find((a) => a.severity === 'critical' && a.state === 'active');
-      if (crit) setInterrupt((cur) => cur ?? crit);
+      if (crit && tourRef.current !== 'running') setInterrupt((cur) => cur ?? crit);
     }), 2500);
     return () => clearInterval(t);
   }, [demo, loadContext]);
@@ -284,10 +298,41 @@ export function GlassesApp({ demoScenario, simulator, profilePreview }: { demoSc
     });
   }, [link]);
   const nav = { push, pop, home, flash, reload: loadContext, logout };
+  const ctxRef = useRef(ctx);
+  ctxRef.current = ctx;
+  const tourNavigate = useCallback((n: GlassesTourNav) => {
+    const c = ctxRef.current;
+    let s: Screen;
+    if (n.name === 'alert') { const a = c?.alarms[0]; s = a ? { name: 'alert', id: a.id } : { name: 'alerts' }; }
+    else if (n.name === 'inspection') { const x = c?.inspections[0]; s = x ? { name: 'inspection', id: x.id } : { name: 'inspections' }; }
+    else s = { name: n.name } as Screen;
+    setInterrupt(null);
+    setStack(s.name === 'home' ? [{ name: 'home' }] : [{ name: 'home' }, s]);
+    setCursor(0);
+  }, []);
+  const startTour = useCallback(() => {
+    tourSaved.current = stackRef.current;
+    if (data instanceof DemoData) { data.tourAlarm = true; void loadContext(); }
+    setTour('running');
+  }, [data, loadContext]);
+  const endTour = useCallback(() => {
+    setTour('idle');
+    if (data instanceof DemoData) { data.tourAlarm = false; void loadContext(); }
+    if (tourFromUrl.current) {
+      // Started from the pairing screen ("Take the tour"): go back to it.
+      const mode = new URLSearchParams(window.location.search).get('mode');
+      window.location.assign(`/glasses${mode ? `?mode=${mode}` : ''}`);
+      return;
+    }
+    const saved = tourSaved.current;
+    tourSaved.current = null;
+    setStack(saved && saved.length ? saved : [{ name: 'home' }]);
+    setCursor(0);
+  }, [data, loadContext]);
   const status: StatusInfo = { online, queued, stream: demo ? 'live' : stream, staleAt, lastSync, demo, profile: previewCfg ? { name: 'Draft preview', version: null, source: 'preview' } : ctx?.profile ?? null };
   let body: ReactNode;
   if (phase === 'boot') body = <Centered icon={<Glasses size={46} />} title="Starting Hydris" body="Checking device session…" />;
-  else if (phase === 'setup') body = <PairingScreen link={link} simulator={!!simulator} online={online} onPaired={async () => { await loadContext(); setPhase('ready'); emitToHost('paired'); }} />;
+  else if (phase === 'setup') body = <PairingScreen link={link} simulator={!!simulator} online={online} onTour={() => { const mode = new URLSearchParams(window.location.search).get('mode'); window.location.assign(`/glasses?demo=1&tour=1${mode ? `&mode=${mode}` : ''}`); }} onPaired={async () => { await loadContext(); setPhase('ready'); emitToHost('paired'); }} />;
   else if (phase === 'revoked') body = <TerminalScreen icon={<ShieldAlert size={46} />} title="Device revoked" body="An administrator revoked these glasses. Sessions have ended. Pair again to continue." actionLabel="Pair again" onAction={() => { link.forget(); setPhase('setup'); }} />;
   else if (phase === 'suspended') body = <TerminalScreen icon={<ShieldAlert size={46} />} title="Device suspended" body="These glasses are temporarily suspended. Contact your supervisor." actionLabel="Check again" onAction={() => { link.refresh().then(() => loadContext()).then(() => setPhase('app')).catch(() => {}); }} />;
   else if (phase === 'unassigned') body = <TerminalScreen icon={<Info size={46} />} title="No operator assigned" body="Ask an administrator to assign these glasses to an operator." actionLabel="Check again" onAction={() => { link.refresh().then(() => loadContext()).then(() => setPhase('app')).catch(() => {}); }} />;
@@ -311,7 +356,7 @@ export function GlassesApp({ demoScenario, simulator, profilePreview }: { demoSc
           <div className={phase === 'app' ? `absolute inset-x-0 overflow-hidden ${phone ? 'px-6' : 'px-8'}` : `absolute inset-0 ${phone ? 'px-6 pb-8 pt-[calc(env(safe-area-inset-top)+32px)]' : 'px-8 py-8'}`}
             style={phase === 'app' ? { top: phone ? 'calc(env(safe-area-inset-top) + 68px)' : 64, bottom: phone ? `calc(env(safe-area-inset-bottom) + ${bottomBar}px)` : bottomBar } : undefined}>
             {/* Profile text scale: zoom the content and enlarge the box inversely so it still fills the area. */}
-            <div data-live-content style={{ zoom: cfg.layout.textScale, width: `${100 / cfg.layout.textScale}%`, height: `${100 / cfg.layout.textScale}%` }}>{body}</div>
+            <div data-live-content data-tour={phase === 'app' ? 'content' : undefined} style={{ zoom: cfg.layout.textScale, width: `${100 / cfg.layout.textScale}%`, height: `${100 / cfg.layout.textScale}%` }}>{body}</div>
           </div>
           {phase === 'app' && !phone && <HintBar hand={cfg.layout.handedness} />}
           {phase === 'app' && phone && <PhoneTabBar screen={screen.name} canBack={stack.length > 1} onBack={pop} onHome={home} onPush={push} alerts={ctx?.alarms.length ?? 0} />}
@@ -325,6 +370,8 @@ export function GlassesApp({ demoScenario, simulator, profilePreview }: { demoSc
           {interrupt && <AlertInterrupt a={interrupt} />}
           {!online && phase === 'app' && <div style={{ bottom: phone ? `calc(env(safe-area-inset-bottom) + ${bottomBar}px)` : bottomBar }} className="absolute inset-x-0 z-10 bg-[#2a1608] py-1.5 text-center text-[17px] text-[#ff9a5c]">{staleAt ? `Offline · showing data cached ${timeAgo(staleAt)}` : 'Offline · steps are saved on the glasses and sync automatically'}</div>}
           {previewCfg && phase === 'app' && <div className="absolute left-8 top-[46px] z-10 text-[13px] uppercase tracking-[0.14em] text-lime/80">draft preview</div>}
+          {tour === 'confirm' && phase === 'app' && ctx && <TourConfirm minutes={tourMinutes(glassesTour)} onStart={startTour} onCancel={() => { if (tourFromUrl.current) endTour(); else setTour('idle'); }} />}
+          {tour === 'running' && phase === 'app' && ctx && <TourPlayer tour={glassesTour} navigate={tourNavigate} onExit={endTour} />}
         </HudContext.Provider>
         </ProfileCtx.Provider>
       </div>
@@ -373,7 +420,7 @@ function StatusBar({ ctx, online, queued, stream, demo, phone, sharing }: { ctx:
   const [now, setNow] = useState(() => new Date());
   useEffect(() => { const t = setInterval(() => setNow(new Date()), 15000); return () => clearInterval(t); }, []);
   return (
-    <div className={`absolute inset-x-0 top-0 flex items-center gap-3 text-[18px] ${phone ? 'border-b border-white/10 bg-black/80 px-6 backdrop-blur' : 'h-[64px] px-8'}`} style={phone ? { paddingTop: 'env(safe-area-inset-top)', height: 'calc(env(safe-area-inset-top) + 64px)' } : undefined}>
+    <div data-tour="status-bar" className={`absolute inset-x-0 top-0 flex items-center gap-3 text-[18px] ${phone ? 'border-b border-white/10 bg-black/80 px-6 backdrop-blur' : 'h-[64px] px-8'}`} style={phone ? { paddingTop: 'env(safe-area-inset-top)', height: 'calc(env(safe-area-inset-top) + 64px)' } : undefined}>
       <span className="num font-medium">{now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
       <span className="truncate text-white/50">{ctx.site?.code ?? ''}</span>
       {demo && <span className="flex-none whitespace-nowrap rounded-full border border-dashed border-lime/60 px-2.5 text-[15px] text-lime">demo</span>}
@@ -396,7 +443,7 @@ function StatusBar({ ctx, online, queued, stream, demo, phone, sharing }: { ctx:
 /** Phone layout: thumb-reach tab bar (the camera glasses' temple touchpad is replaced by the touchscreen). */
 function PhoneTabBar({ screen, canBack, onBack, onHome, onPush, alerts }: { screen: string; canBack: boolean; onBack: () => void; onHome: () => void; onPush: (s: Screen) => void; alerts: number }) {
   const tab = (key: string, label: string, icon: ReactNode, onClick: () => void, active: boolean, badge?: number) => (
-    <button key={key} type="button" onClick={onClick} aria-current={active || undefined}
+    <button key={key} type="button" onClick={onClick} aria-current={active || undefined} data-tour={key === 'voice' ? 'voice' : undefined}
       className={`relative flex min-w-0 flex-1 flex-col items-center justify-center gap-1 rounded-[20px] py-2 text-[15px] transition-colors ${active ? 'text-lime' : 'text-white/60 active:bg-white/10'}`}>
       {icon}
       <span className="truncate">{label}</span>
@@ -404,7 +451,7 @@ function PhoneTabBar({ screen, canBack, onBack, onHome, onPush, alerts }: { scre
     </button>
   );
   return (
-    <nav aria-label="Main" className="absolute inset-x-0 bottom-0 z-30 flex items-stretch gap-1 border-t border-white/10 bg-black/90 px-3 pt-1.5 backdrop-blur"
+    <nav aria-label="Main" data-tour="nav" className="absolute inset-x-0 bottom-0 z-30 flex items-stretch gap-1 border-t border-white/10 bg-black/90 px-3 pt-1.5 backdrop-blur"
       style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 8px)', height: 'calc(env(safe-area-inset-bottom) + 92px)' }}>
       {canBack ? tab('back', 'Back', <ChevronLeft size={28} />, onBack, false) : tab('home', 'Home', <Glasses size={28} />, onHome, screen === 'home')}
       {tab('scan', 'Scan', <ScanLine size={28} />, () => onPush({ name: 'scan' }), screen === 'scan')}
@@ -417,7 +464,7 @@ function PhoneTabBar({ screen, canBack, onBack, onHome, onPush, alerts }: { scre
 function HintBar({ hand }: { hand: 'left' | 'right' }) {
   // Handedness hint: controls sit on the operator's preferred temple, so hints align to that side.
   return (
-    <div className={`absolute inset-x-0 bottom-0 flex h-[54px] items-center gap-6 px-10 text-[16px] text-white/45 ${hand === 'left' ? 'justify-start' : 'justify-end'}`} aria-hidden>
+    <div data-tour="nav" className={`absolute inset-x-0 bottom-0 flex h-[54px] items-center gap-6 px-10 text-[16px] text-white/45 ${hand === 'left' ? 'justify-start' : 'justify-end'}`} aria-hidden>
       {hand === 'left' && <span className="text-white/30">◧ left temple</span>}
       <span>↑ ↓ move</span><span>● select</span><span>← back</span>
       {hand === 'right' && <span className="text-white/30">right temple ◨</span>}
@@ -468,7 +515,7 @@ function AlertInterrupt({ a }: { a: GAlarm }) {
 // ---------------- pairing ----------------
 type PairStatus = 'requesting' | 'waiting' | 'awaiting_admin' | 'approved' | 'expired' | 'denied' | 'error';
 
-function PairingScreen({ link, simulator, online, onPaired }: { link: DeviceLink; simulator: boolean; online: boolean; onPaired: () => Promise<void> }) {
+function PairingScreen({ link, simulator, online, onPaired, onTour }: { link: DeviceLink; simulator: boolean; online: boolean; onPaired: () => Promise<void>; onTour: () => void }) {
   const [c, setC] = useState<PairingChallenge | null>(null);
   const [qr, setQr] = useState<string | null>(null);
   const [status, setStatus] = useState<PairStatus>('requesting');
@@ -533,7 +580,7 @@ function PairingScreen({ link, simulator, online, onPaired }: { link: DeviceLink
   }, [c, polling, link, onPaired]);
 
   const regen = () => { if (c) void link.cancelChallenge(c); void start(); };
-  const cursor = useHud({ actions: [{ key: 'regen', onSelect: regen }] });
+  const cursor = useHud({ actions: [{ key: 'regen', onSelect: regen }, { key: 'tour', onSelect: onTour }] });
   const mm = `${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}`;
   const ttl = 300; // PAIRING_TTL_S
   const pct = status === 'waiting' ? Math.min(100, (left / ttl) * 100) : 0;
@@ -570,7 +617,7 @@ function PairingScreen({ link, simulator, online, onPaired }: { link: DeviceLink
         )}
         <div className="flex items-end justify-between gap-3">
           {pills}
-          <div className="shrink-0"><HudItem active={cursor === 0} onClick={regen}><RefreshCw size={22} /><span>New code</span></HudItem></div>
+          <div className="flex shrink-0 flex-col gap-2"><HudItem active={cursor === 1} tour="take-tour" onClick={onTour}><PlayCircle size={22} /><span>Take the tour</span></HudItem><HudItem active={cursor === 0} onClick={regen}><RefreshCw size={22} /><span>New code</span></HudItem></div>
         </div>
       </div>
     );
@@ -602,7 +649,7 @@ function PairingScreen({ link, simulator, online, onPaired }: { link: DeviceLink
             : <span className="text-[18px] text-white/40">{status === 'requesting' ? 'Generating…' : '—'}</span>}
         </div>
         <p className="text-center text-[14px] leading-snug text-white/45">Single-use · short-lived · no credentials</p>
-        <HudItem active={cursor === 0} onClick={regen}><RefreshCw size={22} /><span>New code</span></HudItem>
+        <div className="grid w-full grid-cols-2 gap-2"><HudItem active={cursor === 0} onClick={regen}><RefreshCw size={20} /><span className="text-[19px]">New code</span></HudItem><HudItem active={cursor === 1} tour="take-tour" onClick={onTour}><PlayCircle size={20} /><span className="text-[19px]">Tour</span></HudItem></div>
       </div>
     </div>
   );
@@ -706,8 +753,10 @@ function Home({ ctx, nav }: { ctx: GContext; nav: Nav }) {
     notifications: { key: 'notif', icon: <Bell size={26} />, label: 'Notifications', meta: 'updates for you', go: () => nav.push({ name: 'notifications' }) },
     status: { key: 'status', icon: <Cog size={26} />, label: 'Device & log out', meta: ctx.device.name, go: () => nav.push({ name: 'status' }) },
   };
+  // Always last in the menu, outside the UI profile: the voiced guided tour.
+  const tutorial: Item = { key: 'tutorial', icon: <PlayCircle size={26} />, label: 'Tutorial', meta: 'guided tour · voice', go: () => window.dispatchEvent(new CustomEvent('hydris:tour')) };
   // Menu order and visibility come from the UI profile.
-  const items = cfg.screens.filter((s) => s.id !== 'home' && screenPermitted(cfg, screenFor(s.id))).map((s) => catalog[s.id]).filter((x): x is Item => !!x);
+  const items = [...cfg.screens.filter((s) => s.id !== 'home' && screenPermitted(cfg, screenFor(s.id))).map((s) => catalog[s.id]).filter((x): x is Item => !!x), tutorial];
   const widgets = cfg.widgets.filter((w) => w.visible).map((w) => w.id);
   const next = widgets.includes('next_inspection') && screenEnabled(cfg, 'inspections') ? ctx.inspections[0] : undefined;
   const cursor = useHud({ actions: [...(next ? [{ key: 'next', onSelect: () => nav.push({ name: 'inspection', id: next.id }) }] : []), ...items.map((i) => ({ key: i.key, onSelect: i.go }))] });
@@ -745,9 +794,9 @@ function Home({ ctx, nav }: { ctx: GContext; nav: Nav }) {
         {widgets.includes('alarm_summary') && crit > 0 && <HudPill tone="critical">{crit} critical</HudPill>}
       </div>
       {widgets.filter((w) => w !== 'alarm_summary').map((w) => widgetNodes[w])}
-      <div className="grid grid-cols-[minmax(0,1fr)] min-h-0 gap-2.5 overflow-y-auto pb-1 scrollbar-none">
+      <div data-tour="home-menu" className="grid grid-cols-[minmax(0,1fr)] min-h-0 gap-2.5 overflow-y-auto pb-1 scrollbar-none">
         {items.map((i, idx) => (
-          <HudItem key={i.key} active={cursor === idx + offset} tone={i.tone} onClick={i.go}>
+          <HudItem key={i.key} active={cursor === idx + offset} tone={i.tone} onClick={i.go} tour={i.key === 'tutorial' ? 'tutorial' : undefined}>
             {i.icon}<span className="flex-1 text-white">{i.label}</span><span className="text-[18px] text-white/55">{i.meta}</span>
           </HudItem>
         ))}
@@ -761,7 +810,7 @@ function ListScreen<T extends { id: string }>({ title, eyebrow, rows, render, on
   return (
     <div className="flex h-full flex-col">
       <HudTitle eyebrow={eyebrow}>{title}</HudTitle>
-      {rows.length ? <div className="grid grid-cols-[minmax(0,1fr)] gap-2.5 overflow-y-auto pb-2 scrollbar-none">{rows.map((r, i) => <HudItem key={r.id} active={cursor === i} onClick={() => onOpen(r)}>{render(r)}</HudItem>)}</div>
+      {rows.length ? <div className="grid grid-cols-[minmax(0,1fr)] gap-2.5 overflow-y-auto pb-2 scrollbar-none">{rows.map((r, i) => <HudItem key={r.id} active={cursor === i} tour={i === 0 ? 'row-first' : undefined} onClick={() => onOpen(r)}>{render(r)}</HudItem>)}</div>
         : <p className="text-[22px] text-white/60">{empty}</p>}
     </div>
   );
@@ -805,7 +854,7 @@ function AlertDetail({ ctx, id, data, nav, online }: { ctx: GContext; id: string
       </div>
       {a.recommendedAction && <p className="mt-4 rounded-[20px] border-2 border-white/10 px-4 py-3 text-[19px] text-white/80">Next step (approved procedure): {a.recommendedAction}</p>}
       <div className="mt-auto grid gap-2.5">
-        {ackShown && <HudItem active={cursor === 0} tone="lime" disabled={!online || busy} onClick={() => void ack()}><Check size={24} /><span className="flex-1">{online ? 'Acknowledge' : 'Acknowledge (needs connection)'}</span><span className="text-[16px] text-white/50">does not change equipment</span></HudItem>}
+        {ackShown && <HudItem active={cursor === 0} tour="alarm-ack" tone="lime" disabled={!online || busy} onClick={() => void ack()}><Check size={24} /><span className="flex-1">{online ? 'Acknowledge' : 'Acknowledge (needs connection)'}</span><span className="text-[16px] text-white/50">does not change equipment</span></HudItem>}
         {a.state === 'active' && !canAck && <Blocked what="Acknowledging alarms" />}
         {canProc ? <HudItem active={cursor === (ackShown ? 1 : 0)} onClick={() => nav.push({ name: 'assist', q: a.title })}><BookOpen size={24} /><span>Open procedure</span></HudItem> : <Blocked what="Procedures" />}
       </div>
@@ -1266,18 +1315,18 @@ function Measurements({ ctx, nav, history, demo }: { ctx: GContext; nav: Nav; hi
       <HudTitle eyebrow={`${rows.length} sensors · ${rows.filter((m) => m.threshold !== 'normal').length} attention`}>Live measurements</HudTitle>
       {rows.length ? (
         <div className="grid grid-cols-[minmax(0,1fr)] gap-2.5 overflow-y-auto pb-2 scrollbar-none">
-          {rows.map((m, i) => <MeasurementRow key={m.id} m={m} active={cursor === i} trend={trendOf(history.get(m.id))} onOpen={() => { if (m.assetId) nav.push({ name: 'asset', id: m.assetId }); }} />)}
+          {rows.map((m, i) => <MeasurementRow key={m.id} first={i === 0} m={m} active={cursor === i} trend={trendOf(history.get(m.id))} onOpen={() => { if (m.assetId) nav.push({ name: 'asset', id: m.assetId }); }} />)}
         </div>
       ) : <p className="text-[22px] text-white/60">No measurements are configured for this site, or none are shown on your profile.</p>}
     </div>
   );
 }
 
-function MeasurementRow({ m, active, trend, onOpen }: { m: GMeasurement; active: boolean; trend: -1 | 0 | 1 | null; onOpen: () => void }) {
+function MeasurementRow({ m, active, trend, onOpen, first }: { m: GMeasurement; active: boolean; trend: -1 | 0 | 1 | null; onOpen: () => void; first?: boolean }) {
   const stale = m.freshness === 'stale' || m.freshness === 'no_data' || m.lastValue === null;
   const TrendIcon = trend === 1 ? TrendingUp : trend === -1 ? TrendingDown : Minus;
   return (
-    <HudItem active={active} tone={m.threshold === 'alarm' ? 'critical' : m.threshold === 'out_of_range' ? 'high' : undefined} onClick={onOpen}>
+    <HudItem active={active} tour={first ? 'row-first' : undefined} tone={m.threshold === 'alarm' ? 'critical' : m.threshold === 'out_of_range' ? 'high' : undefined} onClick={onOpen}>
       <span className="min-w-0 flex-1">
         <span className="block truncate text-white">{m.label} · {m.assetTag ?? m.tag}</span>
         <span className="block text-[17px] text-white/55">

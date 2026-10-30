@@ -176,6 +176,8 @@ export class DemoData implements GlassesData {
   mode = 'demo' as const;
   private started = Date.now();
   private acked = new Set<string>();
+  /** Guided tour: guarantee one sample alarm so the alarm steps always have something to show. */
+  tourAlarm = false;
   private responses: GInspection['responses'] = {};
   private status = 'scheduled';
   private checklist = [
@@ -252,6 +254,13 @@ export class DemoData implements GlassesData {
         id, title: `${t.condition.replace('_', '-').replace(/^\w/, (c) => c.toUpperCase())} ${MEASURAND_DEFS[sensor.measurand].label} · ${sensor.assetTag}`, severity: t.severity,
         state: this.acked.has(id) ? 'acknowledged' : 'active', triggeredAt: new Date().toISOString(), assetTag: sensor.assetTag, triggerValue: v,
         unit: MEASURAND_DEFS[sensor.measurand].unit, recommendedAction: 'Follow the linked procedure and inform your supervisor.', synthetic: true,
+      });
+    }
+    if (this.tourAlarm && !out.length) {
+      const id = 'tour-sample-high-level';
+      out.push({
+        id, title: 'High level · Equalisation tank', severity: 'high', state: this.acked.has(id) ? 'acknowledged' : 'active', triggeredAt: new Date(Date.now() - 90_000).toISOString(),
+        assetTag: null, triggerValue: 4.6, unit: 'm', recommendedAction: 'Follow the linked procedure and inform your supervisor.', synthetic: true,
       });
     }
     return out.sort((a, b) => (a.severity === 'critical' ? -1 : b.severity === 'critical' ? 1 : 0));

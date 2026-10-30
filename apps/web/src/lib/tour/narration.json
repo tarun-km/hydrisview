@@ -1,0 +1,37 @@
+{
+  "glasses": [
+    { "id": "welcome", "title": "Welcome", "text": "Welcome to Hydris Field Glasses. In the next few minutes, I will show you how a treatment plant operator works with live data, guided rounds and a voice assistant, right in their line of sight." },
+    { "id": "problem-paper", "title": "The problem today", "text": "Today, most field work still runs on clipboards and paper logbooks. Readings are copied into the system hours later, which brings delays and transcription errors." },
+    { "id": "problem-field", "title": "Out on the plant", "text": "Gloves are wet, phones stay in pockets, and alarms often reach the wrong person, late. Operators walk their rounds without seeing any live plant data." },
+    { "id": "problem-evidence", "title": "Audit day", "text": "And when the auditor visits, the compliance evidence sits in paper folders that nobody can search." },
+    { "id": "solution", "title": "How Hydris solves it", "text": "Hydris brings live readings, alarms, rounds, approved SOPs and audit records to the operator, hands free, and turns every action into a verified digital record. Hydris only advises. It never controls equipment." },
+    { "id": "status-bar", "title": "Status bar", "text": "This is the status bar. It shows your site, the connection, the live data stream and anything still waiting to sync." },
+    { "id": "home", "title": "Home", "text": "Home is your shift at a glance. Your next inspection sits on top, followed by everything you need for this shift." },
+    { "id": "readings", "title": "Live readings", "text": "Live measurements stream in from the plant. Every value shows how fresh it is, so you never act on an old reading." },
+    { "id": "alarms", "title": "Alarms", "text": "Alarms reach you the moment they trigger, sorted by severity. Tap the alarm to open it." },
+    { "id": "alarm-detail", "title": "Acknowledge", "text": "You see the value at trigger, the asset and the next step from the approved procedure. Acknowledge tells the control room you are on it. It does not change any equipment." },
+    { "id": "rounds", "title": "Inspection rounds", "text": "Your inspection rounds are assigned from the console. Open one, and Hydris walks you through it, step by step." },
+    { "id": "rounds-offline", "title": "Works offline", "text": "Verify the equipment, confirm safety, then record each reading. No signal near the clarifier? Every step is saved on the device and syncs on its own when you are back online." },
+    { "id": "sops", "title": "SOP library", "text": "The SOP library holds only approved procedures, so the operator always follows the current version." },
+    { "id": "scan", "title": "Audit scan", "text": "Audit scan turns a paper sheet into a verified record. Guided capture frames the page, OCR reads it, and two people approve it before it is saved as a Word or PDF soft copy." },
+    { "id": "voice", "title": "Hey Hydris", "text": "Just say Hey Hydris, and ask. Answers come from your plant data and approved procedures, so your hands stay on the job." },
+    { "id": "menu", "title": "Getting around", "text": "Use Back to step out of any screen, and Home to return to your shift. On the glasses, the temple touchpad does the same." },
+    { "id": "device", "title": "Device and log out", "text": "Device and log out shows this device and its session. Sign out or unpair from here when your shift ends." },
+    { "id": "console-sees", "title": "The console sees what you see", "text": "Back in the control room, the console sees what you see. Supervisors watch the live glasses view, assign work and approve records in real time." },
+    { "id": "closing", "title": "Thank you", "text": "That is Hydris Field Glasses. Safer rounds, faster response and audit ready records, straight from the field. Thank you for watching." }
+  ],
+  "console": [
+    { "id": "welcome", "title": "Welcome", "text": "Welcome to the Hydris console. This is where administrators run the whole field team, from one screen." },
+    { "id": "command", "title": "Command dashboard", "text": "The command dashboard shows who is on shift, open alarms, today's rounds and what is waiting for approval, all updated live." },
+    { "id": "operator-cards", "title": "On shift operators", "text": "Each operator on shift has a card with their site, their device and its battery." },
+    { "id": "live-view", "title": "Live glasses view", "text": "When glasses are streaming, you see what the operator sees, right here on the card. Open it for the full device view." },
+    { "id": "go-operators", "title": "Your turn", "text": "Now click Operators in the sidebar to continue." },
+    { "id": "operators", "title": "Operators", "text": "Invite operators by email, edit their shifts and sites, and suspend or remove access in one click. Every change lands in the audit log." },
+    { "id": "devices", "title": "Devices and pairing", "text": "Devices lists every pair of glasses and every phone. Pairing uses a short single use code, and your device policy decides who must approve new devices." },
+    { "id": "work", "title": "Work and assignment", "text": "Plan the work here. Build inspection rounds and maintenance tasks, then assign them to an operator or a crew." },
+    { "id": "approvals", "title": "Approvals", "text": "Approvals collects everything that needs a second pair of eyes. Scanned audit sheets are verified by two people, then saved as Word and PDF soft copies." },
+    { "id": "telemetry", "title": "Plant and telemetry", "text": "Plant and telemetry show every asset and sensor, with live trends and alarm limits." },
+    { "id": "reports", "title": "Reports", "text": "Reports turn the field record into compliance evidence and performance trends that you can search and export." },
+    { "id": "closing", "title": "Thank you", "text": "That is the Hydris console. Hydris advises and records, and your operators stay in control of the equipment. Thank you for watching." }
+  ]
+}

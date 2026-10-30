@@ -39,7 +39,7 @@ export default function CommandPage() {
           const roundsPct = d.kpis.roundsAssigned ? Math.round((d.kpis.roundsCompleted / d.kpis.roundsAssigned) * 100) : null;
           return (
             <div className="grid grid-cols-[minmax(0,1fr)] gap-4 fade-in">
-              <div className="stagger grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
+              <div data-tour="kpis" className="stagger grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
                 <KpiCard label="On shift now" value={<>{d.kpis.onShift}<span className="text-[0.5em] opacity-50">/{d.kpis.operators}</span></>} href="/console/operators"
                   sub={<>{d.onShift.filter((o) => o.connected).length} wearing connected glasses</>} />
                 <KpiCard label="Open alarms" value={d.kpis.openAlarms} href="/console/alarms" accent={d.kpis.criticalAlarms ? 'critical' : undefined}
@@ -52,7 +52,7 @@ export default function CommandPage() {
               </div>
 
               <div className="grid grid-cols-[minmax(0,1fr)] gap-4 xl:grid-cols-[minmax(0,1.75fr)_minmax(0,1fr)]">
-                <section className="card" aria-labelledby="on-shift">
+                <section data-tour="on-shift" className="card" aria-labelledby="on-shift">
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <h2 id="on-shift" className="t-section flex items-center gap-2.5">On shift now<span className="dot pulse-dot bg-ok" aria-hidden /></h2>
                     <Link href="/console/operators" className="link-quiet text-sm">All operators</Link>
@@ -184,7 +184,7 @@ function OperatorCard({ o, live }: { o: OnShiftCard; live?: LiveView }) {
         </span>
         <ArrowUpRight size={16} className="flex-none text-muted transition-transform group-hover:-translate-y-0.5 group-hover:translate-x-0.5" aria-hidden />
       </Link>
-      <Link href={g ? `/console/devices/${g.id}` : `/console/operators/${o.userId}`} className="relative mx-3.5 block aspect-[16/9] overflow-hidden rounded-[16px] border border-line bg-[#05070d]" aria-label={g ? `Live view of ${g.name}` : 'No glasses assigned'}>
+      <Link href={g ? `/console/devices/${g.id}` : `/console/operators/${o.userId}`} className="relative mx-3.5 block aspect-[16/9] overflow-hidden rounded-[16px] border border-line bg-[#05070d]" data-tour="live-view" aria-label={g ? `Live view of ${g.name}` : 'No glasses assigned'}>
         {streaming ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img src={live!.view!} alt={`What ${o.name.split(' ')[0]} sees: ${live!.title ?? ''}`} className="h-full w-full object-contain" />

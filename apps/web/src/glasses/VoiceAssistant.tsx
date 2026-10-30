@@ -115,7 +115,7 @@ export function VoiceAssistant({ data, online, bottom = 62 }: { data: GlassesDat
   const live = enabled && mic === 'listening';
   const state = !enabled ? 'Voice off' : live ? 'Hey Hydris' : micError ? 'No mic' : 'Starting';
   const pill = (
-    <button type="button" onClick={() => setEnabled((x) => !x)}
+    <button type="button" onClick={() => setEnabled((x) => !x)} data-tour="voice"
       className={`flex h-[34px] flex-none items-center gap-2 whitespace-nowrap rounded-full border px-3.5 text-[15px] leading-none transition-colors ${live ? 'border-lime/50 bg-lime/10 text-white' : micError ? 'border-[#ff9a5c]/40 bg-[#2a1608] text-[#ffb98f]' : 'border-white/15 bg-white/5 text-white/60'}`}
       aria-label={enabled ? 'Turn off Hey Hydris' : 'Turn on Hey Hydris'} aria-pressed={enabled} title={micError ?? `Say "Hey Hydris" (${label})`}>
       {live ? <Mic size={16} className="flex-none text-lime" /> : <MicOff size={16} className="flex-none" />}

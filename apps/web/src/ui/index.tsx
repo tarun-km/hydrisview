@@ -177,7 +177,7 @@ export function BackLink({ href, children }: { href: string; children: ReactNode
 
 export function PageHeader({ eyebrow, title, subtitle, actions, children }: { eyebrow?: ReactNode; title: ReactNode; subtitle?: ReactNode; actions?: ReactNode; children?: ReactNode }) {
   return (
-    <header className="mb-6 flex flex-wrap items-end justify-between gap-4">
+    <header data-tour="page-header" className="mb-6 flex flex-wrap items-end justify-between gap-4">
       <div className="min-w-0">
         {eyebrow && <div className="t-eyebrow mb-2">{eyebrow}</div>}
         <h1 className="t-page">{title}</h1>
